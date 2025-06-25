@@ -1,0 +1,65 @@
+﻿Use WebApi\cWebApi.pkg
+Use WebApi\cWebApiRouter.pkg
+Use cWebAppUserDataDictionary.dd
+Use cApiLogsDataDictionary.dd
+Use JWT\JWT.pkg
+Use JWTLogin.pkg
+Use JWTAuthentication.pkg
+Use cBasicAuth.pkg
+Use cApiKeyAuthentication.pkg
+
+//  With the cWebHttpHandler you handle complete HTTP requests.
+Object oRestFramework is a cWebApi
+    //  The psPath property determines the path in the URL for which requests will be handled.
+    Set psPath to "Api"
+    
+    Send AddIterator (RefClass(cJSONIterator)) "application/json"
+    Send AddIterator (RefClass(cXMLIterator)) "application/xml"
+    
+    Use ApiCallLogger.pkg
+    
+    Object oVersion1Router is a cWebApiRouter
+        Set psPath to "ApiKey"
+        Use LoginEndpoint.pkg
+        
+        Object oApiKeyAuth is a cApiKeyAuthentication
+            Set psApiKeyName to "DataFlexApiKey"
+        End_Object
+        
+        Use OrderDetailEndpoint.pkg
+        Use VendorInventoryEndpoint.pkg       
+        
+    End_Object
+    
+    Object oVersion2Router is a cWebApiRouter
+        Set psPath to "JWT"
+        
+        Object oJwtLogin is a cJWTLoginEndpoint
+            Set psPrivateKey to C_JWT_KEY_PRIVATE
+            Set psPublicKey to C_JWT_KEY_PUBLIC
+            Set psKeyID to C_JWT_KEY_IDENTIFIER
+            Set piExpirationInMinutes to 5
+        End_Object
+        
+        Object oJwtAuthentication is a cJWTAuthentication
+            Set psPrivateKey to C_JWT_KEY_PRIVATE
+            Set psPublicKey to C_JWT_KEY_PUBLIC
+            Set psKeyID to C_JWT_KEY_IDENTIFIER
+        End_Object
+        
+        Use CustomerEndpoint.pkg
+        Use OrdersEndpoint.pkg
+        
+    End_Object
+    
+    Object oVersion2Router is a cWebApiRouter
+        Set psPath to "BasicAuth"
+        
+        Object oBasicAuth is a cBasicAuth
+        End_Object
+        
+        Use SalesPersonEndpoint.pkg
+        Use ExampleCustomEndpoint.pkg
+    End_Object
+    
+End_Object

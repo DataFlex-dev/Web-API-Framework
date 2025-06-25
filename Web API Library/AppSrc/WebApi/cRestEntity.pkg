@@ -1,0 +1,169 @@
+﻿Use cBaseDEO.pkg
+
+//Class used to refer to data in a parent table
+{ DataAware = True }
+{ CompositeClass = cRestField }
+Class cRestEntity is a cObject
+    
+    Procedure Construct_Object
+        Forward Send Construct_Object
+        
+        Send Define_cBaseDEO_Mixin
+        
+        //This name is displayed inside of the json. When not specified this will use the name of the table
+        Property String psNodeName
+        
+        //Determines if this field is ReadOnly. Applies to the foreign key field in the Main_DD.
+        Property Boolean pbReadOnly False
+
+    End_Procedure
+    
+    Import_Class_Protocol cBaseDEO_Mixin
+    
+    //This procedure should be called from within cRestDataset to append data to the json
+    //This way the cRestEntity is responsible for retrieving and setting the value and not the cRestDataset
+    Procedure AppendToBody Handle hoResponseBody Handle hoIterator
+        Handle hoNestedObject hoChild
+        Integer iChildCount iIndex
+        String sNodeName
+        
+        Get SchemaName to sNodeName
+        
+        //Create nested object
+        Get CreateResponseBodyObject of hoIterator sNodeName to hoNestedObject
+        
+        //Get the child count.
+        Get Child_Count to iChildCount
+        
+        //We ask every child of this object to append its data to the object
+        For iIndex from 0 to (iChildCount - 1)
+            Get ChildByIndex iIndex to hoChild
+            Send AppendToBody of hoChild hoNestedObject hoIterator
+        Loop
+        
+        //When we're done with adding all the data append the data to the response body
+        Send AppendNestedObject of hoIterator hoNestedObject hoResponseBody sNodeName
+        
+    End_Procedure
+    
+    //Entity cannot have its own entry_item. But it should translate to the related field.
+    Procedure SetFieldLocalValue String sValue
+        Handle hoDD hoServer
+        Integer iFile iField iServerRelatedField iForeignFile
+        
+        Get Main_DD to hoDD
+        Get Server to hoServer       
+        Get Data_File to iFile
+        Get Data_Field to iField       
+        Get Main_File of hoServer to iForeignFile
+        
+        Set File_Field_Changed_Value of hoDD iFile iField to sValue
+        
+        Get RetrieveServerRelatedField to iServerRelatedField
+        //After we have set the value we must perform a find on the server to ensure the parent record exists.
+        Set_Field_Value iForeignFile iServerRelatedField to sValue
+        Send Find of hoServer EQ 1
+    End_Procedure
+    
+    //Sets the Data_File and Data_Field of this object to the field that has a relation with the server.
+    Procedure PrepareBinding
+        Handle hoDD hoServer
+        Integer iFieldCount iMainFile iServerFile iRelFile iField
+        
+        Get Main_DD to hoDD
+        Get Server to hoServer
+        
+        If (hoDD = 0 or hoServer = 0) Begin
+            Procedure_Return
+        End
+        
+        Get Main_File of hoDD to iMainFile
+        Get Main_File of hoServer to iServerFile
+        // Get the total field count in the main Data Dictionary (hoDD)
+        Get Field_Count of hoDD to iFieldCount
+        
+        // Loop through each field in the Data Dictionary to check for a relationship
+        For iField from 0 to iFieldCount
+            Get_Attribute DF_FIELD_RELATED_FILE of iMainFile iField to iRelFile
+            
+            //If the related file matches the server file we've got the right one
+            If (iRelFile = iServerFile) Begin
+                Set Data_File to iMainFile
+                Set Data_Field to iField
+                Procedure_Return
+            End
+            
+        Loop
+    End_Procedure
+    
+    //Retrieves the field name that manages the connection between the main table and the parent.
+    Function FieldName Returns String
+        Handle hoDD
+        Integer iFile iField
+        String sFieldName
+        
+        // Get the main Data Dictionaries
+        Get Main_DD to hoDD
+        Get Data_File to iFile
+        Get Data_Field to iField
+        
+        If (iField > 0) Begin
+            Get_Attribute DF_FIELD_NAME of iFile iField to sFieldName
+            Function_Return sFieldName
+        End
+        
+        Function_Return ""
+    End_Function
+    
+    //Returns the name of the table
+    Function SchemaName Returns String
+        Integer iFile
+        String sTableName
+        Handle hoServer
+        
+        Get psNodeName to sTableName
+        
+        //If the node name was not manually set default to the name of the table
+        If (sTableName <> "") Begin
+            Function_Return sTableName
+        End
+        
+        Get Server to hoServer
+        
+        Get Main_File of hoServer to iFile
+        
+        Get_Attribute DF_FILE_ROOT_NAME of iFile to sTableName
+        
+        Function_Return sTableName
+    End_Function
+    
+    //Checks if the field is fiterable
+    Function IsFilterable Returns Boolean
+        Function_Return False
+    End_Function
+    
+    Function IsRequired Returns Boolean
+        Function_Return False
+    End_Function
+    
+    //Helper function to retrieve the server related field
+    Function RetrieveServerRelatedField Returns Integer
+        Handle hoDD
+        Integer iFile iRelField iField
+        
+        Get Main_DD to hoDD
+        Get Data_File to iFile
+        Get Data_Field to iField
+
+        Get_Attribute DF_FIELD_RELATED_FIELD of iFile iField to iRelField
+        
+        Function_Return iRelField
+    End_Function
+
+    Procedure End_Construct_Object
+        Forward Send End_Construct_Object
+        
+        Send PrepareBinding
+    End_Procedure
+
+End_Class

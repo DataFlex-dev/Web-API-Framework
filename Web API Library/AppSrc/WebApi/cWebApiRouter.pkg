@@ -1,0 +1,53 @@
+﻿Use WebApi\cWebApiModifierHost_Mixin.pkg
+Use WebApi\cRest_Mixin.pkg
+Use WebApi\cWebApiRoutableHost_Mixin.pkg
+Use WebApi\tWebApiCallContext.pkg
+
+Class cWebApiRouter is a cObject
+    
+    Procedure Construct_Object
+        Forward Send Construct_Object
+        
+        Send Define_cRest_Mixin
+        Send Define_cWebApiModifierHost_Mixin
+        Send Define_cWebApiRoutableHost_Mixin
+    End_Procedure
+    
+    Import_Class_Protocol cRest_Mixin
+    Import_Class_Protocol cWebApiModifierHost_Mixin
+    Import_Class_Protocol cWebApiRoutableHost_Mixin
+    
+    { Visibility = Private }
+    Procedure RouteRequest tWebApiCallContext ByRef webapicallcontext
+        Integer iIndex
+        Handle[] hoRoutables
+        
+        //Add this object to the webapicallcontext along with the modifiers defined on this level
+        Move Self to webapicallcontext.hoRouter[-1]
+        Send AddModifiersToCallContext (&webapicallcontext)
+             
+        Get RoutableIndex webapicallcontext.sPath to iIndex
+        
+        //Can either route to another router or to a cRESTDataset
+        If (iIndex <> -1) Begin
+            Get phoRoutables to hoRoutables
+            Send RouteRequest of hoRoutables[iIndex] (&webapicallcontext)
+        End
+        Else Begin
+            Move True to webapicallcontext.bErr
+            Move C_WEBAPI_NOTFOUND to webapicallcontext.iStatusCode
+            Move "Not Found" to webapicallcontext.sShortStatusMessage
+            Move (SFormat("Resource with path '%1' does not exist on the server", webapicallcontext.sPath)) to webapicallcontext.sErrorMessage          
+        End
+        
+    End_Procedure
+
+    Procedure End_Construct_Object
+        Forward Send End_Construct_Object
+        
+        //Register the route at the api
+        Delegate Send RegisterRoutable Self
+        Send End_Construct_cWebApiModifierHost_Mixin
+    End_Procedure
+
+End_Class

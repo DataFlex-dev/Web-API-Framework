@@ -1,0 +1,46 @@
+﻿Define C_WEBAPI_GET for "GET"
+Define C_WEBAPI_POST for "POST"
+Define C_WEBAPI_PUT for "PUT"
+Define C_WEBAPI_PATCH for "PATCH"
+Define C_WEBAPI_DELETE for "DELETE"
+Define C_WEBAPI_OPTIONS for "OPTIONS"
+
+Define C_WEBAPI_OK for 200
+Define C_WEBAPI_CREATED for 201
+Define C_WEBAPI_NOCONTENT for 204
+Define C_WEBAPI_NOTMODIFIED for 304
+Define C_WEBAPI_BADREQUEST for 400
+Define C_WEBAPI_UNAUTHORIZED for 401
+Define C_WEBAPI_FORBIDDEN for 403
+Define C_WEBAPI_NOTFOUND for 404
+Define C_WEBAPI_NOTALLOWED for 405
+
+Define C_WEBAPI_ERROR_TYPE for "https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Status"
+
+Struct tWebApiCallContext
+    //Handles to all the objects used inside of the call
+    Handle hoApi
+    Handle hoDataset
+    Handle[] hoRouter
+    Handle hoResponseBody
+    Handle hoIterator
+    Handle[] hoModifiers
+    
+    //Properties that determine the status of the request
+    Boolean bErr
+    //Is set to true whenever a custom endpoint is used. This disables iterator logic for the current request.
+    Boolean bIsCustom
+    //Information that is send by the client
+    String sPath
+    String sVerb
+    String sContentType
+    String sAcceptType
+    
+    //Useful information in the current request
+    String sMainTableName
+    
+    //Status codes and potential error messages
+    Integer iStatusCode
+    String sShortStatusMessage
+    String sErrorMessage
+End_Struct

@@ -1,0 +1,586 @@
+﻿Use WebApi\cBaseRestDataset.pkg
+
+//This class exposes a resource in a endpoint
+//This should make use of the resource's data dictionary object
+Class cRestDataset is a cBaseRestDataset
+    
+    Procedure Construct_Object
+        Forward Send Construct_Object
+        
+        Property Handle Main_DD
+        Property Handle Server
+        
+        //This determines how many records we return during a get all
+        Property Integer piLimitResults 0
+        
+        //Determines what index will be used to perform finds in the dataset
+        Property Integer piFindIndex 1        
+    End_Procedure
+
+    
+    //Receives the message here
+    { Visibility = Private }
+    Procedure OnHttpRequest tWebApiCallContext ByRef webapicallcontext
+        Forward Send OnHttpRequest (&webapicallcontext)
+        Send ResetState
+    End_Procedure
+    
+    { MethodType=Event }
+    Procedure OnHttpGet tWebApiCallContext ByRef webapicallcontext
+        String sFieldValue sFieldName
+        Handle hoDD hoChild hoResponseObject
+        Handle[] hoExposedDataObjects
+        Integer iIndex iLimit iRecordsRetrieved iFindIndex
+        
+        //Get the Main_DD
+        Get Main_DD to hoDD 
+        
+        //Retrieves all the exposed datafields
+        Get RetrieveExposedDataFields to hoExposedDataObjects
+        
+        //Create the responsebody array
+        Get CreateResponseBodyArray of webapicallcontext.hoIterator webapicallcontext.sMainTableName to webapicallcontext.hoResponseBody
+        
+        Send Clear of hoDD
+        
+        //Map the query params and set the constrains
+        Send HandleQueryParams hoExposedDataObjects
+        
+        //Should always be called after HandleQueryParams. Because the property is set there based on the query params.
+        Get piLimitResults to iLimit
+        
+        //Get the index we need to find the record
+        Get piFindIndex to iFindIndex
+        
+        //Start at the first record
+        Send Find of hoDD FIRST_RECORD iFindIndex
+        
+        //Keep finding records untill there are no more records to be found
+        While ( (Found) and not(Err) and ((iLimit = 0) or (iLimit > 0 and iRecordsRetrieved < iLimit)) )  
+            //Each record is a seperate object
+            Get CreateResponseBodyObject of webapicallcontext.hoIterator webapicallcontext.sMainTableName to hoResponseObject
+            
+            Send CurrentRecordToResponseBody hoResponseObject webapicallcontext.hoIterator
+            
+            //Append the created object of the record to the general array
+            Send AppendToResponseArray of webapicallcontext.hoIterator hoResponseObject webapicallcontext.hoResponseBody            
+            
+            Increment iRecordsRetrieved
+            //Keep finding next records
+            Send Find of hoDD NEXT_RECORD iFindIndex
+        Loop
+        
+        //Set the status code
+        Move C_WEBAPI_OK to webapicallcontext.iStatusCode
+        Move "OK" to webapicallcontext.sShortStatusMessage
+    End_Procedure
+    
+    { MethodType=Event }
+    Procedure OnHttpGetByID tWebApiCallContext ByRef webapicallcontext Integer iID
+        Handle hoDD hoChild hoKeyChild
+        Handle[] hoExposedDataObjects
+        Integer iIndex iField iFindIndex
+        Boolean bIsKeyField
+        String sTableName
+        
+        Get Main_DD to hoDD
+        
+        //Check for the primary key field
+        Get RetrieveKeyField to hoKeyChild
+        
+        //Get all the fields that are exposed in the REST api
+        Get RetrieveExposedDataFields to hoExposedDataObjects
+        
+        Send Clear of hoDD
+        Send Rebuild_Constraints of hoDD
+        
+        //Move the ID into the keyfields buffer so we can perform a search
+        If (hoKeyChild <> 0) Begin
+           Send SetFieldGlobalValue of hoKeyChild iID 
+        End
+        
+        Get piFindIndex to iFindIndex
+        
+        Send Find of hoDD EQ iFindIndex
+        
+        //If the record is found return it. If it is not found return a not found
+        If (Found and not(Err)) Begin
+            //Create the response body
+            Get CreateResponseBodyObject of webapicallcontext.hoIterator webapicallcontext.sMainTableName to webapicallcontext.hoResponseBody
+            Send CurrentRecordToResponseBody webapicallcontext.hoResponseBody webapicallcontext.hoIterator
+            Move C_WEBAPI_OK to webapicallcontext.iStatusCode
+            Move "OK" to webapicallcontext.sShortStatusMessage
+            
+        End
+        Else Begin
+            Move True to webapicallcontext.bErr
+            Move C_WEBAPI_NOTFOUND to webapicallcontext.iStatusCode
+            Move "Not Found" to webapicallcontext.sShortStatusMessage
+            Move (SFormat("Record with id %1 could not be found", iID)) to webapicallcontext.sErrorMessage
+        End
+        
+    End_Procedure
+    
+    { MethodType=Event }
+    Procedure OnHttpPost tWebApiCallContext ByRef webapicallcontext
+        Handle hoDD hoRequestBody
+        Handle[] hoExposedDataObjects
+        String sRequestBodyString sFieldName sErrorMessage
+        String[] sFieldNames
+        Integer iChildCount iIndex iDataObjectIndex
+        tRESTRequestBody[] requestBodyParts
+        tRESTRequestBody searchBody
+        Boolean bErr bReadOnly
+        
+        Get Main_DD to hoDD
+        
+        //Parse the request body into key value pairs
+        Get ParseRequestBody of webapicallcontext.hoIterator to requestBodyParts
+        
+        //If we have no request body we should just generate a error response and stop the procedure
+        If (SizeOfArray(requestBodyParts) = 0) Begin
+            Move True to webapicallcontext.bErr
+            Move C_WEBAPI_BADREQUEST to webapicallcontext.iStatusCode
+            Move "Bad Request" to webapicallcontext.sShortStatusMessage
+            Move "Invalid request body" to webapicallcontext.sErrorMessage
+            Procedure_Return
+        End
+        
+        //Retrieve all the cRESTFields. TODO: Should behave differently on cRestChildCollections and cRestEntities.
+        Get RetrieveExposedDataFields to hoExposedDataObjects
+        
+        //Make sure we do not alter something that was in the buffer
+        Send Clear of hoDD
+        //Also make sure we do not have a constrain set. This can cause validation to fail.
+        Send Rebuild_Constraints of hoDD
+        
+        //Only attempt to create a new record if we didnt run into a unexpected error before hand
+        If (not(Err)) Begin
+           //Loop through the key value pair
+            For iDataObjectIndex from 0 to (SizeOfArray(hoExposedDataObjects)-1)
+                Get FieldName of hoExposedDataObjects[iDataObjectIndex] to sFieldName
+                
+                Move sFieldName to searchBody.sFieldName
+                
+                //Check if the key matches the name of a field. (sFieldName)
+                Move (SearchArray(searchBody, requestBodyParts)) to iIndex
+                
+                //If it matches we set the value of said field to value matching the key. (sFieldValue)
+                If (iIndex <> -1) Begin
+                    Send SetFieldLocalValue of hoExposedDataObjects[iDataObjectIndex] requestBodyParts[iIndex].sFieldValue
+                End
+                
+            Loop
+            
+            //Run data dictionary validations
+            Get Request_Validate of hoDD to bErr
+            
+            //If all is ok we can save
+            If not bErr Begin
+                Send Request_Save of hoDD
+                
+                Move (Err) to bErr
+                
+            End 
+        End
+        Else Begin
+            Move Err to bErr
+        End
+        
+        //If either the validation or the save fails we return a status code 400 bad request
+        If (not(bErr)) Begin
+            Get CreateResponseBodyObject of webapicallcontext.hoIterator webapicallcontext.sMainTableName to webapicallcontext.hoResponseBody
+            Move C_WEBAPI_CREATED to webapicallcontext.iStatusCode
+            Move "Created" to webapicallcontext.sShortStatusMessage
+            Send CurrentRecordToResponseBody webapicallcontext.hoResponseBody webapicallcontext.hoIterator
+        End
+        Else Begin
+            Move True to webapicallcontext.bErr
+            Move C_WEBAPI_BADREQUEST to webapicallcontext.iStatusCode
+            Move "Bad Request" to webapicallcontext.sShortStatusMessage
+            Get DataDictionaryErrorMessage to sErrorMessage
+            Move sErrorMessage to webapicallcontext.sErrorMessage
+        End
+           
+    End_Procedure
+    
+    { MethodType=Event }
+    Procedure OnHttpPut tWebApiCallContext ByRef webapicallcontext Integer iID
+        Handle hoDD hoKeyChild
+        Handle[] hoExposedDataObjects
+        Integer iIndex iBodyIndex iDataObjectIndex iAmountOfDataObjects iAmountOfRequestFields iFindIndex
+        Boolean bReadOnly bErr bModified
+        String[] sFieldNames
+        String sErrorMessage
+        tRESTRequestBody[] requestBodyParts
+        
+        Get Main_DD to hoDD
+        
+        Move False to bModified
+        
+        //Parse the request body into a key value pair
+        Get ParseRequestBody of webapicallcontext.hoIterator to requestBodyParts
+        Move (SizeOfArray(requestBodyParts)) to iAmountOfRequestFields
+        
+        If (SizeOfArray(requestBodyParts) = 0) Begin
+            Move True to webapicallcontext.bErr
+            Move C_WEBAPI_BADREQUEST to webapicallcontext.iStatusCode
+            Move "Bad Request" to webapicallcontext.sShortStatusMessage
+            Move "Invalid request body" to webapicallcontext.sErrorMessage
+            Procedure_Return
+        End
+        
+        Get RetrieveExposedDataFields to hoExposedDataObjects
+        Move (SizeOfArray(hoExposedDataObjects)-1) to iAmountOfDataObjects
+        
+        Get RetrieveKeyField to hoKeyChild
+        Get piFindIndex to iFindIndex
+        
+        //Retrieve the field name from all the exposed fields
+        For iIndex from 0 to iAmountOfDataObjects
+            Get pbReadOnly of hoExposedDataObjects[iIndex] to bReadOnly
+            
+            If not bReadOnly Begin
+               Get FieldName of hoExposedDataObjects[iIndex] to sFieldNames[iIndex] 
+            End
+        Loop
+        
+        Send Clear of hoDD
+        Send Rebuild_Constraints of hoDD
+        Send SetFieldGlobalValue of hoKeyChild iID
+        Send Find of hoDD EQ iFindIndex
+        
+        //Only change the record if it actually exists
+        If (Found and not(Err)) Begin
+ 
+            //Loop through the key value pair
+            For iBodyIndex from 0 to (iAmountOfRequestFields - 1)
+                
+                //Check if the key matches the name of a field. (sFieldName)
+                Move (SearchArray(requestBodyParts[iBodyIndex].sFieldName, sFieldNames)) to iDataObjectIndex
+                
+                //If it matches we set the value of said field to value matching the key. (sFieldValue)
+                If (iDataObjectIndex <> -1) Begin
+                    Move True to bModified
+                    Send SetFieldLocalValue of hoExposedDataObjects[iDataObjectIndex] requestBodyParts[iBodyIndex].sFieldValue  
+                End
+                
+            Loop
+            
+            Get Request_Validate of hoDD to bErr
+            
+            If not bErr Begin
+                Send Request_Save of hoDD
+                
+                Move (Err) to bErr
+            End   
+            
+        End
+        Else Begin
+            Move True to bErr
+        End
+        
+        //If something went wrong we return a error to the client. Otherwise return the OK status code along with a response body (The altered record)
+        If (bErr or not(bModified) ) Begin
+            Move True to webapicallcontext.bErr
+            Move C_WEBAPI_NOTMODIFIED to webapicallcontext.iStatusCode
+            Move "Not Modified" to webapicallcontext.sShortStatusMessage
+            Get DataDictionaryErrorMessage to sErrorMessage
+            Move sErrorMessage to webapicallcontext.sErrorMessage
+            Procedure_Return
+        End
+        
+        Move C_WEBAPI_OK to webapicallcontext.iStatusCode
+        Move "OK" to webapicallcontext.sShortStatusMessage
+        
+        //Formulate the response
+        Get CreateResponseBodyObject of webapicallcontext.hoIterator webapicallcontext.sMainTableName to webapicallcontext.hoResponseBody
+        Send CurrentRecordToResponseBody webapicallcontext.hoResponseBody webapicallcontext.hoIterator
+        
+    End_Procedure
+
+    { MethodType=Event }
+    Procedure OnHttpPatch tWebApiCallContext ByRef webapicallcontext Integer iID
+        Handle hoDD hoKeyChild
+        Handle[] hoExposedDataObjects
+        Integer iIndex iBodyIndex iDataObjectIndex iAmountOfDataObjects iAmountOfRequestFields iFindIndex
+        Boolean bReadOnly bErr bModified
+        String[] sFieldNames
+        String sErrorMessage
+        tRESTRequestBody[] requestBodyParts
+        
+        Get Main_DD to hoDD
+        
+        Move False to bModified
+        
+        //Parse the request body into a key value pair
+        Get ParseRequestBody of webapicallcontext.hoIterator to requestBodyParts
+        Move (SizeOfArray(requestBodyParts)) to iAmountOfRequestFields
+        
+        //Only continue if we actually have a request body
+        If (SizeOfArray(requestBodyParts) = 0) Begin
+            Move True to webapicallcontext.bErr
+            Move C_WEBAPI_BADREQUEST to webapicallcontext.iStatusCode
+            Move "Bad Request" to webapicallcontext.sShortStatusMessage
+            Move "Invalid request body" to webapicallcontext.sErrorMessage
+            Procedure_Return
+        End
+        
+        //Get all the exposed data fields
+        Get RetrieveExposedDataFields to hoExposedDataObjects
+        Move (SizeOfArray(hoExposedDataObjects)-1) to iAmountOfDataObjects
+        
+        //Get the primary key field
+        Get RetrieveKeyField to hoKeyChild
+        Get piFindIndex to iFindIndex
+        
+        //Retrieve the field name from all the exposed 
+        For iIndex from 0 to iAmountOfDataObjects
+            Get pbReadOnly of hoExposedDataObjects[iIndex] to bReadOnly
+            
+            If not bReadOnly Begin
+               Get FieldName of hoExposedDataObjects[iIndex] to sFieldNames[iIndex] 
+            End
+        Loop
+        
+        Send Clear of hoDD
+        Send Rebuild_Constraints of hoDD
+        Send SetFieldGlobalValue of hoKeyChild iID
+        Send Find of hoDD EQ iFindIndex
+        
+        //Only actually change the record if it is found
+        If (Found and not(Err)) Begin
+ 
+            //Loop through the key value pair
+            For iBodyIndex from 0 to (iAmountOfRequestFields - 1)
+                
+                //Check if the key matches the name of a field. (sFieldName)
+                Move (SearchArray(requestBodyParts[iBodyIndex].sFieldName, sFieldNames)) to iDataObjectIndex
+                
+                //If it matches we set the value of said field to value matching the key. (sFieldValue)
+                If (iDataObjectIndex <> -1) Begin
+                    Move True to bModified
+                    Send SetFieldLocalValue of hoExposedDataObjects[iDataObjectIndex] requestBodyParts[iBodyIndex].sFieldValue  
+                End
+                
+            Loop
+            
+            Get Request_Validate of hoDD to bErr
+            
+            If not bErr Begin
+                Send Request_Save of hoDD
+                
+                Move (Err) to bErr
+            End   
+            
+        End
+        Else Begin
+            Move True to bErr
+        End
+        
+        //Return a Not Modified if something went wrong during the proces
+        If (bErr or not(bModified) ) Begin
+            Move True to webapicallcontext.bErr
+            Move C_WEBAPI_NOTMODIFIED to webapicallcontext.iStatusCode
+            Move "Not Modified" to webapicallcontext.sShortStatusMessage
+            Get DataDictionaryErrorMessage to sErrorMessage
+            Move sErrorMessage to webapicallcontext.sErrorMessage
+            Procedure_Return
+        End
+        
+        Move C_WEBAPI_OK to webapicallcontext.iStatusCode
+        Move "OK" to webapicallcontext.sShortStatusMessage
+        
+        //Formulate the response
+        Get CreateResponseBodyObject of webapicallcontext.hoIterator webapicallcontext.sMainTableName to webapicallcontext.hoResponseBody
+        Send CurrentRecordToResponseBody webapicallcontext.hoResponseBody webapicallcontext.hoIterator
+        
+    End_Procedure
+    
+    { MethodType=Event }
+    Procedure OnHttpDelete tWebApiCallContext ByRef webapicallcontext String iID
+        Handle hoDD hoKeyChild
+        Handle[] hoExposedDataObjects
+        Boolean bErr
+        Integer iFindIndex
+        
+        Get Main_DD to hoDD
+        
+        //Retrieve the field with the unique identifier
+        Get RetrieveKeyField to hoKeyChild
+        Get piFindIndex to iFindIndex
+        //Prepare find
+        Send Clear of hoDD
+        Send SetFieldGlobalValue of hoKeyChild iID
+        
+        Send Rebuild_Constraints of hoDD
+        Send Find of hoDD EQ iFindIndex
+        
+        //Only delete the record if it is actually found
+        If (Found and not(Err)) Begin
+            //If the record is found check if we can delete it
+            Get Validate_Delete of hoDD to bErr
+            
+            //If all went well send a response back to the client
+            If not bErr Begin
+                //Get all the exposed fields
+                Get RetrieveExposedDataFields to hoExposedDataObjects
+                //Create a response object
+                Get CreateResponseBodyObject of webapicallcontext.hoIterator webapicallcontext.sMainTableName to webapicallcontext.hoResponseBody
+                //Populate the response
+                Send CurrentRecordToResponseBody webapicallcontext.hoResponseBody webapicallcontext.hoIterator
+                //Finally actually delete the resource
+                Send Request_Delete of hoDD
+                //Set status code
+                Move C_WEBAPI_OK to webapicallcontext.iStatusCode
+                Move "OK" to webapicallcontext.sShortStatusMessage
+            End
+        End
+        Else Begin
+            Move True to bErr
+        End
+        
+        //If the record could not be found return a Not Found
+        If bErr Begin
+            Move True to webapicallcontext.bErr
+            Move C_WEBAPI_NOTFOUND to webapicallcontext.iStatusCode
+            Move "Not Found" to webapicallcontext.sShortStatusMessage
+            Move "Record not found" to webapicallcontext.sErrorMessage
+        End
+
+    End_Procedure
+    
+    //This procedure should be responsible for applying filters
+    Procedure HandleQueryParams Handle[] hoExposedDataObjects
+        Handle hoDD
+        String sQueryParam sFieldName sFilterType
+        Integer iIndex iFile iLimit iAmountOfDataObjects iPos
+        Boolean bFilterable
+        
+        Get Main_DD to hoDD
+        
+        //Below are query params that can be applied regardless of what table it is. This includes params such as limit.
+        Get UrlParameter "Limit" to iLimit
+        
+        If (IsNumeric(Self, iLimit)) Begin
+            Set piLimitResults to iLimit
+        End
+        
+        Move (SizeOfArray(hoExposedDataObjects)-1) to iAmountOfDataObjects
+        
+        //Reset all the current constrains to make room for the new ones
+        Send Rebuild_Constraints of hoDD
+        
+        For iIndex from 0 to iAmountOfDataObjects
+            Get IsFilterable of hoExposedDataObjects[iIndex] to bFilterable
+            
+            If bFilterable Begin
+                Get FieldName of hoExposedDataObjects[iIndex] to sFieldName
+                Get UrlParameter sFieldName to sQueryParam
+            
+                //If there is a query param apply the constrain
+                If (sQueryParam <> "") Begin
+                    //Check what type of constrain we're dealing with. If nothing is specified we default to EQ
+                    If (Pos("(GE)", sQueryParam, 0) <> 0) Begin
+                        Move "GE" to sFilterType
+                        Move (Replace("(GE)", sQueryParam, "")) to sQueryParam
+                    End
+                    Else If (Pos("(GT)", sQueryParam, 0) <> 0) Begin
+                        Move "GT" to sFilterType
+                        Move (Replace("(GT)", sQueryParam, "")) to sQueryParam
+                    End
+                    Else If (Pos("(LE)", sQueryParam, 0) <> 0) Begin
+                        Move "LE" to sFilterType
+                        Move (Replace("(LE)", sQueryParam, "")) to sQueryParam
+                    End
+                    Else If (Pos("(LT)", sQueryParam, 0) <> 0) Begin
+                        Move "LT" to sFilterType
+                        Move (Replace("(LT)", sQueryParam, "")) to sQueryParam
+                    End
+                    
+                    //Add the constrain
+                    Send AddConstrain of hoExposedDataObjects[iIndex] sQueryParam sFilterType
+                End
+            End
+            
+        Loop
+        
+    End_Procedure
+    
+    Procedure ResetState
+        Handle hoDD
+        
+        Get Main_DD to hoDD
+        
+        //Only clear the Main_DD if there is one.
+        If (hoDD <> 0) Begin
+            Send Clear of hoDD    
+        End
+        
+    End_Procedure
+    
+    //Finds the field that is the primary key
+    Function RetrieveKeyField Returns Handle
+        Integer iIndex iChildCount
+        Handle hoChild
+        Boolean bIsKeyField
+        
+        Get Child_Count to iChildCount
+        
+        For iIndex from 0 to (iChildCount - 1)
+            Get ChildByIndex iIndex to hoChild
+            //Only apply the key checks to cRestFields
+            If (IsObjectOfClass(hoChild, RefClass(cRestField))) Begin
+                //Ask the field if they are a key field
+                Get IsKeyField of hoChild to bIsKeyField
+                
+                //If it is a key field return the handle
+                If (bIsKeyField) Begin
+                    Function_Return hoChild
+                End
+            End
+        Loop
+        
+        //If for whatever reason there is no key child
+        Function_Return 0
+    End_Function
+    
+    //Get the table name for the main data dictionary
+    { Visibility = Private }
+    Function GetDatasetTableName Returns String
+        Handle hoDD
+        Integer iMainFile
+        String sTableName
+        
+        Get Main_DD to hoDD
+        
+        //If the endpoint is data aware and uses a data dictionary we use the name of the main dd to identify the table.
+        //Otherwise we just default to psPath
+        If (hoDD <> 0) Begin
+            Get Main_File of hoDD to iMainFile
+        
+            Get_Attribute DF_FILE_ROOT_NAME of iMainFile to sTableName 
+        End
+        Else Begin
+            Get psPath to sTableName
+        End
+        
+        Function_Return sTableName  
+    End_Function
+    
+    //Returns the last error in the data dictionary
+    { Visibility = Private }
+    Function DataDictionaryErrorMessage Returns String
+        String sDDErrorMessage
+        
+        Get Error_Text LastErr to sDDErrorMessage
+        
+        Function_Return sDDErrorMessage
+    End_Function
+
+    Procedure End_Construct_Object
+        Forward Send End_Construct_Object
+        
+    End_Procedure
+
+End_Class

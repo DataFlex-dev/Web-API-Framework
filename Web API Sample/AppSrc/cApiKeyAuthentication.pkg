@@ -1,0 +1,89 @@
+﻿Use WebApi\cWebApiAuthModifier.pkg
+
+Struct ApiKeyAuth
+    String type
+    String in
+    String name
+End_Struct
+
+Class cApiKeyAuthentication is a cWebApiAuthModifier
+   
+    Procedure Construct_Object
+        Forward Send Construct_Object
+        
+        Property String psApiKeyName "ApiKey"
+        //These define the rights needed to perform specific actions. This is linked to the WebAppUser table.
+        //This means that 0 rights is a basic user and 1 is a admin user.
+        Property Integer piReadRights 0
+        Property Integer piCreateRights 0
+        Property Integer piEditRights 1
+        Property Integer piDeleteRights 1
+        
+        Set psSecuritySchemaName to "ApiKeyAuth"
+    End_Procedure
+    
+    //Check for api key
+    Procedure OnAuth tWebApiCallContext ByRef webapicallcontext
+        String sApiKey sApiKeyName
+        Boolean bValidKey
+        Integer iNeededRights
+        
+        Get psApiKeyName to sApiKeyName
+        Get HttpRequestHeader sApiKeyName to sApiKey
+        
+        If (ghoWebSessionManager = 0) Begin
+            Error DFERR_PROGRAM "Could not validate. Session manager not present."
+        End
+        
+        Get ValidateSession of ghoWebSessionManager sApiKey to bValidKey
+        
+        //If its not valid we do not allow people to get in.
+        If (not(bValidKey)) Begin
+            Move True to webapicallcontext.bErr
+            Move C_WEBAPI_UNAUTHORIZED to webapicallcontext.iStatusCode
+            Move "Unauthorized" to webapicallcontext.sShortStatusMessage
+            Move "Invalid api key" to webapicallcontext.sErrorMessage
+        End
+        
+        //Retrieve the rights needed for the current operation
+        If (webapicallcontext.sVerb = C_WEBAPI_GET) Begin
+            Get piReadRights to iNeededRights
+        End
+        Else If (webapicallcontext.sVerb = C_WEBAPI_POST) Begin
+            Get piCreateRights to iNeededRights
+        End
+        Else If (webapicallcontext.sVerb = C_WEBAPI_PUT or webapicallcontext.sVerb = C_WEBAPI_PATCH) Begin
+            Get piEditRights to iNeededRights
+        End
+        Else If (webapicallcontext.sVerb = C_WEBAPI_DELETE) Begin
+            Get piDeleteRights to iNeededRights
+        End
+        Else Begin
+            Move 0 to iNeededRights
+        End
+        
+        If (WebAppUser.Rights < iNeededRights) Begin
+            Move True to webapicallcontext.bErr
+            Move C_WEBAPI_UNAUTHORIZED to webapicallcontext.iStatusCode
+            Move "Unauthorized" to webapicallcontext.sShortStatusMessage
+            Move "You dont have sufficient rights for this operation" to webapicallcontext.sErrorMessage
+        End
+    End_Procedure
+    
+    //Define our schema
+    Procedure OnDefineAuthRules Variant ByRef vSecurityStruct
+        ApiKeyAuth apikeyauth
+        
+        Move "apiKey" to apikeyauth.type
+        Move "header" to apikeyauth.in
+        Move "DataFlexApiKey" to apikeyauth.name
+        
+        Move apikeyauth to vSecurityStruct
+    End_Procedure
+
+    Procedure End_Construct_Object
+        Forward Send End_Construct_Object
+
+    End_Procedure
+
+End_Class

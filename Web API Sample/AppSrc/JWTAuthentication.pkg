@@ -1,0 +1,58 @@
+﻿Use WebApi\cWebApiAuthModifier.pkg
+Use cApiWebToken.pkg
+
+Struct bearerAuth
+    String type
+    String scheme
+    String bearerFormat
+End_Struct
+
+Class cJWTAuthentication is a cWebApiAuthModifier
+    
+    Procedure Construct_Object
+        Forward Send Construct_Object
+        
+        Set psSecuritySchemaName to "bearerAuth"
+    
+        Property String psKeyID "DataFlex"
+        Property String psPublicKey ""
+        Property String psPrivateKey ""
+        
+        Object oJWT is a cApiWebToken
+        End_Object
+    End_Procedure
+
+    Procedure OnDefineAuthRules Variant  ByRef vSecurityStruct
+        bearerAuth bearerauth
+        Forward Send OnDefineAuthRules (&vSecurityStruct)
+        
+        Move "http" to bearerauth.type
+        Move "bearer" to bearerauth.scheme
+        Move "JWT" to bearerauth.bearerFormat
+        
+        Move bearerauth to vSecurityStruct
+    End_Procedure
+
+    Procedure OnAuth tWebApiCallContext  ByRef webapicallcontext
+        String sBearerToken sErrorMessage
+        Boolean bIsValid
+        Integer iRetVal
+        
+        Forward Send OnAuth (&webapicallcontext)
+        
+        Get HttpRequestHeader "Authorization" to sBearerToken
+        Move (Replace("Bearer ", sBearerToken, "")) to sBearerToken
+        
+        Get DecodeString of oJWT sBearerToken to iRetVal
+        
+        If (iRetVal <> C_JWT_VALID) Begin
+            Move ('JWT was invalid for the following reason: ' + (ErrorCodeToErrorMessage(oJWT, iRetVal))) to sErrorMessage
+            Move True to webapicallcontext.bErr
+            Move C_WEBAPI_UNAUTHORIZED to webapicallcontext.iStatusCode
+            Move "Unauthorized" to webapicallcontext.sShortStatusMessage
+            Move sErrorMessage to webapicallcontext.sErrorMessage
+            Procedure_Return
+        End
+        
+    End_Procedure
+End_Class

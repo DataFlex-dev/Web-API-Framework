@@ -1,0 +1,147 @@
+﻿Use DataDict.pkg
+
+Open OrderHeader
+Open OrderDetail
+Open Customer
+Open SalesPerson
+Open OrderSystem // used for password encryption in webapp
+Open DFLastID
+
+Register_Object Terms_table
+Register_Object Ship_Table
+
+Object Terms_table  is a DescriptionValidationTable
+    
+    Procedure Fill_List
+        Forward Send Fill_List
+        Send Add_Table_Value  "NONE"  "None established"
+        Send Add_Table_Value  "COD"  "COD"
+        Send Add_Table_Value  "NET30"  "Net 30"
+        Send Add_Table_Value  "NET60"  "Net 60"
+        Send Add_Table_Value  "NET90"  "Net 90"
+        Send Add_Table_Value  "PREPAY"  "Pre-payment required"
+    End_Procedure
+    
+End_Object
+
+Object Ship_Table is a CodeValidationTable
+    Set Type_Value to "SHIPPING"
+    Set Allow_Blank_State to True
+End_Object
+
+Register_Object OrderHeader_sl
+Register_Object oOrderWebLookup
+
+Class cOrderHeaderDataDictionary is a DataDictionary
+    
+    Procedure Construct_Object
+        Forward Send Construct_Object
+        
+        Set Main_File to OrderHeader.File_Number
+        
+        Set Foreign_Field_Option DD_KEYFIELD DD_FINDREQ to True
+        Set Foreign_Field_Option DD_INDEXFIELD DD_NOPUT to True
+        Set Foreign_Field_Option DD_DEFAULT DD_DISPLAYONLY to True
+        
+        Set Add_Client_File to OrderDetail.File_Number
+        
+        Set Add_Server_File to Customer.File_Number
+        Set Add_Server_File to SalesPerson.File_Number
+        
+        Set ParentNullAllowed SalesPerson.File_Number to True
+        Set ParentNoSwitchIfCommitted Customer.File_Number to True
+        
+        Set Add_System_File to DFLastID.File_Number DD_LOCK_ON_NEW_SAVE_DELETE
+        
+        Set Field_Auto_Increment Field OrderHeader.Order_Number to File_Field DFLastID.Order_Number
+        
+        Set Field_Option Field OrderHeader.Order_Number DD_AUTOFIND to True
+        Set Field_Prompt_Object Field OrderHeader.Order_Number to OrderHeader_SL
+        Set Field_WebPrompt_Object Field OrderHeader.Order_Number to oOrderWebLookup
+        
+        Set Key_Field_State Field OrderHeader.Order_Number to True
+        Set Status_Help Field OrderHeader.Order_Number to "Order Number - New orders are assigned numbers automatically"
+        Set Field_Option Field OrderHeader.Order_Number DD_NOPUT to True
+        
+        Set Field_Class_Name Field OrderHeader.Order_Date to "Spin"
+        Set Field_Entry_msg Field OrderHeader.Order_Date to Entry_Order_Date
+        Set Field_Mask_Type Field OrderHeader.Order_Date to MASK_DATE_WINDOW
+        Set Field_Prompt_Object Field OrderHeader.Order_Date to OrderHeader_SL
+        Set Field_WebPrompt_Object Field OrderHeader.Order_Date to oOrderWebLookup
+        
+        Set Status_Help Field OrderHeader.Order_Date to "Date on which the order was placed"
+        Set Field_Option Field OrderHeader.Order_Date DD_COMMIT to True
+        Set Field_Option Field OrderHeader.Order_Date DD_REQUIRED to True
+        
+        Set Field_Class_Name Field OrderHeader.Terms to "Combo"
+        Set Field_Value_Table Field OrderHeader.Terms to Terms_table
+        Set Status_Help Field OrderHeader.Terms to "Payment terms"
+        
+        Set Field_Class_Name Field OrderHeader.Ship_Via to "Combo"
+        Set Field_Value_Table Field OrderHeader.Ship_Via to Ship_Table
+        Set Status_Help Field OrderHeader.Ship_Via to "Shipping method"
+        
+        Set Status_Help Field OrderHeader.Ordered_By to "Order placed by"
+        Set Field_Option Field OrderHeader.Ordered_By DD_COMMIT to True
+        
+        Set Field_Label_Long Field OrderHeader.SalesPerson_ID to "Sales Person ID"
+        Set Field_Label_Short Field OrderHeader.SalesPerson_ID to "Sales ID"
+        Set Status_Help Field OrderHeader.SalesPerson_ID to "Sales Person who initiated the order"
+        
+        Set Field_Mask_Type Field OrderHeader.Order_Total to MASK_CURRENCY_WINDOW
+        Set Field_Option Field OrderHeader.Order_Total DD_DISPLAYONLY to True
+        
+        Set piPrimaryIndex to 1
+    End_Procedure
+    
+    Procedure Field_Defaults
+        Forward Send Field_Defaults
+        Set Field_Changed_Value Field OrderHeader.Order_Date to (CurrentDateTime())
+        Set Field_Changed_Value Field OrderHeader.Terms to "COD"
+        Set Field_Changed_Value Field OrderHeader.Ship_Via to "FEDEX"
+    End_Procedure
+    
+    // Add a default date if the field is blank
+    Procedure Entry_Order_Date Integer iField Date dDate
+        Integer iChanged
+        
+        Get Field_Changed_State iField to iChanged
+        If (iChanged=0 and dDate=0) Begin
+            Sysdate dDate
+            Set Field_Default_Value iField to dDate
+        End
+    End_Procedure
+    
+    Procedure Update
+        Forward Send Update
+        Send Adjust_Balances OrderHeader.Order_Total
+    End_Procedure
+    
+    Procedure Backout
+        Forward Send Backout
+        Send Adjust_Balances (-OrderHeader.Order_Total)
+    End_Procedure
+    
+    Procedure Adjust_Balances Number Amt
+        
+        If (((Amt + Customer.Purchases) < 999999) and ((Amt + Customer.Balance) < 999999)) Begin
+            Add Amt to Customer.Purchases
+            Add Amt to Customer.Balance
+        End
+        Else Begin
+            Send UserError ("The value of" * FormatCurrency(Amt + Customer.Purchases, 2) * "exceeds the maximum amount allowed for customer purchases." * ;
+                 "Review your order to adjust prices and quantities to be within the limit of" * FormatCurrency(999999, 2)) "Error in updating Customer"
+        End
+    End_Procedure
+    
+    Procedure Deleting
+        Forward Send Deleting
+        // see if we can decrement the order number in sys table...
+        // can only do this if this is the newest order.
+        If (OrderHeader.Order_Number=DFLastID.Order_Number) Begin // if this is
+            Decrement DFLastID.Order_Number          // the last number,
+            SaveRecord DFLastID                      // decrement and save.
+        End
+    End_Procedure
+    
+End_Class

@@ -1,0 +1,146 @@
+﻿Use AllWebAppClasses.pkg
+Use cConnection.pkg
+Use cWebMenuItemLoadView.pkg
+
+Object oApplication is a cApplication
+    Object oConnection is a cConnection
+        Use LoginEncryption.pkg
+    End_Object
+End_Object
+
+Object oWebApp is a cWebApp
+    Set psTheme to "Df_Material"
+    Set peApplicationStateMode to asmHistoryAndUrls
+    Set psEncryptPassword to "AP[g[..Aoy1<h9@)bVK?TIGU[mOp19M~:S<V,7QJ"
+    
+    Use MyRestAPI.wo
+
+    Object oCommandbar is a cWebCommandBar                
+        Object oMenuBar is a cWebMenuBar
+            Object oFileMenu is a cWebMenuItem
+                Set psCaption to C_$File
+                
+                Object oClearMenuItem is a cWebMenuClear
+                End_Object  
+                             
+                Object oClearAllMenuItem is a cWebMenuClearAll
+                End_Object  
+                
+                Object oPromptMenuItem is a cWebMenuPrompt
+                    Set pbBeginGroup to True
+                End_Object  
+                               
+                Object oFindMenuItem is a cWebMenuFind
+                End_Object  
+
+                Object oNextMenuItem is a cWebMenuFindNext
+                End_Object  
+
+                Object oPreviousMenuItem is a cWebMenuFindPrevious
+                End_Object  
+                
+                Object oLastMenuItem is a cWebMenuFindLast
+                End_Object                
+                                
+                Object oFirstMenuItem is a cWebMenuFindFirst
+                End_Object  
+                
+                Object oSaveMenuItem is a cWebMenuSave
+                    Set pbBeginGroup to True
+                End_Object  
+                
+                Object oDeleteMenuItem is a cWebMenuDelete
+                End_Object  
+                
+                Object oLoginMenuItem is a cWebMenuItem
+                    Set psCaption to C_$LogIn
+                    Set pbBeginGroup to True
+                    Set psCSSClass to "WebLoginMenuItem"
+
+                    Procedure OnClick
+                        Send RequestLogin to ghoWebSessionManager
+                    End_Procedure
+                    
+                    Procedure OnLoad
+                        Integer eLoginMode
+                        Handle hoLogin
+                        Get GetLoginView to hoLogin
+                        Get peLoginMode to eLoginMode
+                        WebSet pbRender to  (hoLogin and eLoginMode<>lmLoginNone)
+                    End_Procedure  // OnLoad
+                    
+                End_Object  
+
+                Object oLogoutMenuItem is a cWebMenuItem
+                    Set psCaption to C_$LogOut
+                    Set psCSSClass to "WebLogoutMenuItem"
+
+                    Procedure OnClick
+                        Send RequestLogOut of ghoWebSessionManager
+                    End_Procedure
+
+                    Procedure OnLoad
+                        Integer eLoginMode
+                        Handle hoLogin
+                        Get GetLoginView to hoLogin
+                        Get peLoginMode to eLoginMode
+                        WebSet pbRender to  (hoLogin and eLoginMode<>lmLoginNone)
+                    End_Procedure
+                End_Object  
+            End_Object  
+    
+            Object oViewMenu is a cWebMenuItem
+                Set psCaption to C_$View
+
+                Object oNavigationMenuItem is a cWebMenuItemLoadView
+                    Set psCaption to "OpenApiSpecification"
+                    Set psLoadViewOnClick to "oOpenApiView"
+                End_Object
+            End_Object  
+        End_Object  
+        
+        Object oFindToolBar is a cWebToolBar
+            Object oFirstMenuItem is a cWebMenuFindFirst
+            End_Object  
+    
+            Object oPreviousMenuItem is a cWebMenuFindPrevious
+            End_Object  
+
+            Object oFindMenuItem is a cWebMenuFind
+            End_Object  
+
+            Object oNextMenuItem is a cWebMenuFindNext
+            End_Object  
+            
+            Object oLastMenuItem is a cWebMenuFindLast
+            End_Object
+                           
+            Object oPromptMenuItem is a cWebMenuPrompt
+            End_Object 
+        End_Object
+        
+        Object oFileToolBar is a cWebToolBar
+            Set pbShowCaption to True
+            
+            Object oClearMenuItem is a cWebMenuClear
+            End_Object              
+             
+            Object oClearAllMenuItem is a cWebMenuClearAll
+            End_Object   
+                        
+            Object oSaveMenuItem is a cWebMenuSave
+            End_Object  
+            
+            Object oDeleteMenuItem is a cWebMenuDelete
+            End_Object 
+        End_Object
+    End_Object
+
+    Use SessionManager.wo
+    Use LoginDialog.wo
+    Use WebResourceManager.wo
+    Use OpenApiSpecView.wo
+    
+End_Object
+
+Send StartWebApp of oWebApp

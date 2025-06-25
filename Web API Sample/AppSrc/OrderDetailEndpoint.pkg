@@ -1,0 +1,122 @@
+﻿Use WebApi\cRestDataset.pkg
+Use cCustomerDataDictionary.dd
+Use cSalesPersonDataDictionary.dd
+Use cOrderHeaderDataDictionary.dd
+Use cVendorDataDictionary.dd
+Use cInventoryDataDictionary.dd
+Use cOrderDetailDataDictionary.dd
+Use WebApi\cRestField.pkg
+Use WebApi\cRestEntity.pkg
+
+//Its highly recommended to use this endpoint with filters. Having to find all 2000+ records and converting them to json can take some time
+Object oOrderDetailEndpoint is a cRestDataset
+    Set psPath to "OrderDetail"
+    
+    Set pbReadOnly to True
+    
+    Object oVendor_DD is a cVendorDataDictionary
+    End_Object
+
+    Object oInventory_DD is a cInventoryDataDictionary
+        Set DDO_Server to oVendor_DD
+    End_Object
+
+    Object oSalesPerson_DD is a cSalesPersonDataDictionary
+    End_Object
+
+    Object oCustomer_DD is a cCustomerDataDictionary
+    End_Object
+
+    Object oOrderHeader_DD is a cOrderHeaderDataDictionary
+        Set DDO_Server to oSalesPerson_DD
+        Set DDO_Server to oCustomer_DD
+    End_Object
+
+    Object oOrderDetail_DD is a cOrderDetailDataDictionary
+        Set DDO_Server to oInventory_DD
+        Set DDO_Server to oOrderHeader_DD
+    End_Object
+
+    Set Main_DD to oOrderDetail_DD
+    Set Server to oOrderDetail_DD
+
+    Object oOrderDetail_Order_Number is a cRestField
+        Entry_Item OrderDetail.Order_Number
+    End_Object
+    
+    Object oCustomerInformation is a cRestEntity
+        Set Server to oCustomer_DD
+
+        Object oCustomer_Name is a cRestField
+            Entry_Item Customer.Name
+        End_Object
+
+        Object oCustomer_Address is a cRestField
+            Entry_Item Customer.Address
+        End_Object
+
+        Object oCustomer_City is a cRestField
+            Entry_Item Customer.City
+        End_Object
+
+        Object oCustomer_State is a cRestField
+            Entry_Item Customer.State
+        End_Object
+
+        Object oCustomer_Phone_Number is a cRestField
+            Entry_Item Customer.Phone_Number
+        End_Object        
+        
+    End_Object
+
+    Object oVendorInformation is a cRestEntity
+        Set Server to oVendor_DD
+
+        Object oVendor_Name is a cRestField
+            Entry_Item Vendor.Name
+        End_Object
+
+        Object oVendor_Address is a cRestField
+            Entry_Item Vendor.Address
+        End_Object
+
+        Object oVendor_City is a cRestField
+            Entry_Item Vendor.City
+        End_Object
+        
+        Object oVendorInventoryInfo is a cRestEntity
+            Set Server to oInventory_DD
+            Set psNodeName to "Bought item"
+
+            Object oInventory_Description is a cRestField
+                Entry_Item Inventory.Description
+            End_Object
+
+            Object oInventory_Unit_Price is a cRestField
+                Entry_Item Inventory.Unit_Price
+            End_Object
+            
+        End_Object
+  
+    End_Object
+    
+    Object oOrderHeaderInformation is a cRestEntity
+        Set Server to oOrderHeader_DD
+
+        Object oOrderHeader_Order_Date is a cRestField
+            Entry_Item OrderHeader.Order_Date
+        End_Object
+
+        Object oOrderHeader_Order_Total is a cRestField
+            Entry_Item OrderHeader.Order_Total
+        End_Object
+        
+        
+    End_Object
+    
+    
+    
+    
+    
+    
+End_Object

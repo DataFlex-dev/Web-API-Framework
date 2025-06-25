@@ -1,0 +1,29 @@
+﻿Use JWT\JWT.pkg
+
+Class cApiWebToken is a cJsonWebToken
+    
+    Procedure Construct_Object
+        Forward Send Construct_Object
+        Set peAlgorithm to L8W8JWT_ALG_RS_256
+    End_Procedure
+
+    Procedure End_Construct_Object
+        Forward Send End_Construct_Object
+
+    End_Procedure
+
+    Function OnGetPublicKey String sKeyID Returns stJWTKey
+        stJWTKey RetVal
+        Delegate Get psPublicKey to RetVal.sKey
+        Delegate Get psKeyID to RetVal.sKeyIdentifier
+        Function_Return RetVal
+    End_Function
+
+    Function OnGetPrivateKey String sKeyID Returns stJWTKey
+        stJWTKey RetVal
+        Delegate Get psPrivateKey to RetVal.sKey
+        Delegate Get psKeyID to RetVal.sKeyIdentifier            
+        Function_Return RetVal
+    End_Function
+
+End_Class

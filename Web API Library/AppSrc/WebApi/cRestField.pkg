@@ -1,0 +1,324 @@
+﻿Use cBaseDEO.pkg
+
+{ DataBindable = True }
+Class cRestField is a cObject
+    
+    Procedure Construct_Object
+        Forward Send Construct_Object
+        
+        Send Define_cBaseDEO_Mixin
+        
+        //Determines if this field can be used in query parameter filtering
+        Property Boolean pbFilterable True
+        //Determines if this field can be used in POST, PUT and PATCH request.
+        Property Boolean pbReadOnly False
+        //Determines if this field will be returned in response bodies.
+        Property Boolean pbWriteOnly False
+        //Determines if this field is required in the request body
+        Property Boolean pbRequired False
+        //Determines if this field is shown during a GET all call.
+        Property Boolean pbShowDuringGetAll True
+        //Determines the field name in request en response bodies.
+        Property String psFieldName ""
+        
+        //Needed for non data aware fields
+        Property Integer peFieldType DF_ASCII
+        //Only used for fields with no data binding
+        Property String psExampleValue ""
+
+    End_Procedure
+    
+    Import_Class_Protocol cBaseDEO_Mixin
+    
+    //This procedure should be called from within cRestDataset to append data to the json
+    //This way the cRestField is responsible for retrieving and setting the value and not the cRestDataset
+    Procedure AppendToBody Handle hoResponseBody Handle hoIterator
+        String sFieldValue sFieldName
+        Integer eFieldType
+        Boolean bWriteOnly
+        Integer iFile
+        
+        Get pbWriteOnly to bWriteOnly
+        
+        //If the field is write only there is no point in appending it to the body
+        If (bWriteOnly) Begin
+            Procedure_Return
+        End
+        
+        //Get the psFieldName property
+        Get FieldName to sFieldName
+        
+        //Get the field type
+        Get FieldType to eFieldType
+        
+        //Get the value of the field
+        Get FieldValue to sFieldValue
+        
+        Get Data_File to iFile
+        
+        //If we do not have data binding send OnSetCalculatedValue
+        If (iFile = 0) Begin
+            Send OnSetCalculatedValue (&sFieldValue)
+        End
+        
+        Send ModifyResponseBody of hoIterator hoResponseBody sFieldValue sFieldName eFieldType
+    End_Procedure
+    
+    //Modifies the global buffer of the field, only really used to perform finds on the data dictionary
+    Procedure SetFieldGlobalValue String sValue
+        Integer iField iFile
+        
+        Get Data_Field to iField
+        Get Data_File to iFile
+        
+        //Only modify the global buffer if the field has data binding. Non data aware fields do not have to be set.
+        If (iFile <> 0) Begin
+            Set_Field_Value iFile iField to sValue    
+        End
+
+        
+    End_Procedure
+    
+    //Modifies the local buffer of the field
+    Procedure SetFieldLocalValue String sValue
+        Handle hoDD
+        Integer iField iFile
+        
+        Get Main_DD to hoDD
+        Get Data_Field to iField
+        Get Data_File to iFile
+        
+        //Allow developers to augment the value
+        Send OnSetCalculatedValue (&sValue)
+        
+        //Set the local buffer if the field has data binding.
+        If (hoDD <> 0 and iFile <> 0) Begin
+            Set File_Field_Changed_Value of hoDD iFile iField to sValue    
+        End
+        
+    End_Procedure
+    
+    Procedure AddConstrain String sConstrain String sFilterType
+        Integer iFile iField
+        
+        Get Data_File to iFile
+        Get Data_Field to iField
+        
+        //Only constrain fields that have data binding
+        If (iFile = 0) Begin
+            Procedure_Return
+        End
+        
+        //Check what type of constrain we need to use
+        If (sFilterType = "GE") Begin
+            Vconstrain iFile iField GE sConstrain
+        End
+        Else If (sFilterType = "GT") Begin
+            Vconstrain iFile iField GT sConstrain
+        End
+        Else If (sFilterType = "LT") Begin
+            Vconstrain iFile iField LT sConstrain
+        End
+        Else If (sFilterType = "LE") Begin
+            Vconstrain iFile iField LE sConstrain
+        End
+        Else Begin
+            Vconstrain iFile iField EQ sConstrain
+        End
+       
+    End_Procedure
+    
+    //This function determines if the current field is a key field. (Primary key)
+    Function IsKeyField Returns Boolean
+        Handle hoDD
+        Integer iField
+        Boolean bIsKeyField
+        
+        Get Main_DD to hoDD
+        Get Data_Field to iField
+        
+        //Only fields with data binding can be key fields
+        If (hoDD <> 0 and iField <> 0) Begin
+            Get Key_Field_State of hoDD iField to bIsKeyField
+            Function_Return bIsKeyField
+        End
+        
+        //If we get here the field is not data aware and cannot be a key field
+        Function_Return False
+    End_Function
+    
+    //Returns the value of the field
+    Function FieldValue Returns String
+        Handle hoDD
+        Integer iFile iField
+        String sFieldValue
+        
+        Get Main_DD to hoDD
+        Get Data_File to iFile
+        Get Data_Field to iField
+        
+        If (hoDD <> 0 and iFile <> 0) Begin
+            //Get the value currently in the buffer for the field
+            Get File_Field_Current_Value of hoDD iFile iField to sFieldValue
+        End
+        
+        Function_Return sFieldValue
+    End_Function
+    
+    /*
+    Returns the field name.
+    
+    This will either be psFieldName if it is set or it will get the DF_FIELD_Name.    
+    */
+    Function FieldName Returns String
+        Handle hoDD
+        Integer iField iFile
+        String sFieldName
+        
+        Get psFieldName to sFieldName
+        
+        If (sFieldName <> "") Begin
+            Function_Return sFieldName
+        End
+        
+        Get Main_DD to hoDD
+        
+        Get Data_File to iFile
+        Get Data_Field to iField
+        
+        If (hoDD <> 0 and iFile <> 0) Begin
+            Get File_Field_Label of hoDD iFile iField DD_LABEL_TAG to sFieldName
+            Function_Return sFieldName    
+        End
+        
+        Error DFERR_PROGRAM "Non data aware cRestfields must have a psFieldName"
+        
+        Function_Return ""
+    End_Function
+    
+    //Returns the DF_FIELD_TYPE of the current item.
+    Function FieldType Returns Integer
+        Integer iFile iField eFieldType
+        
+        Get Data_File to iFile
+        Get Data_Field to iField
+        
+        //If the field has data binding get the field type from the database.
+        If (iFile <> 0) Begin
+            Get_Attribute DF_FIELD_TYPE of iFile iField to eFieldType    
+        End
+        Else Begin
+            Get peFieldType to eFieldType
+        End        
+        
+        Function_Return eFieldType
+    End_Function
+    
+    //Returns the Status help field of the data dictionary
+    Function FieldHelp Returns String
+        Integer iFile iField
+        Handle hoDD
+        String sHelp sExampleValue
+        
+        Get Main_DD to hoDD
+        
+        Get Data_File to iFile
+        Get Data_Field to iField
+        
+        If (hoDD <> 0 and iFile <> 0) Begin
+            Get File_Field_Status_Help of hoDD iFile iField to sHelp    
+        End
+        
+        Get psExampleValue to sExampleValue
+        //Give the developer the opportunity to override the status help with their own behaviour
+        If (sExampleValue <> "") Begin
+            Move sExampleValue to sHelp
+        End
+      
+        Function_Return sHelp
+    End_Function
+    
+    //Gets the validation table of the field linked to this data dictionary
+    Function FieldValidationTable Returns Variant[][2]
+        Integer iField
+        Variant[][2] avValidationTable
+        Handle hoValidationTable hoDD
+        
+        Get Main_DD to hoDD
+        Get Data_Field to iField
+        
+        //Fields that have no data binding cannot have a validation table
+        If (iField = 0) Begin
+            Function_Return avValidationTable
+        End
+        
+        Get Field_Table_Object of hoDD iField to hoValidationTable
+        //If the field has no validation table just return a empty avValidationTable
+        If (hoValidationTable = 0) Begin
+            Function_Return avValidationTable
+        End
+        
+        Get TableData of hoValidationTable to avValidationTable
+        
+        Function_Return avValidationTable
+    End_Function
+    
+    //Checks if the field is fiterable
+    Function IsFilterable Returns Boolean
+        Boolean bFilterable
+        Integer iFile iField iIndex
+        Handle hoDD
+        
+        Get Main_DD to hoDD
+        Get Data_File to iFile
+        Get Data_Field to iField
+        
+        Get pbFilterable to bFilterable
+        
+        //If pbFilterable is false there is no pointing in checking anything else
+        If not bFilterable Begin
+            Function_Return False
+        End
+        
+        If (iFile <> 0 and iField <> 0) Begin
+           Get_Attribute DF_FIELD_INDEX of iFile iField to iIndex
+        
+            //Move (iIndex <> 0) to bFilterable 
+        End
+        
+        //Returns false if the index is 0 and true if the index is not 0
+        Function_Return bFilterable
+    End_Function
+    
+    //Checks if the current field is required.
+    Function IsRequired Returns Boolean
+        Boolean bRequired
+        Handle hoDD hoFileDD
+        Integer iFile iField iDDOptions
+        
+        Get Main_DD to hoDD
+        Get Data_File to iFile
+        Get Data_Field to iField
+        
+        If ((hoDD <> 0) and (iFile <> 0)) Begin
+            Get Data_Set of hoDD iFile to hoFileDD   // Get the file's DDO
+            
+            // Field Options
+            Get File_Field_Options of hoDD iFile iField to iDDOptions
+            Move (IsFlagIn(DD_Required, iDDOptions)) to bRequired
+        End
+        
+        //If the DD did not flag it as required give the developers one more chance to override it
+        If not bRequired Begin
+            Get pbRequired to bRequired
+        End
+        
+        Function_Return bRequired
+    End_Function
+
+    Procedure End_Construct_Object
+        Forward Send End_Construct_Object
+
+    End_Procedure
+    
+End_Class

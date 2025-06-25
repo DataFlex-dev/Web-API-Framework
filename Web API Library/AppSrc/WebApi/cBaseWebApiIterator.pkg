@@ -1,0 +1,72 @@
+﻿Use WebApi\tRESTRequestBody.pkg
+Use WebApi\tWebApiCallContext.pkg
+
+//Base class for all the iterators
+Class cBaseWebApiIterator is a cObject
+    
+    Procedure Construct_Object
+        Forward Send Construct_Object
+        
+        Property String psMessageType
+
+    End_Procedure
+    
+    //This should set the content-type response header to the appropriate type
+    Procedure SetContentType
+        String sMessageType
+        
+        Get psMessageType to sMessageType
+        
+        Send AddHttpResponseHeader "Content-Type" sMessageType
+    End_Procedure
+    
+    //Prepares the data type to a format that can be send to the client
+    Procedure PrepareForTransfer tWebApiCallContext ByRef webapicallcontext
+        Send SetContentType
+        Send SetResponseStatus webapicallcontext.iStatusCode webapicallcontext.sShortStatusMessage
+        //Only set the response body if it actually exists
+        If (webapicallcontext.hoResponseBody <> 0) Begin
+            Send Destroy of webapicallcontext.hoResponseBody    
+        End
+    End_Procedure
+    
+    //This should create a array
+    Function CreateResponseBodyArray String sTableName Returns Handle
+        //Should be augmented in iterators
+        Error DFERR_PROGRAM "Override this Function" 
+    End_Function
+    
+    //This should create a object
+    Function CreateResponseBodyObject String sTableName Returns Handle
+        //Should be augmented in iterators
+        Error DFERR_PROGRAM "Override this Function"
+    End_Function
+    
+    //Adds values to the response body
+    Procedure ModifyResponseBody Handle hoResponseBody Variant vValue String sFieldName Integer eDataType
+        //Should be augmented in the iterators
+        Error DFERR_PROGRAM "Override this Procedure"
+    End_Procedure
+    
+    Procedure AppendToResponseArray Handle hoNestedObject Handle hoResponseArray
+        //Should be augmented in iterators
+        Error DFERR_PROGRAM "Override this Procedure"
+    End_Procedure
+    
+    //Parses a client request to a format that can be used in DataFlex code
+    Function ParseRequestBody Returns tRESTRequestBody[]
+        //Should be augmented in iterators
+        Error DFERR_PROGRAM "Override this Function"
+    End_Function
+    
+    //This formulates a error back to the client
+    Procedure GenerateErrorResponse tWebApiCallContext ByRef webapicallcontext
+        //Should be augmented in iterators
+        Error DFERR_PROGRAM "Override this Procedure"
+    End_Procedure
+
+    Procedure End_Construct_Object
+        Forward Send End_Construct_Object
+    End_Procedure
+
+End_Class

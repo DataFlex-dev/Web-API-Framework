@@ -1,0 +1,87 @@
+﻿Use WebApi\cWebApiAuthModifier.pkg
+
+Struct basicAuth
+    String type
+    String scheme
+End_Struct
+
+Class cBasicAuth is a cWebApiAuthModifier
+    
+    Procedure Construct_Object
+        Forward Send Construct_Object
+        
+        Set psSecuritySchemaName to "BasicAuth"
+        
+        //Rights needed to perform certain actions    
+        Property Integer piReadRights 0
+        Property Integer piCreateRights 0
+        Property Integer piEditRights 1
+        Property Integer piDeleteRights 1
+        
+    End_Procedure   
+    
+    Procedure OnAuth tWebApiCallContext ByRef webapicallcontext
+        String sBase64EncodedAuth sDecodedString
+        String[] asAuthorizationParts asDecodedUsernamePassword
+        Integer iLength iVoid iArraySize
+        Pointer pBaseDecodedString
+        Boolean bOk bSessionOk
+        
+        If (ghoWebSessionManager = 0) Begin
+            Error DFERR_PROGRAM "No session manager found. BasicAuth implementation uses the session manager to validate users."
+            Procedure_Return
+        End
+        
+        Get HttpRequestHeader "Authorization" to sBase64EncodedAuth
+        Get StrSplitToArray sBase64EncodedAuth " " to asAuthorizationParts
+        
+        Move (SizeOfArray(asAuthorizationParts)) to iArraySize
+        
+        If (iArraySize = 0 or asAuthorizationParts[0] <> "Basic") Begin
+            Move True to webapicallcontext.bErr
+            Move C_WEBAPI_FORBIDDEN to webapicallcontext.iStatusCode
+            Move "Forbidden" to webapicallcontext.sShortStatusMessage
+            Move "Wrong authorization header" to webapicallcontext.sErrorMessage
+            Procedure_Return
+        End
+        
+        //Decode the info in the Authorization header
+        Move (Base64Decode(AddressOf(asAuthorizationParts[1]), &iLength)) to pBaseDecodedString
+        Move (Repeat(Character(0), iLength)) to sDecodedString
+        Move (MemCopy(AddressOf(sDecodedString), pBaseDecodedString, iLength)) to iVoid
+        Move (Free(pBaseDecodedString)) to iVoid
+        
+        //First element will be the username and the second element will be the password
+        Get StrSplitToArray sDecodedString ":" to asDecodedUsernamePassword
+        
+        //Create a new session for the user that is trying to login
+        Get RecreateSession of ghoWebSessionManager to bSessionOk
+        //Attempt to log in the user     
+        Get UserLogin of ghoWebSessionManager asDecodedUsernamePassword[0] asDecodedUsernamePassword[1] to bOk
+        
+        If (not(bOk)) Begin
+            Move True to webapicallcontext.bErr
+            Move C_WEBAPI_FORBIDDEN to webapicallcontext.iStatusCode
+            Move "Forbidden" to webapicallcontext.sShortStatusMessage
+            Move "You do not have sufficient permissions to access this resource" to webapicallcontext.sErrorMessage
+        End
+        
+    End_Procedure
+
+    Procedure OnDefineAuthRules Variant  ByRef vSecurityStruct
+        basicAuth basicauth
+        
+        Forward Send OnDefineAuthRules (&vSecurityStruct)
+        
+        Move "http" to basicauth.type
+        Move "basic" to basicauth.scheme
+        
+        Move basicauth to vSecurityStruct
+    End_Procedure
+
+    Procedure End_Construct_Object
+        Forward Send End_Construct_Object
+
+    End_Procedure
+
+End_Class

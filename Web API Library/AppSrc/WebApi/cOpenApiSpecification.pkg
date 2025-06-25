@@ -1,0 +1,1320 @@
+﻿Use WebApi\cWebApiAuthModifier.pkg
+Use WebApi\cRestField.pkg
+Use WebApi\cWebApiCustomEndpoint.pkg
+
+Struct oneOf
+    String title
+    String const
+    String description
+End_Struct
+
+Class cOpenApiSpecification is a cObject
+    
+    Procedure Construct_Object
+        Forward Send Construct_Object
+    End_Procedure
+    
+    { Visibility = Private }
+    Function GenerateOpenApiSpec Returns String
+        String sTitle sDescription sVersion sStringifiedJson sPath
+        Handle hoOpenApiSpec hoInfo hoHttpApi
+        
+        Get Parent to hoHttpApi
+        
+        Get psApiTitle of hoHttpApi to sTitle
+        Get psApiDescription of hoHttpApi to sDescription
+        Get psApiVersion of hoHttpApi to sVersion
+        Get psPath of hoHttpApi to sPath
+        
+        Get Create (RefClass(cJsonObject)) to hoOpenApiSpec
+        Get Create (RefClass(cJsonObject)) to hoInfo
+        
+        Send InitializeJsonType of hoOpenApiSpec jsonTypeObject
+        Send InitializeJsonType of hoInfo jsonTypeObject
+        
+        Set peWhiteSpace of hoOpenApiSpec to jpWhitespace_Pretty
+        
+        //Set the value of the general json object
+        Send SetMemberValue of hoOpenApiSpec "openapi" jsonTypeString "3.1.0"
+        
+        Send SetMemberValue of hoInfo "title" jsonTypeString sTitle
+        Send SetMemberValue of hoInfo "description" jsonTypeString sDescription
+        Send SetMemberValue of hoInfo "version" jsonTypeString sVersion
+        
+        Send SetMember of hoOpenApiSpec "info" hoInfo
+        
+        Send GenerateServersInfo hoOpenApiSpec
+        
+        Send GenerateEndpointInfo hoOpenApiSpec
+        
+        //This should be done last so we can map the security objects to the generated endpoints
+        Send GenerateSecurityInfo hoOpenApiSpec
+        
+        Set peWhiteSpace of hoOpenApiSpec to jpWhitespace_Plain
+              
+        Get Stringify of hoOpenApiSpec to sStringifiedJson
+        
+        //Clean up the json after we're done with it
+        Send Destroy of hoInfo
+        Send Destroy of hoOpenApiSpec
+        
+        Function_Return sStringifiedJson
+    End_Function
+    
+    { Visibility = Private }
+    Procedure GenerateServersInfo Handle hoOpenApiSpecJson
+        Handle hoServersJson hoServerJson hoHttpApi
+        String sApiPath sRouterPath sDescription sApiRoot sServerName sSecureString
+        Boolean bSecure
+        
+        Get Parent to hoHttpApi
+        Get psPath of hoHttpApi to sApiPath
+        Get psApiRoot of hoHttpApi to sApiRoot
+        
+        //If there is no psApiRoot we retrieve it from IIS
+        If (sApiRoot = "") Begin
+            Get ServerVariable of ghoWebServiceDispatcher "SERVER_NAME" to sServerName
+            Get ServerVariable of ghoWebServiceDispatcher "URL" to sApiRoot
+            Get ServerVariable of ghoWebServiceDispatcher "SERVER_PORT_SECURE" to bSecure
+            
+            //Add http or https based on the SERVER_PORT_SECURE setting
+            If bSecure Begin
+                Move "https://" to sSecureString
+            End
+            Else Begin
+                Move "http://" to sSecureString
+            End
+            
+            Move (Replace(("/" + sApiPath), sApiRoot, "")) to sApiRoot
+            Move (sSecureString + sServerName + sApiRoot) to sApiRoot
+        End
+        //Create the JSON objects
+        Get Create (RefClass(cJsonObject)) to hoServersJson
+        Get Create (RefClass(cJsonObject)) to hoServerJson
+        
+        //Initialize one as Array and one as Object
+        Send InitializeJsonType of hoServersJson jsonTypeArray
+        Send InitializeJsonType of hoServerJson jsonTypeObject
+        
+        //We only actually need one server, but the OpenApi specification wants a array either way
+        Send SetMemberValue of hoServerJson "description" jsonTypeString sDescription
+        Send SetMemberValue of hoServerJson "url" jsonTypeString sApiRoot
+        
+        Send AddMember of hoServersJson hoServerJson
+        
+        Send SetMember of hoOpenApiSpecJson "servers" hoServersJson
+        
+        Send Destroy of hoServerJson
+        Send Destroy of hoServersJson
+    End_Procedure
+    
+    { Visibility = Private }
+    Procedure GenerateEndpointInfo Handle hoOpenApiSpecJson
+        Handle[] hoRoutables
+        Handle hoPathsJson hoHttpApi hoSchemasJson hoComponentsJson
+        Integer iRoutableIndex iAmountOfRoutables
+        
+        Get Parent to hoHttpApi
+        Get phoRoutables of hoHttpApi to hoRoutables
+        
+        Move (SizeOfArray(hoRoutables)-1) to iAmountOfRoutables
+        
+        //Define the needed json objects
+        Get Create (RefClass(cJsonObject)) to hoPathsJson
+        Get Create (RefClass(cJsonObject)) to hoSchemasJson
+        Get Create (RefClass(cJsonObject)) to hoComponentsJson
+        Send InitializeJsonType of hoPathsJson jsonTypeObject
+        Send InitializeJsonType of hoSchemasJson jsonTypeObject
+        Send InitializeJsonType of hoComponentsJson jsonTypeObject
+        
+        For iRoutableIndex from 0 to iAmountOfRoutables
+            Send RecursiveParseDatasets hoPathsJson hoSchemasJson hoRoutables[iRoutableIndex]
+        Loop
+        
+        Send GenerateErrorSchema hoSchemasJson
+        
+        Send SetMember of hoOpenApiSpecJson "paths" hoPathsJson
+        Send SetMember of hoComponentsJson "schemas" hoSchemasJson
+        Send SetMember of hoOpenApiSpecJson "components" hoComponentsJson
+        
+        Send Destroy of hoPathsJson
+        Send Destroy of hoComponentsJson
+        Send Destroy of hoSchemasJson
+    End_Procedure
+    
+    { Visibility = Private }
+    Procedure GenerateErrorSchema Handle hoSchemasJson
+        Handle hoErrorSchema hoErrorProperties hoErrorType hoErrorStatus hoErrorTitle hoErrorDetail hoErrorInstance
+        
+        Get Create (RefClass(cJsonObject)) to hoErrorSchema
+        Get Create (RefClass(cJsonObject)) to hoErrorProperties
+        Get Create (RefClass(cJsonObject)) to hoErrorType
+        Get Create (RefClass(cJsonObject)) to hoErrorStatus
+        Get Create (RefClass(cJsonObject)) to hoErrorTitle
+        Get Create (RefClass(cJsonObject)) to hoErrorDetail
+        Get Create (RefClass(cJsonObject)) to hoErrorInstance
+        
+        Send InitializeJsonType of hoErrorSchema jsonTypeObject
+        Send InitializeJsonType of hoErrorProperties jsonTypeObject
+        Send InitializeJsonType of hoErrorType jsonTypeObject
+        Send InitializeJsonType of hoErrorStatus jsonTypeObject
+        Send InitializeJsonType of hoErrorTitle jsonTypeObject
+        Send InitializeJsonType of hoErrorDetail jsonTypeObject
+        Send InitializeJsonType of hoErrorInstance jsonTypeObject
+        
+        Send SetMemberValue of hoErrorSchema "type" jsonTypeString "object"       
+        Send SetMemberValue of hoErrorType "type" jsonTypeString "string"
+        Send SetMemberValue of hoErrorStatus "type" jsonTypeString "integer"
+        Send SetMemberValue of hoErrorTitle "type" jsonTypeString "string"
+        Send SetMemberValue of hoErrorDetail "type" jsonTypeString "string"
+        Send SetMemberValue of hoErrorInstance "type" jsonTypeString "string"
+        
+        Send SetMember of hoErrorProperties "type" hoErrorType
+        Send SetMember of hoErrorProperties "status" hoErrorStatus
+        Send SetMember of hoErrorProperties "title" hoErrorTitle
+        Send SetMember of hoErrorProperties "detail" hoErrorDetail
+        Send SetMember of hoErrorProperties "instance" hoErrorInstance
+        
+        Send SetMember of hoErrorSchema "properties" hoErrorProperties
+        Send SetMember of hoSchemasJson "Error" hoErrorSchema
+        
+        Send Destroy of hoErrorSchema
+        Send Destroy of hoErrorProperties
+        Send Destroy of hoErrorType
+        Send Destroy of hoErrorStatus
+        Send Destroy of hoErrorTitle
+        Send Destroy of hoErrorDetail
+        Send Destroy of hoErrorInstance
+    End_Procedure
+    
+    { Visibility = Private }
+    Procedure ParseEndpoint Handle hoPathsJson Handle hoEndpoint
+        String sEndpointName sEndpointFullPath sEndpointTableName
+        Handle hoEndpointJson
+        Boolean bReadOnly bAllowRead bAllowCreate bAllowEdit bAllowDelete
+        
+        //Get all information from the endpoint
+        Get psPath of hoEndpoint to sEndpointName
+        Get GetDatasetTableName of hoEndpoint to sEndpointTableName
+        
+        Get pbReadOnly of hoEndpoint to bReadOnly
+        Get pbAllowRead of hoEndpoint to bAllowRead
+        Get pbAllowCreate of hoEndpoint to bAllowCreate
+        Get pbAllowEdit of hoEndpoint to bAllowEdit
+        Get pbAllowDelete of hoEndpoint to bAllowDelete
+        
+        //Start creating the verbs
+        
+        //If the endpoint is read only we only need to expose
+        If (bAllowRead or bReadOnly) Begin
+            Send ParseVerb C_WEBAPI_GET hoEndpoint hoPathsJson
+        End
+        
+        If (bAllowCreate and not(bReadOnly)) Begin
+            Send ParseVerb C_WEBAPI_POST hoEndpoint hoPathsJson
+        End
+        
+        If (bAllowEdit and not(bReadOnly)) Begin
+            Send ParseVerb C_WEBAPI_PUT hoEndpoint hoPathsJson
+            Send ParseVerb C_WEBAPI_PATCH hoEndpoint hoPathsJson
+        End
+        
+        If (bAllowDelete and not(bReadOnly)) Begin
+            Send ParseVerb C_WEBAPI_DELETE hoEndpoint hoPathsJson
+        End
+    End_Procedure
+    
+    { Visibility = Private }
+    Procedure ParseVerb String sCurrentVerb Handle hoEndpoint Handle hoPathsJson
+        Handle hoVerbJson hoResponsesJson hostatusCodeJson hoContentJson hoContentTypeJson hoSchemaJson hoTagsJson hoRequestBody hoEndpointJson
+        String[] asIteratorTypes
+        String sEndpointName sEndpointTableName sEndpointFullPath sTagName
+        Integer iIteratorIndex
+        Boolean bHasMember bInitPath
+        
+        Get psPath of hoEndpoint to sEndpointName
+        Get GetDatasetTableName of hoEndpoint to sEndpointTableName
+        Get GetFullEndpointPath of hoEndpoint to sTagName
+        
+        If (sCurrentVerb = C_WEBAPI_PUT or sCurrentVerb = C_WEBAPI_PATCH or sCurrentVerb = C_WEBAPI_DELETE) Begin
+            Get EndpointToPath hoEndpoint True to sEndpointFullPath
+        End
+        Else Begin
+            Get EndpointToPath hoEndpoint False to sEndpointFullPath
+        End
+        
+        Get HasMember of hoPathsJson sEndpointFullPath to bHasMember
+        
+        If (bHasMember) Begin
+            Get Member of hoPathsJson sEndpointFullPath to hoEndpointJson
+        End
+        Else Begin
+            Get Create (RefClass(cJsonObject)) to hoEndpointJson
+            Send InitializeJsonType of hoEndpointJson jsonTypeObject
+            //if it does not yet exist we should append it to hoPathsJson
+            Move True to bInitPath
+        End
+        
+        Get Create (RefClass(cJsonObject)) to hoVerbJson
+        Get Create (RefClass(cJsonObject)) to hoResponsesJson
+        Get Create (RefClass(cJsonObject)) to hoStatusCodeJson
+        Get Create (RefClass(cJsonObject)) to hoContentJson
+        Get Create (RefClass(cJsonObject)) to hoContentTypeJson
+        Get Create (RefClass(cJsonObject)) to hoSchemaJson
+        Get Create (RefClass(cJsonObject)) to hoTagsJson
+        
+        Send InitializeJsonType of hoVerbJson jsonTypeObject
+        Send InitializeJsonType of hoResponsesJson jsonTypeObject
+        Send InitializeJsonType of hoStatusCodeJson jsonTypeObject
+        Send InitializeJsonType of hoContentJson jsonTypeObject
+        Send InitializeJsonType of hoContentTypeJson jsonTypeObject
+        Send InitializeJsonType of hoSchemaJson jsonTypeObject
+        Send InitializeJsonType of hoTagsJson jsonTypeArray
+        
+        Get pasIteratorTypes to asIteratorTypes
+        
+        //The potential status codes should be added here for each verb
+        If (sCurrentVerb = C_WEBAPI_GET) Begin
+            Send SetMemberValue of hoVerbJson "summary" jsonTypeString (SFormat("Get a list of all %1", sEndpointName))
+            Send SetMember of hoResponsesJson C_WEBAPI_OK hoStatusCodeJson          
+            Send ApplyQueryParams hoVerbJson hoEndpoint
+        End
+        Else If (sCurrentVerb = C_WEBAPI_POST) Begin
+            Send SetMemberValue of hoVerbJson "summary" jsonTypeString (SFormat("Create a new %1", sEndpointName))
+            Send SetMember of hoResponsesJson C_WEBAPI_CREATED hoStatusCodeJson
+        End
+        Else If (sCurrentVerb = C_WEBAPI_PUT) Begin
+            Send SetMemberValue of hoVerbJson "summary" jsonTypeString (SFormat("Edit a %1", sEndpointName))
+            Send SetMember of hoResponsesJson C_WEBAPI_OK hoStatusCodeJson
+            
+            If (IsObjectOfClass(hoEndpoint, RefClass(cRestDataset))) Begin
+                Send ApplyPathParameters hoVerbJson hoEndpoint    
+            End
+        End
+        Else If (sCurrentVerb = C_WEBAPI_PATCH) Begin
+            Send SetMemberValue of hoVerbJson "summary" jsonTypeString (SFormat("Partially edit a %1", sEndpointName))
+            Send SetMember of hoResponsesJson C_WEBAPI_OK hoStatusCodeJson
+            
+            If (IsObjectOfClass(hoEndpoint, RefClass(cRestDataset))) Begin
+                Send ApplyPathParameters hoVerbJson hoEndpoint    
+            End
+        End
+        Else If (sCurrentVerb = C_WEBAPI_DELETE) Begin
+            Send SetMemberValue of hoVerbJson "summary" jsonTypeString (SFormat("Delete a %1", sEndpointName))
+            Send SetMember of hoResponsesJson C_WEBAPI_OK hoStatusCodeJson
+            
+            If (IsObjectOfClass(hoEndpoint, RefClass(cRestDataset))) Begin
+                Send ApplyPathParameters hoVerbJson hoEndpoint    
+            End
+        End
+        
+        Send ParseErrorResponse sCurrentVerb hoResponsesJson
+        
+        Send SetMemberValue of hoStatusCodeJson "description" jsonTypeString (SFormat("A %1", sEndpointName))
+        Send SetMemberValue of hoSchemaJson "$ref" jsonTypeString (SFormat("#/components/schemas/%1", sEndpointTableName))
+        Send AddMemberValue of hoTagsJson jsonTypeString sTagName
+        
+        Send SetMember of hoEndpointJson (Lowercase(sCurrentVerb)) hoVerbJson
+        Send SetMember of hoVerbJson "tags" hoTagsJson
+        Send SetMember of hoVerbJson "responses" hoResponsesJson
+        Send SetMember of hoStatusCodeJson "content" hoContentJson
+        //Insert the available response types to the status code (application/json, application/xml)
+        For iIteratorIndex from 0 to (SizeOfArray(asIteratorTypes)-1)
+            Send SetMember of hoContentJson asIteratorTypes[iIteratorIndex] hoContentTypeJson
+        Loop
+        
+        Send SetMember of hoContentTypeJson "schema" hoSchemaJson
+        
+        If (sCurrentVerb = C_WEBAPI_POST or sCurrentVerb = C_WEBAPI_PATCH or sCurrentVerb = C_WEBAPI_PUT) Begin
+            Get Create (RefClass(cJsonObject)) to hoRequestBody
+            Send InitializeJsonType of hoRequestBody jsonTypeObject
+            
+            Send SetMember of hoRequestBody "content" hoContentJson
+            Send SetMember of hoVerbJson "requestBody" hoRequestBody
+            
+            Send Destroy of hoRequestBody
+        End
+        
+        If (bInitPath) Begin
+            Send SetMember of hoPathsJson sEndpointFullPath hoEndpointJson
+        End
+        
+        //Cleanup
+        Send Destroy of hoVerbJson
+        Send Destroy of hoResponsesJson 
+        Send Destroy of hoStatusCodeJson
+        Send Destroy of hoContentJson
+        Send Destroy of hoContentTypeJson
+        Send Destroy of hoSchemaJson
+        Send Destroy of hoTagsJson
+        Send Destroy of hoEndpointJson
+    End_Procedure
+    
+    { Visibility = Private }
+    Procedure ParseSchema Handle hoSchemasJson Handle hoEndpoint
+        Handle hoSchema hoProperties hoRequiredJson
+        Handle[] hoExposedDataFields
+        String[] asRequiredFields
+        Integer iIndex iAmountOfFields iAmountOfRequiredFields iRequiredFieldIndex
+        String sTableName
+        Boolean bRequired
+        
+        Get GetDatasetTableName of hoEndpoint to sTableName
+        Get RetrieveExposedDataFields of hoEndpoint to hoExposedDataFields
+        Move (SizeOfArray(hoExposedDataFields)-1) to iAmountOfFields
+        
+        Get Create (RefClass(cJsonObject)) to hoSchema
+        Get Create (RefClass(cJsonObject)) to hoProperties
+        Send InitializeJsonType of hoSchema jsonTypeObject
+        Send InitializeJsonType of hoProperties jsonTypeObject
+        
+        Send SetMemberValue of hoSchema "type" jsonTypeString "object"
+        
+        //Loop through all the children and add their own properties to the Json object
+        For iIndex from 0 to iAmountOfFields
+            Send FieldToOpenApi hoExposedDataFields[iIndex] hoProperties
+            
+            Get IsRequired of hoExposedDataFields[iIndex] to bRequired
+            
+            //Check if the current field is required
+            If bRequired Begin
+                Get FieldName of hoExposedDataFields[iIndex] to asRequiredFields[-1]  
+            End
+        Loop
+        
+        Move (SizeOfArray(asRequiredFields)-1) to iAmountOfRequiredFields
+        
+        If (iAmountOfRequiredFields <> -1) Begin
+            Get Create (RefClass(cJsonObject)) to hoRequiredJson
+            
+            Send DataTypeToJson of hoRequiredJson asRequiredFields
+            
+            Send SetMember of hoSchema "required" hoRequiredJson
+            
+            Send Destroy of hoRequiredJson        
+        End
+        
+        Send SetMember of hoSchema "properties" hoProperties 
+        Send SetMember of hoSchemasJson sTableName hoSchema
+        
+        Send Destroy of hoSchema
+        Send Destroy of hoProperties
+    End_Procedure
+    
+    Procedure ParseCustomEndpoint Handle hoPathsJson Handle hoEndpoint
+        tEndpointDefinition endpointDefinition
+        Integer iIndex
+        String sPath sShortPath
+        Handle hoEndpointJson
+        
+        //Call the schema builder procedure of our custom endpoint
+        Send OnDefineSchema of hoEndpoint (&endpointDefinition)
+        
+        //Nothing to parse if the array is empty
+        If (SizeOfArray(endpointDefinition.verbDefinitions) = 0) Begin
+            Procedure_Return
+        End
+        
+        //Get the path of the endpoint
+        Get psPath of hoEndpoint to sShortPath
+        Get GetFullEndpointPath of hoEndpoint to sPath
+        
+        //Initialize the json object
+        Get Create (RefClass(cJsonObject)) to hoEndpointJson
+        Send InitializeJsonType of hoEndpointJson jsonTypeObject
+        
+        For iIndex from 0 to (SizeOfArray(endpointDefinition.verbDefinitions)-1)
+            Send ParseCustomVerb hoEndpointJson sShortPath endpointDefinition.verbDefinitions[iIndex]
+        Loop
+        
+        Send SetMember of hoPathsJson ("/" + sPath) hoEndpointJson
+        
+        Send Destroy of hoEndpointJson
+    End_Procedure
+    
+    //Parses each verb.
+    Procedure ParseCustomVerb Handle hoEndpointJson String sPath tVerbDefinition verbDefinition
+        Handle hoParameterJson hoParamaterSchemaJson hoParametersArrayJson hoTagsJson hoVerbJson
+        Handle hoResponsesJson hoContentJson hoContentTypeJson hoRequestPropertiesJson
+        Handle hoSchemaJson hoRequestBodyJson hoRequestMediaTypeJson hoRequiredJson
+        Handle hoStatusCodeJson hoStatusCodeContentJson hoStatusCodeMediaTypesJson hoStatusCodeSchemaJson hoStatusCodeSchemaPropertiesJson
+        String[] asRequiredFields
+        Boolean bRequired
+        Integer iParameterIndex iResponseMediaTypesIndex iResponseIndex iResponseFieldIndex iRequestFieldIndex iRequestMediaTypesIndex eParameterType
+        Integer iAmountOfRequiredFields
+        
+        //Create the json objects that we are going to need for sure. Only initialize when we actually need them later
+        Get Create (RefClass(cJsonObject)) to hoVerbJson
+        Get Create (RefClass(cJsonObject)) to hoTagsJson
+        Get Create (RefClass(cJsonObject)) to hoResponsesJson
+        Get Create (RefClass(cJsonObject)) to hoStatusCodeJson
+        Get Create (RefClass(cJsonObject)) to hoStatusCodeSchemaJson
+        Get Create (RefClass(cJsonObject)) to hoStatusCodeSchemaPropertiesJson
+        Get Create (RefClass(cJsonObject)) to hoStatusCodeMediaTypesJson
+        Get Create (RefClass(cJsonObject)) to hoStatusCodeContentJson
+        
+        Send InitializeJsonType of hoVerbJson jsonTypeObject
+        Send InitializeJsonType of hoResponsesJson jsonTypeObject
+        Send InitializeJsonType of hoTagsJson jsonTypeArray
+        
+        Send SetMemberValue of hoVerbJson "summary" jsonTypeString verbDefinition.sDescription
+        Send AddMemberValue of hoTagsJson jsonTypeString sPath
+        
+        Send SetMember of hoVerbJson "tags" hoTagsJson
+        
+        //Start checking for parameters
+        If (SizeOfArray(verbDefinition.parameters) > 0) Begin
+            //Create the parameters array and parameter json
+            Get Create (RefClass(cJsonObject)) to hoParametersArrayJson
+            Get Create (RefClass(cJsonObject)) to hoParameterJson
+            Get Create (RefClass(cJsonObject)) to hoParamaterSchemaJson
+            
+            //Only initialize the array. We will initialize the actual parameter in the for loop
+            Send InitializeJsonType of hoParametersArrayJson jsonTypeArray
+            
+            For iParameterIndex from 0 to (SizeOfArray(verbDefinition.parameters)-1)
+                Send InitializeJsonType of hoParameterJson jsonTypeObject
+                
+                Send SetMemberValue of hoParameterJson "name" jsonTypeString verbDefinition.parameters[iParameterIndex].sName
+                
+                //Check if the parameter is in the header or in the query
+                If (verbDefinition.parameters[iParameterIndex].eParameterIn = WEBAPI_QUERY_PARAMETER) Begin
+                    Send SetMemberValue of hoParameterJson "in" jsonTypeString "query"  
+                End
+                Else If (verbDefinition.parameters[iParameterIndex].eParameterIn = WEBAPI_HEADER_PARAMETER) Begin
+                    Send SetMemberValue of hoParameterJson "in" jsonTypeString "header"
+                End
+                
+                //Set the description and required
+                Send SetMemberValue of hoParameterJson "description" jsonTypeString verbDefinition.parameters[iParameterIndex].sDescription
+                Send SetMemberValue of hoParameterJson "required" jsonTypeBoolean verbDefinition.parameters[iParameterIndex].bRequired
+                
+                Send InitializeJsonType of hoParamaterSchemaJson jsonTypeObject
+                
+                Move verbDefinition.parameters[iParameterIndex].eParameterType to eParameterType
+                
+                //Check what the parameter field type is
+                If (eParameterType = WEBAPI_STRING_FIELD or eParameterType = 0) Begin
+                    Send SetMemberValue of hoParamaterSchemaJson "type" jsonTypeString "string"
+                End
+                Else If (eParameterType = WEBAPI_NUMBER_FIELD) Begin
+                    Send SetMemberValue of hoParamaterSchemaJson "type" jsonTypeString "number"
+                End
+                Else If (eParameterType = WEBAPI_INTEGER_FIELD) Begin
+                    Send SetMemberValue of hoParamaterSchemaJson "type" jsonTypeString "integer"
+                End
+                Else If (eParameterType = WEBAPI_ARRAY_FIELD) Begin
+                    Send SetMemberValue of hoParamaterSchemaJson "type" jsonTypeString "array"
+                End
+                Else If (eParameterType = WEBAPI_BINARY_FIELD) Begin
+                    Send SetMemberValue of hoParamaterSchemaJson "type" jsonTypeString "string"
+                    Send SetMemberValue of hoParamaterSchemaJson "format" jsonTypeString "binary"
+                End
+                Else If (eParameterType = WEBAPI_BOOLEAN_FIELD) Begin
+                    Send SetMemberValue of hoParamaterSchemaJson "type" jsonTypeString "boolean"
+                End
+                Else If (eParameterType = WEBAPI_OBJECT_FIELD) Begin
+                    Send SetMemberValue of hoParamaterSchemaJson "type" jsonTypeString "object"
+                End
+                
+                Send SetMember of hoParameterJson "schema" hoParamaterSchemaJson
+                
+                Send AddMember of hoParametersArrayJson hoParameterJson
+            Loop           
+            
+            Send SetMember of hoVerbJson "parameters" hoParametersArrayJson
+            //Destroy the objects we no longer need
+            Send Destroy of hoParamaterSchemaJson
+            Send Destroy of hoParametersArrayJson
+            Send Destroy of hoParameterJson
+        End
+        
+        //Start parsing the responses
+        For iResponseIndex from 0 to (SizeOfArray(verbDefinition.responses)-1)
+            //Initialize the json object
+            Send InitializeJsonType of hoStatusCodeJson jsonTypeObject
+            Send InitializeJsonType of hoStatusCodeSchemaJson jsonTypeObject
+            Send InitializeJsonType of hoStatusCodeSchemaPropertiesJson jsonTypeObject
+            Send InitializeJsonType of hoStatusCodeMediaTypesJson jsonTypeObject
+            Send InitializeJsonType of hoStatusCodeContentJson jsonTypeObject
+            
+            Send SetMemberValue of hoStatusCodeJson "description" jsonTypeString verbDefinition.responses[iResponseIndex].sStatusCodeDescription
+            
+            //Create the schema that fits this response
+            For iResponseFieldIndex from 0 to (SizeOfArray(verbDefinition.responses[iResponseIndex].responseFields)-1)
+                Send ParseCustomField verbDefinition.responses[iResponseIndex].responseFields[iResponseFieldIndex] hoStatusCodeSchemaJson
+            Loop
+            
+            Send SetMember of hoStatusCodeMediaTypesJson "schema" hoStatusCodeSchemaJson
+            
+            For iResponseMediaTypesIndex from 0 to (SizeOfArray(verbDefinition.responses[iResponseIndex].asResponseMediaTypes)-1)
+                Send SetMember of hoStatusCodeContentJson verbDefinition.responses[iResponseIndex].asResponseMediaTypes[iResponseMediaTypesIndex] hoStatusCodeMediaTypesJson
+            Loop
+            
+            Send SetMember of hoStatusCodeJson "content" hoStatusCodeContentJson
+            
+            Send SetMember of hoResponsesJson verbDefinition.responses[iResponseIndex].iStatusCode hoStatusCodeJson           
+        Loop
+        
+        //Append the responses to the verb
+        Send SetMember of hoVerbJson "responses" hoResponsesJson
+        
+        //Start parsing the request body (If we have one)
+        If (SizeOfArray(verbDefinition.requestFields) > 0) Begin
+            Get Create (RefClass(cJsonObject)) to hoRequestBodyJson
+            Get Create (RefClass(cJsonObject)) to hoSchemaJson
+            Get Create (RefClass(cJsonObject)) to hoRequestPropertiesJson
+            Get Create (RefClass(cJsonObject)) to hoContentJson
+            Get Create (RefClass(cJsonObject)) to hoRequestMediaTypeJson
+            
+            Send InitializeJsonType of hoSchemaJson jsonTypeObject
+            Send InitializeJsonType of hoRequestPropertiesJson jsonTypeObject
+            Send InitializeJsonType of hoContentJson jsonTypeObject
+            Send InitializeJsonType of hoRequestBodyJson jsonTypeObject
+            Send InitializeJsonType of hoRequestMediaTypeJson jsonTypeObject
+            
+            Send SetMemberValue of hoSchemaJson "type" jsonTypeString "object"
+            
+            For iRequestFieldIndex from 0 to (SizeOfArray(verbDefinition.requestFields)-1)
+                Send ParseCustomField verbDefinition.requestFields[iRequestFieldIndex] hoRequestPropertiesJson
+                
+                If (verbDefinition.requestFields[iRequestFieldIndex].bRequired) Begin
+                    Move verbDefinition.requestFields[iRequestFieldIndex].sFieldName to asRequiredFields[-1]
+                End
+            Loop
+            
+            Move (SizeOfArray(asRequiredFields)-1) to iAmountOfRequiredFields
+            
+            //If we have required fields we add it to the OpenApi spec
+            If (iAmountOfRequiredFields <> -1) Begin
+                Get Create (RefClass(cJsonObject)) to hoRequiredJson
+                
+                Send DataTypeToJson of hoRequiredJson asRequiredFields
+                
+                Send SetMember of hoSchemaJson "required" hoRequiredJson
+                
+                Send Destroy of hoRequiredJson
+            End
+            
+            Send SetMember of hoSchemaJson "properties" hoRequestPropertiesJson
+            
+            Send SetMember of hoRequestMediaTypeJson "schema" hoSchemaJson
+            
+            //Loop through the request media types and append them
+            For iRequestMediaTypesIndex from 0 to (SizeOfArray(verbDefinition.asRequestMediaTypes)-1)
+                Send SetMember of hoContentJson verbDefinition.asRequestMediaTypes[iRequestMediaTypesIndex] hoRequestMediaTypeJson
+            Loop
+            
+            Send SetMember of hoRequestBodyJson "content" hoContentJson
+            Send SetMember of hoVerbJson "requestBody" hoRequestBodyJson
+            
+            Send Destroy of hoContentJson
+            Send Destroy of hoRequestPropertiesJson
+            Send Destroy of hoRequestBodyJson
+            Send Destroy of hoSchemaJson
+            Send Destroy of hoRequestMediaTypeJson
+        End
+        
+        Send SetMember of hoEndpointJson (Lowercase(verbDefinition.sVerb)) hoVerbJson
+             
+        Send Destroy of hoVerbJson
+        Send Destroy of hoTagsJson
+        Send Destroy of hoResponsesJson
+        Send Destroy of hoStatusCodeJson
+        Send Destroy of hoStatusCodeSchemaJson
+        Send Destroy of hoStatusCodeSchemaPropertiesJson
+        Send Destroy of hoStatusCodeMediaTypesJson
+        Send Destroy of hoStatusCodeContentJson
+    End_Procedure
+    
+    //Parses a field.
+    Procedure ParseCustomField tFieldDefinition currentField Handle hoPropertiesJson
+        Handle hoFieldJson hoNestedFieldJson hoNestedPropertiesJson hoItemsJson hoTarget
+        Integer iNestedFieldsIndex eFieldType
+        
+        If (currentField.sFieldName <> "") Begin
+            Get Create (RefClass(cJsonObject)) to hoFieldJson
+            Send InitializeJsonType of hoFieldJson jsonTypeObject
+           
+            Move hoFieldJson to hoTarget
+        End
+        Else Begin
+            Move hoPropertiesJson to hoTarget 
+        End
+            
+        Move currentField.eFieldType to eFieldType
+        
+        If (eFieldType = WEBAPI_STRING_FIELD or eFieldType = 0) Begin
+            Send SetMemberValue of hoTarget "type" jsonTypeString "string"
+        End
+        Else If (eFieldType = WEBAPI_NUMBER_FIELD) Begin
+            Send SetMemberValue of hoTarget "type" jsonTypeString "number"
+        End
+        Else If (eFieldType = WEBAPI_INTEGER_FIELD) Begin
+            Send SetMemberValue of hoTarget "type" jsonTypeString "integer"
+        End
+        Else If (eFieldType = WEBAPI_BINARY_FIELD) Begin
+            Send SetMemberValue of hoTarget "type" jsonTypeString "string"
+            Send SetMemberValue of hoTarget "format" jsonTypeString "binary"
+        End
+        Else If (eFieldType = WEBAPI_BOOLEAN_FIELD) Begin
+            Send SetMemberValue of hoTarget "type" jsonTypeString "boolean"
+        End
+        Else If (eFieldType = WEBAPI_ARRAY_FIELD) Begin
+            //Nested array logic
+            Send SetMemberValue of hoTarget "type" jsonTypeString "array"
+            
+            Get Create (RefClass(cJsonObject)) to hoNestedPropertiesJson
+            Get Create (RefClass(cJsonObject)) to hoItemsJson
+            
+            Send InitializeJsonType of hoNestedPropertiesJson jsonTypeObject
+            Send InitializeJsonType of hoItemsJson jsonTypeObject
+            
+            For iNestedFieldsIndex from 0 to (SizeOfArray(currentField.nestedFields)-1)
+                Send ParseCustomField currentField.nestedFields[iNestedFieldsIndex] hoNestedPropertiesJson
+            Loop
+            
+            Send SetMember of hoItemsJson "properties" hoNestedPropertiesJson
+            Send SetMember of hoTarget "items" hoItemsJson
+            
+            Send Destroy of hoItemsJson
+            Send Destroy of hoNestedPropertiesJson
+            
+        End
+        Else If (eFieldType = WEBAPI_OBJECT_FIELD) Begin
+            Send SetMemberValue of hoTarget "type" jsonTypeString "object"
+            
+            Get Create (RefClass(cJsonObject)) to hoNestedPropertiesJson
+            Send InitializeJsonType of hoNestedPropertiesJson jsonTypeObject
+            
+            For iNestedFieldsIndex from 0 to (SizeOfArray(currentField.nestedFields)-1)
+                Send ParseCustomField currentField.nestedFields[iNestedFieldsIndex] hoNestedPropertiesJson
+            Loop
+            
+            Send SetMember of hoTarget "properties" hoNestedPropertiesJson
+            
+            Send Destroy of hoNestedPropertiesJson
+        End
+        
+        If (currentField.sExampleValue <> "") Begin
+            Send SetMemberValue of hoTarget "example" jsonTypeString currentField.sExampleValue
+        End
+        
+        If (currentField.sFieldName <> "") Begin
+            Send SetMember of hoPropertiesJson currentField.sFieldName hoFieldJson
+            Send Destroy of hoFieldJson         
+        End        
+        
+    End_Procedure
+    
+    { Visibility = Private }
+    Procedure GenerateSecurityInfo Handle hoOpenApiSpec
+        Handle hoHttpApi hoComponentsJson hoSecuritySchemesJson hoCurrentAuthJson hoCurrentEndpointJson hoCurrentVerbJson hoPathsJson hoEndpointSecurityMember hoSecurityAuthMember hoAuthEmptyArrayJson
+        Handle[] hoRouters hoDatasets hoAuthModifiers hoCurrentObjectAuthModifiers
+        Integer iSizeOfRouterArray iSizeOfDatasetArray iAmountOfAuthModifiers iRouterIndex iDatasetIndex iAuthModifierIndex iAmountOfSecuredEndpoints iEndpointIndex iVariantType
+        String sSecuredEndpointName sSecuritySchemaName sSecurityType sSecurityScheme sAuthModifierName sEndpointPath
+        tSecuredDataset[] currentSecuredDatasets
+        Boolean bHasComponentsJson bVerbExists bEndpointExists
+        Variant vSecurityInfo
+        
+        Get Parent to hoHttpApi
+        Get GetAuthModifiers of hoHttpApi to hoAuthModifiers
+        
+        //Get all the authentication objects present in the API
+        Send GetAllAuthModifiers hoHttpApi (&hoAuthModifiers)
+        
+        Move (SizeOfArray(hoAuthModifiers)-1) to iAmountOfAuthModifiers
+        
+        //If there are no modifiers there is no point
+        If (iAmountOfAuthModifiers = -1) Begin
+            Procedure_Return
+        End
+        
+        Get Member of hoOpenApiSpec "components" to hoComponentsJson
+        Get Member of hoOpenApiSpec "paths" to hoPathsJson
+        
+        //Generate the security schema first
+        Get Create (RefClass(cJsonObject)) to hoSecuritySchemesJson
+        Send InitializeJsonType of hoSecuritySchemesJson jsonTypeObject
+        
+        //Create the json class for the authentication object
+        Get Create (RefClass(cJsonObject)) to hoCurrentAuthJson      
+        Get Create (RefClass(cJsonObject)) to hoEndpointSecurityMember
+        Get Create (RefClass(cJsonObject)) to hoSecurityAuthMember
+        Get Create (RefClass(cJsonObject)) to hoAuthEmptyArrayJson
+        
+        //Loop through all the auth modifiers identified in the framework
+        For iAuthModifierIndex from 0 to iAmountOfAuthModifiers
+            Get psSecuritySchemaName of hoAuthModifiers[iAuthModifierIndex] to sSecuritySchemaName
+            Get pvSecurityInfo of hoAuthModifiers[iAuthModifierIndex] to vSecurityInfo
+            
+            //Check if the variant is actually a struct
+            Get VariantType vSecurityInfo to iVariantType
+            
+            If (sSecuritySchemaName = "" or not(iVariantType = OLE_VT_Record)) Begin
+                Get Name of hoAuthModifiers[iAuthModifierIndex] to sAuthModifierName
+                //Make sure we do not leak any memory
+                Send Destroy of hoSecuritySchemesJson
+                Send Destroy of hoComponentsJson
+                Send Destroy of hoPathsJson
+                Send Destroy of hoCurrentAuthJson
+                Send Destroy of hoEndpointSecurityMember
+                Send Destroy of hoSecurityAuthMember
+                Send Destroy of hoAuthEmptyArrayJson
+                //Maybe this should not be a blocking error
+                Error DFERR_PROGRAM (SFormat("psSecuritySchemaName and pvSecurityInfo have to be set on object %1", sAuthModifierName))
+            End
+            
+            //Start filling the JSON
+            Send DataTypeToJson of hoCurrentAuthJson vSecurityInfo         
+            
+            //Add it to the securityscheme            
+            Send SetMember of hoSecuritySchemesJson sSecuritySchemaName hoCurrentAuthJson
+            
+            //Init the security object we need to append to the verb, this should be the same for all verbs
+            Send InitializeJsonType of hoEndpointSecurityMember jsonTypeArray
+            Send InitializeJsonType of hoCurrentAuthJson jsonTypeObject
+            Send InitializeJsonType of hoAuthEmptyArrayJson jsonTypeArray
+            //Add the object and array members
+            Send SetMember of hoCurrentAuthJson sSecuritySchemaName hoAuthEmptyArrayJson
+            Send AddMember of hoEndpointSecurityMember hoCurrentAuthJson
+            
+            //Loop through all the secured objects and add the security object to them
+            Get ptSecuredDatasets of hoAuthModifiers[iAuthModifierIndex] to currentSecuredDatasets
+            Move (SizeOfArray(currentSecuredDatasets) -1) to iAmountOfSecuredEndpoints
+            
+            //Only actually perform this logic if there are secured endpoints
+            If (iAmountOfSecuredEndpoints >= 0) Begin
+                
+                For iDatasetIndex from 0 to iAmountOfSecuredEndpoints
+                    
+                    //Append to the get path
+                    If (currentSecuredDatasets[iDatasetIndex].bSecureRead = True) Begin
+                        
+                        Get EndpointToPath currentSecuredDatasets[iDatasetIndex].hoDataset False to sEndpointPath                        
+                        Get HasMember of hoPathsJson sEndpointPath to bEndpointExists
+                        
+                        //Check if the endpoint exists in the paths json
+                        If bEndpointExists Begin
+                            Get Member of hoPathsJson sEndpointPath to hoCurrentEndpointJson
+                            
+                            Get HasMember of hoCurrentEndpointJson (Lowercase(C_WEBAPI_GET)) to bVerbExists
+                        
+                            If bVerbExists Begin
+                                Get Member of hoCurrentEndpointJson (Lowercase(C_WEBAPI_GET)) to hoCurrentVerbJson
+                                Send SetMember of hoCurrentVerbJson "security" hoEndpointSecurityMember
+                                Send Destroy of hoCurrentVerbJson
+                            End
+                            //Make sure to free up memory
+                            Send Destroy of hoCurrentEndpointJson
+                        End
+                        
+                    End
+                    
+                    //Append to the create path
+                    If (currentSecuredDatasets[iDatasetIndex].bSecureCreate = True) Begin
+                        
+                        Get EndpointToPath currentSecuredDatasets[iDatasetIndex].hoDataset False to sEndpointPath                        
+                        Get HasMember of hoPathsJson sEndpointPath to bEndpointExists
+                        
+                        If bEndpointExists Begin
+                            Get Member of hoPathsJson sEndpointPath to hoCurrentEndpointJson
+                            
+                            Get HasMember of hoCurrentEndpointJson (Lowercase(C_WEBAPI_POST)) to bVerbExists
+                        
+                            If bVerbExists Begin
+                                Get Member of hoCurrentEndpointJson (Lowercase(C_WEBAPI_POST)) to hoCurrentVerbJson
+                                Send SetMember of hoCurrentVerbJson "security" hoEndpointSecurityMember
+                                Send Destroy of hoCurrentVerbJson
+                            End
+                            Send Destroy of hoCurrentEndpointJson
+                        End
+                        
+                    End
+                    
+                    //Append to the edit path
+                    If (currentSecuredDatasets[iDatasetIndex].bSecureEdit = True) Begin
+                        
+                        Get EndpointToPath currentSecuredDatasets[iDatasetIndex].hoDataset True to sEndpointPath                        
+                        Get HasMember of hoPathsJson sEndpointPath to bEndpointExists
+                        
+                        If bEndpointExists Begin                          
+                            Get Member of hoPathsJson sEndpointPath to hoCurrentEndpointJson
+                            
+                            Get HasMember of hoCurrentEndpointJson (Lowercase(C_WEBAPI_PUT)) to bVerbExists
+                        
+                            If bVerbExists Begin
+                                Get Member of hoCurrentEndpointJson (Lowercase(C_WEBAPI_PUT)) to hoCurrentVerbJson
+                                Send SetMember of hoCurrentVerbJson "security" hoEndpointSecurityMember
+                                Send Destroy of hoCurrentVerbJson
+                            End
+                            
+                            Get HasMember of hoCurrentEndpointJson (Lowercase(C_WEBAPI_PATCH)) to bVerbExists
+                            
+                            If bVerbExists Begin
+                                Get Member of hoCurrentEndpointJson (Lowercase(C_WEBAPI_PATCH)) to hoCurrentVerbJson
+                                Send SetMember of hoCurrentVerbJson "security" hoEndpointSecurityMember
+                                Send Destroy of hoCurrentVerbJson
+                            End
+                            
+                            Send Destroy of hoCurrentEndpointJson
+                        End
+                      
+                    End
+                    
+                    //Append to the delete path
+                    If (currentSecuredDatasets[iDatasetIndex].bSecureDelete = True) Begin
+                        
+                        Get EndpointToPath currentSecuredDatasets[iDatasetIndex].hoDataset True to sEndpointPath                        
+                        Get HasMember of hoPathsJson sEndpointPath to bEndpointExists
+                        
+                        If bEndpointExists Begin
+                            Get Member of hoPathsJson sEndpointPath to hoCurrentEndpointJson
+                            
+                            Get HasMember of hoCurrentEndpointJson (Lowercase(C_WEBAPI_DELETE)) to bVerbExists
+                        
+                            If bVerbExists Begin
+                                Get Member of hoCurrentEndpointJson (Lowercase(C_WEBAPI_DELETE)) to hoCurrentVerbJson
+                                Send SetMember of hoCurrentVerbJson "security" hoEndpointSecurityMember
+                                Send Destroy of hoCurrentVerbJson
+                            End
+                            
+                            Send Destroy of hoCurrentEndpointJson
+                        End
+                        
+                    End
+                Loop
+                
+            End
+            
+            
+        Loop
+        
+        //Append the security scheme to the components
+        Send SetMember of hoComponentsJson "securitySchemes" hoSecuritySchemesJson
+        
+        //Double checking just to make sure we dont destroy objects that do not exist in the first place
+        If (hoSecuritySchemesJson <> 0) Send Destroy of hoSecuritySchemesJson    
+        If (hoComponentsJson <> 0) Send Destroy of hoComponentsJson
+        If (hoCurrentAuthJson <> 0) Send Destroy of hoCurrentAuthJson
+        If (hoPathsJson <> 0) Send Destroy of hoPathsJson
+        If (hoEndpointSecurityMember <> 0) Send Destroy of hoEndpointSecurityMember
+        If (hoSecurityAuthMember <> 0) Send Destroy of hoSecurityAuthMember
+        If (hoAuthEmptyArrayJson <> 0) Send Destroy of hoAuthEmptyArrayJson
+    End_Procedure
+    
+    //This procedure generates the error responses per verb
+    { Visibility = Private }
+    Procedure ParseErrorResponse String sVerb Handle hoResponsesJson
+        Handle hoErrorCode hoContent hoErrorSchema hoResponseTypeJson hoParent
+        Integer iIndex
+        String[] asIteratorTypes
+        
+        Move (Uppercase(sVerb)) to sVerb
+        
+        Get Parent to hoParent
+        
+        Get pasIteratorTypes of hoParent to asIteratorTypes
+        
+        Get Create (RefClass(cJsonObject)) to hoResponseTypeJson
+        Get Create (RefClass(cJsonObject)) to hoErrorSchema
+        Get Create (RefClass(cJsonObject)) to hoErrorCode
+        Get Create (RefClass(cJsonObject)) to hoContent
+        
+        Send InitializeJsonType of hoErrorCode jsonTypeObject
+        Send InitializeJsonType of hoErrorSchema jsonTypeObject
+        Send InitializeJsonType of hoContent jsonTypeObject
+        Send InitializeJsonType of hoResponseTypeJson jsonTypeObject
+        
+        Send SetMemberValue of hoErrorSchema "$ref" jsonTypeString "#/components/schemas/Error"
+        Send SetMemberValue of hoErrorCode "description" jsonTypeString "Error response"
+        
+        Send SetMember of hoResponseTypeJson "schema" hoErrorSchema
+        
+        //Attach all the response types 
+        For iIndex from 0 to (SizeOfArray(asIteratorTypes)-1)
+            Send SetMember of hoContent asIteratorTypes[iIndex] hoResponseTypeJson
+        Loop
+        
+        Send SetMember of hoErrorCode "content" hoContent
+        
+        If (sVerb = C_WEBAPI_GET) Begin
+            Send SetMember of hoResponsesJson C_WEBAPI_NOTFOUND hoErrorCode
+        End
+        Else If (sVerb = C_WEBAPI_POST) Begin
+            Send SetMember of hoResponsesJson C_WEBAPI_BADREQUEST hoErrorCode
+        End
+        Else If (sVerb = C_WEBAPI_PUT or sVerb = C_WEBAPI_PATCH) Begin
+            Send SetMember of hoResponsesJson C_WEBAPI_NOTFOUND hoErrorCode
+        End
+        Else If (sVerb = C_WEBAPI_DELETE) Begin
+            Send SetMember of hoResponsesJson C_WEBAPI_NOTFOUND hoErrorCode
+        End
+        
+        Send Destroy of hoErrorSchema
+        Send Destroy of hoErrorCode
+        Send Destroy of hoContent
+        Send Destroy of hoResponseTypeJson
+    End_Procedure
+    
+    //This should add query parameters to the GET endpoint
+    { Visibility = Private }
+    Procedure ApplyQueryParams Handle hoVerbJson Handle hoEndpoint
+        Integer iIndex iEnumIndex eFieldType
+        Boolean bFilterable
+        Handle hoParametersArrayJson hoParameterJson hoSchemaJson hoEnumsJson
+        Handle hoKeyField
+        Handle[] hoExposedDataObjects
+        String sFieldName sTableName sFieldType sFieldFormat
+        Variant[][2] avValidationTable
+        
+        Get GetDatasetTableName of hoEndpoint to sTableName
+        
+        Get Create (RefClass(cJsonObject)) to hoParameterJson
+        Get Create (RefClass(cJsonObject)) to hoParametersArrayJson
+        Get Create (RefClass(cJsonObject)) to hoSchemaJson
+        
+        Send InitializeJsonType of hoParametersArrayJson jsonTypeArray
+        
+        //Retrieve all the exposed data objects
+        Get RetrieveExposedDataFields of hoEndpoint to hoExposedDataObjects
+        
+        For iIndex from 0 to (SizeOfArray(hoExposedDataObjects)-1)
+            Get IsFilterable of hoExposedDataObjects[iIndex] to bFilterable
+            
+            //Only add it to the parameters array if the field is filterable
+            If (bFilterable) Begin
+                Send InitializeJsonType of hoParameterJson jsonTypeObject
+                Send InitializeJsonType of hoSchemaJson jsonTypeObject
+                
+                //Get all needed info from the field
+                Get FieldName of hoExposedDataObjects[iIndex] to sFieldName
+                Get FieldType of hoExposedDataObjects[iIndex] to eFieldType
+                Get FieldValidationTable of hoExposedDataObjects[iIndex] to avValidationTable
+                
+                //Set the json members
+                Send SetMemberValue of hoParameterJson "name" jsonTypeString sFieldName
+                Send SetMemberValue of hoParameterJson "in" jsonTypeString "query"
+                Send SetMemberValue of hoParameterJson "description" jsonTypeString (SFormat("Filter %1 by %2", sTableName, sFieldName))
+                Send SetMemberValue of hoParameterJson "required" jsonTypeBoolean False
+                
+                //Make sure sFieldFormat becomes a empty string again
+                Move "" to sFieldFormat
+                
+                //Determine the field type and formatting
+                Send FieldTypeToOpenApiType eFieldType (&sFieldType) (&sFieldFormat)
+                
+                Send SetMemberValue of hoSchemaJson "type" jsonTypeString sFieldType
+                
+                //Format is optional
+                If (sFieldFormat <> "") Begin
+                    Send SetMemberValue of hoSchemaJson "format" jsonTypeString sFieldFormat
+                End
+                
+                //Create a enum array here for the validation table
+                If (SizeOfArray(avValidationTable) <> 0) Begin
+                    Get Create (RefClass(cJsonObject)) to hoEnumsJson
+                    Send InitializeJsonType of hoEnumsJson jsonTypeArray
+                    
+                    For iEnumIndex from 0 to (SizeOfArray(avValidationTable)-1)
+                        Send AddMemberValue of hoEnumsJson jsonTypeString avValidationTable[iEnumIndex][0] 
+                    Loop
+                    
+                    Send SetMember of hoSchemaJson "enum" hoEnumsJson
+                    Send Destroy of hoEnumsJson
+                End
+                
+                Send SetMember of hoParameterJson "schema" hoSchemaJson
+                Send AddMember of hoParametersArrayJson hoParameterJson
+            End
+            
+        Loop
+        
+        Send SetMember of hoVerbJson "parameters" hoParametersArrayJson
+        
+        Send Destroy of hoParametersArrayJson
+        Send Destroy of hoParameterJson
+        Send Destroy of hoSchemaJson
+    End_Procedure
+    
+    { Visibility = Private }
+    Procedure ApplyPathParameters Handle hoVerbJson Handle hoEndpoint
+        Handle hoParameterJson hoParametersArrayJson hoSchemaJson
+        Handle hoKeyfield
+        String sFieldName sFieldType sFieldFormat
+        Integer eFieldType
+        
+        Get RetrieveKeyField of hoEndpoint to hoKeyField
+        //Just return if there is no keyfield
+        If (hoKeyField = 0) Begin
+            Procedure_Return
+        End
+        
+        Get Create (RefClass(cJsonObject)) to hoParameterJson
+        Get Create (RefClass(cJsonObject)) to hoParametersArrayJson
+        Get Create (RefClass(cJsonObject)) to hoSchemaJson
+        
+        Send InitializeJsonType of hoParametersArrayJson jsonTypeArray
+        
+        //If we have a key field that we can sort by
+        Send InitializeJsonType of hoParameterJson jsonTypeObject
+        Send InitializeJsonType of hoSchemaJson jsonTypeObject
+        
+        //Get the field name of the unique key
+        Get FieldType of hoKeyField to eFieldType
+        
+        //Set the path parameter values
+        Send SetMemberValue of hoParameterJson "in" jsonTypeString "path"
+        Send SetMemberValue of hoParameterJson "name" jsonTypeString "Id"
+        Send SetMemberValue of hoParameterJson "required" jsonTypeBoolean True
+        
+        Send FieldTypeToOpenApiType eFieldType (&sFieldType) (&sFieldFormat)
+        
+        Send SetMemberValue of hoSchemaJson "type" jsonTypeString sFieldType
+        
+        Send SetMember of hoParameterJson "schema" hoSchemaJson
+        Send AddMember of hoParametersArrayJson hoParameterJson
+        
+        Send SetMember of hoVerbJson "parameters" hoParametersArrayJson
+        
+        Send Destroy of hoParametersArrayJson
+        Send Destroy of hoParameterJson
+        Send Destroy of hoSchemaJson
+    End_Procedure
+    
+    //This will parse the fields defined inside of a dataset
+    { Visibility = Private }
+    Procedure FieldToOpenApi Handle hoField Handle hoPropertiesJson
+        Integer eFieldType iChildCount iIndex
+        String sFieldName sFieldType sFieldHelp sNestedSchemaName sFieldFormat
+        Handle hoNestedPropertiesObject hoNestedSchema hoNestedSchemaProperties hoForeignSchemaChild hoItems
+        Handle[] hoNestedFields
+        Variant[][2] avValidationTable
+        Boolean bIsField bReadOnly bWriteOnly bIsChildCollection
+        
+        //If the class is not a cRestField its a cRestEntity or cRestChildCollection
+        Move (IsObjectOfClass(hoField, RefClass(cRestField))) to bIsField
+        
+        If not bIsField Begin
+            //Determine if the object is a entity or field
+            Move (IsObjectOfClass(hoField, RefClass(cRestChildCollection))) to bIsChildCollection
+            
+            Get SchemaName of hoField to sNestedSchemaName
+            
+            //Initialize the nested schema
+            Get Create (RefClass(cJsonObject)) to hoNestedSchema
+            Get Create (RefClass(cJsonObject)) to hoNestedSchemaProperties
+            
+            Send InitializeJsonType of hoNestedSchema jsonTypeObject
+            Send InitializeJsonType of hoNestedSchemaProperties jsonTypeObject
+            
+            //If we get the class is either a cRESTEntity or a cRESTChildCollection.
+            Get Child_Count of hoField to iChildCount
+            
+            //Add all the child elements to the Json
+            For iIndex from 0 to (iChildCount - 1)
+                Get ChildByIndex of hoField iIndex to hoForeignSchemaChild
+                Send FieldToOpenApi hoForeignSchemaChild hoNestedSchemaProperties
+            Loop
+            
+            //Append the nested schema differently based on if its a child collection or entity
+            If bIsChildCollection Begin
+                //Child collections are of type array and have a extra member called items in which all the fields are defined
+                Get Create (RefClass(cJsonObject)) to hoItems
+                Send InitializeJsonType of hoItems jsonTypeObject
+                Send SetMemberValue of hoItems "description" jsonTypeString (SFormat("A list of %1", sNestedSchemaName))
+                
+                Send SetMemberValue of hoNestedSchema "type" jsonTypeString "array"
+                
+                Send SetMember of hoItems "properties" hoNestedSchemaProperties
+                Send SetMember of hoNestedSchema "items" hoItems
+                //Make sure we destroy again
+                Send Destroy of hoItems
+            End
+            Else Begin
+                //For the entity its sufficient to mark it as type object and append the list of properties (fields)
+                Send SetMemberValue of hoNestedSchema "type" jsonTypeString "object"
+                Send SetMember of hoNestedSchema "properties" hoNestedSchemaProperties    
+            End
+            //Append the nested schema to the actual schema
+            Send SetMember of hoPropertiesJson sNestedSchemaName hoNestedSchema
+            
+            //Clean up
+            Send Destroy of hoNestedSchemaProperties
+            Send Destroy of hoNestedSchema
+            Procedure_Return
+        End
+        
+        //Retrieve all the info for the current field
+        Get FieldName of hoField to sFieldName
+        Get FieldType of hoField to eFieldType
+        Get FieldHelp of hoField to sFieldHelp
+        Get pbReadOnly of hoField to bReadOnly
+        Get pbWriteOnly of hoField to bWriteOnly
+        Get FieldValidationTable of hoField to avValidationTable
+        
+        Get Create (RefClass(cJsonObject)) to hoNestedPropertiesObject
+        Send InitializeJsonType of hoNestedPropertiesObject jsonTypeObject
+        
+        //Determine the type for the OpenApi spec
+        Send FieldTypeToOpenApiType eFieldType (&sFieldType) (&sFieldFormat)
+        
+        Send SetMemberValue of hoNestedPropertiesObject "type" jsonTypeString sFieldType
+        
+        //Apply optional formatting
+        If (sFieldFormat <> "") Begin
+            Send SetMemberValue of hoNestedPropertiesObject "format" jsonTypeString sFieldFormat
+        End
+        
+        //If the data dictionary has a status help we'll use that as example data
+        If (sFieldHelp <> "") Begin
+            Send SetMemberValue of hoNestedPropertiesObject "example" jsonTypeString sFieldHelp
+        End
+        
+        //Mark fields as readOnly so they are not used in example data for post, patch and put requests
+        If bReadOnly Begin
+            Send SetMemberValue of hoNestedPropertiesObject "readOnly" jsonTypeBoolean True
+        End
+        
+        //Marks fields as writeOnly so they are not returned in the response body
+        If bWriteOnly Begin
+            Send SetMemberValue of hoNestedPropertiesObject "writeOnly" jsonTypeBoolean True
+        End
+        
+        //If we have a validation table we should add it to the object
+        If (SizeOfArray(avValidationTable) <> 0) Begin
+            Send AddValidationTableToField hoNestedPropertiesObject avValidationTable
+        End
+        
+        Send SetMember of hoPropertiesJson sFieldName hoNestedPropertiesObject
+        
+        //Clean up
+        Send Destroy of hoNestedPropertiesObject
+    End_Procedure
+    
+    //Adds a fields validation table to the field properties json
+    { Visibility = Private }
+    Procedure AddValidationTableToField Handle hoFieldJson Variant[][] avValidationTable
+         Handle hoOneOfJson
+         oneOf[] oneOf
+         Integer iIndex
+         
+         Get Create (RefClass(cJsonObject)) to hoOneOfJson
+         
+         //Start putting the validation table inside of the struct so we can make use of DataTypeToJson
+         For iIndex from 0 to (SizeOfArray(avValidationTable)-1)
+            Move avValidationTable[iIndex][0] to oneOf[iIndex].const
+            Move avValidationTable[iIndex][0] to oneOf[iIndex].title
+            Move avValidationTable[iIndex][1] to oneOf[iIndex].description
+         Loop
+         
+         Send DataTypeToJson of hoOneOfJson oneOf
+         
+         Send SetMember of hoFieldJson "oneOf" hoOneOfJson
+         
+         Send Destroy of hoOneOfJson
+    End_Procedure
+    
+    { Visibility = Private }
+    Procedure RecursiveParseDatasets Handle hoPathsJson Handle hoSchemasJson Handle hoRoutable
+        Handle[] hoNestedRoutables
+        Integer iAmountOfRoutables iIndex
+        
+        //Check if the class is a custom endpoint or a data aware endpoint
+        If (IsObjectOfClass(hoRoutable, RefClass(cWebApiCustomEndpoint))) Begin
+            Send ParseCustomEndpoint hoPathsJson hoRoutable
+        End
+        Else If (IsObjectOfClass(hoRoutable, RefClass(cBaseRestDataset))) Begin
+            Send ParseSchema hoSchemasJson hoRoutable
+            Send ParseEndpoint hoPathsJson hoRoutable
+        End
+        Else Begin
+            Get phoRoutables of hoRoutable to hoNestedRoutables
+            Move (SizeOfArray(hoNestedRoutables)-1) to iAmountOfRoutables
+            
+            If (iAmountOfRoutables = -1) Begin
+                Procedure_Return
+            End
+            
+            For iIndex from 0 to iAmountOfRoutables
+                Send RecursiveParseDatasets hoPathsJson hoSchemasJson hoNestedRoutables[iIndex]
+            Loop
+        End
+    End_Procedure
+    
+    //Returns every single auth modifier
+    { Visibility = Private }
+    Procedure GetAllAuthModifiers Handle hoCurrentObject Handle[] ByRef hoAuthModifiers
+        Handle[] hoRoutables hoCurrentObjectModifiers
+        Integer iIndex iModifierIndex iBinarySearchIndex
+        
+        Get GetAuthModifiers of hoCurrentObject to hoCurrentObjectModifiers
+        
+        //Prevent inserting duplicates
+        For iModifierIndex from 0 to (SizeOfArray(hoCurrentObjectModifiers)-1)
+            Move (BinarySearchArray(hoCurrentObjectModifiers[iModifierIndex], hoAuthModifiers)) to iBinarySearchIndex
+            
+            If (iBinarySearchIndex = -1) Begin
+                Move (BinarySearchInsertPos()) to iBinarySearchIndex
+                
+                Move (InsertInArray(hoAuthModifiers, iBinarySearchIndex, hoCurrentObjectModifiers[iModifierIndex])) to hoAuthModifiers
+            End
+        Loop
+        
+        //If the object is a cRestDataset we do not have to look any further. Otherwise get the routables
+        If (not(IsObjectOfClass(hoCurrentObject, RefClass(cBaseRestDataset)))) Begin
+            Get phoRoutables of hoCurrentObject to hoRoutables
+            
+            For iIndex from 0 to (SizeOfArray(hoRoutables)-1)
+                Send GetAllAuthModifiers hoRoutables[iIndex] (&hoAuthModifiers)
+            Loop
+            
+        End
+    End_Procedure
+    
+    //Helper function to map df field types to the ones used in the OpenApi specification
+    { Visibility = Private }
+    Procedure FieldTypeToOpenApiType Integer eDataflexFieldType String ByRef sFieldType String ByRef sFieldFormat
+        
+        If (eDataflexFieldType = DF_ASCII or eDataflexFieldType = DF_TEXT) Begin
+            Move "string" to sFieldType
+        End
+        Else If (eDataflexFieldType = DF_DATE) Begin
+            Move "string" to sFieldType
+            Move "date" to sFieldFormat
+        End
+        Else If (eDataflexFieldType = DF_DATETIME) Begin
+            Move "string" to sFieldType
+            Move "date-time" to sFieldFormat
+        End
+        Else If (eDataflexFieldType = DF_BINARY) Begin
+            Move "string" to sFieldType
+            Move "binary" to sFieldFormat
+        End
+        Else If (eDataflexFieldType = DF_BCD) Begin
+            Move "integer" to sFieldType
+        End
+             
+    End_Procedure
+    
+    { Visibility = Private }
+    Function EndpointToPath Handle hoEndpoint Boolean bIdRequired Returns String
+        String sPath
+        
+        Get GetFullEndpointPath of hoEndpoint to sPath
+        
+        If (bIdRequired) Begin
+            Move (SFormat("/%1/{Id}", sPath)) to sPath
+        End
+        Else Begin
+            Move (SFormat("/%1", sPath)) to sPath
+        End
+        
+        Function_Return sPath
+    End_Function
+    
+    Procedure End_Construct_Object
+        Forward Send End_Construct_Object
+    End_Procedure
+
+End_Class

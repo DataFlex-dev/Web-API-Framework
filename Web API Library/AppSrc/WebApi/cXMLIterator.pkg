@@ -1,0 +1,188 @@
+﻿Use WebApi\cBaseWebApiIterator.pkg
+
+Class cXMLIterator is a cBaseWebApiIterator
+    
+    Procedure Construct_Object
+        Forward Send Construct_Object
+        Set psMessageType to "application/xml"
+        
+        //Used to track if we have a existing XML Dom document.
+        Property Handle phoXmlDocument 0
+    End_Procedure
+    
+    // Prepares the XML data to a format that can be sent to the client
+    Procedure PrepareForTransfer tWebApiCallContext ByRef webapicallcontext
+        String sStringifiedXml
+        Handle hoXMLDocument
+        
+        //Sanity check
+        If (webapicallcontext.hoResponseBody <> 0) Begin
+            Get psXML of webapicallcontext.hoResponseBody to sStringifiedXml    
+        End      
+        
+        Forward Send PrepareForTransfer (&webapicallcontext)
+        
+        //Cleanup the XmlDocument. This should automatically clean up the response body as well
+        Get phoXmlDocument to hoXMLDocument
+        If (hoXMLDocument <> 0) Begin
+            Send Destroy of hoXMLDocument
+            Set phoXmlDocument to 0
+        End        
+        
+        Send OutputString sStringifiedXml
+    End_Procedure
+    
+    // Creates and returns an XML document with a root element named "Array"
+    Function CreateResponseBodyArray String sTableName Returns Handle
+        Handle hoXml hoElement
+        
+        Get phoXmlDocument to hoXml
+        
+        If (hoXml = 0) Begin
+            Get Create (RefClass(cXMLDOMDocument)) to hoXml
+            Set phoXmlDocument to hoXml
+            Get CreateDocumentElement of hoXml sTableName to hoElement
+        End
+        Else Begin
+            Get CreateElementNode of hoXml sTableName '' to hoElement
+        End
+        
+        Send AddAttribute of hoElement "type" "array"
+        
+        Function_Return hoElement
+    End_Function
+    
+    // Creates and returns an XML document with a root element named "Object"
+    Function CreateResponseBodyObject String sTableName Returns Handle
+        Handle hoXml hoElement
+        
+        Get phoXmlDocument to hoXml
+        
+        If (hoXml = 0) Begin
+            Get Create (RefClass(cXMLDOMDocument)) to hoXml
+            Set phoXmlDocument to hoXml
+            Get CreateDocumentElement of hoXml sTableName to hoElement
+        End
+        Else Begin
+            Get CreateElementNode of hoXml sTableName '' to hoElement
+        End
+       
+        Function_Return hoElement    
+    End_Function
+    
+    // Adds an element to the XML response with specified data type and value
+    Procedure ModifyResponseBody Handle hoResponseBody Variant vValue String sFieldName Integer eDataType
+        Move (Replaces(" ", sFieldName, "")) to sFieldName
+        Send AddElement of hoResponseBody sFieldName vValue
+    End_Procedure
+    
+    // Adds a nested XML object to an XML array
+    Procedure AppendToResponseArray Handle hoNestedObject Handle hoResponseArray
+        Handle hoAppendedNode
+        
+        Get AppendNode of hoResponseArray hoNestedObject to hoAppendedNode
+        
+        Send Destroy of hoNestedObject
+    End_Procedure
+    
+    // Adds a nested object to the main response body under a specified field name
+    Procedure AppendNestedObject Handle hoNestedObject Handle hoResponseBody String sNestedObjectName
+        Handle hoAppendedNode
+        
+        Get AppendNode of hoResponseBody hoNestedObject to hoAppendedNode
+        
+        Send Destroy of hoNestedObject
+    End_Procedure
+    
+    // Parses the XML request body into a DataFlex-compatible structure
+    Function ParseRequestBody Returns tRESTRequestBody[]
+        Handle hoXML
+        String sRequestBodyString
+        tRESTRequestBody[] requestBodyParts
+        Boolean bOk
+        
+        //Retrieve the request body
+        Get RequestDataString to sRequestBodyString
+        
+        //If there is no body we just return the empty array
+        If (sRequestBodyString = "") Begin
+            Function_Return requestBodyParts
+        End
+        
+        //Create the xml document and load the xml string into it
+        Get Create (RefClass(cXMLDOMDocument)) to hoXML       
+        Get LoadXML of hoXML sRequestBodyString to bOk
+        
+        //If we could not parse the XML something is wrong with it
+        If not bOk Begin
+            Send Destroy of hoXML
+            Function_Return requestBodyParts
+        End
+        
+        Send RecursiveParseXML hoXML (&requestBodyParts)
+      
+        Send Destroy of hoXML
+        Function_Return requestBodyParts
+    End_Function
+    
+    // Generates an XML error response
+    Procedure GenerateErrorResponse tWebApiCallContext ByRef webapicallcontext
+        Handle hoXml hoElement
+        //Get the XML dom document
+        Get phoXmlDocument to hoXml
+        
+        //If there is no dom document create one
+        If (hoXml = 0) Begin
+            Get Create (RefClass(cXMLDOMDocument)) to hoXml
+            Set phoXmlDocument to hoXml
+            Get CreateDocumentElement of hoXml "Error" to webapicallcontext.hoResponseBody
+        End
+        Else Begin
+            Get CreateElementNode of hoXml "Error" '' to webapicallcontext.hoResponseBody
+        End
+        //Add the elements to the response body
+        Send AddElement of webapicallcontext.hoResponseBody "type" C_WEBAPI_ERROR_TYPE
+        Send AddElement of webapicallcontext.hoResponseBody "status" webapicallcontext.iStatusCode
+        Send AddElement of webapicallcontext.hoResponseBody "title" webapicallcontext.sShortStatusMessage
+        Send AddElement of webapicallcontext.hoResponseBody "detail" webapicallcontext.sErrorMessage
+        Send AddElement of webapicallcontext.hoResponseBody "instance" webapicallcontext.sPath
+    End_Procedure
+    
+    //Recursively fills the requestbody
+    { Visibility = Private }
+    Procedure RecursiveParseXML Handle hoNode tRESTRequestBody[] ByRef requestbody
+        Handle hoCurrentChildNode
+        Boolean bHasChildren
+        Integer iSizeOfArray
+
+        //Get the information from the current node
+        Move (SizeOfArray(requestbody)) to iSizeOfArray
+        
+        //Only add it if the node actually has text
+        If (psText(hoNode) <> "" and psNodeName(hoNode) <> "#document") Begin
+            Get psNodeName of hoNode to requestbody[iSizeOfArray].sFieldName
+            Get psText of hoNode to requestbody[iSizeOfArray].sFieldValue
+        End
+        
+
+        //Loop over the siblings
+        Get FirstChild of hoNode to hoCurrentChildNode
+        //Loop through the child nodes
+        While (hoCurrentChildNode <> 0)
+            
+            Get HasChildNodes of hoCurrentChildNode to bHasChildren
+            
+            If bHasChildren Begin
+                Send RecursiveParseXML hoCurrentChildNode (&requestbody)
+            End
+            
+            Get NextNode of hoCurrentChildNode to hoCurrentChildNode
+        Loop
+        
+    End_Procedure
+
+    Procedure End_Construct_Object
+        Forward Send End_Construct_Object
+    End_Procedure
+
+End_Class

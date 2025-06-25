@@ -1,0 +1,43 @@
+﻿Use WebApi\cRestDataset.pkg
+Use cCustomerDataDictionary.dd
+Use WebApi\cRestField.pkg
+
+Object oCustomerEndpoint is a cRestDataset
+    Set psPath to "Customers"
+    
+    Set pbSecureRead to False
+    
+    Object oCustomer_DD is a cCustomerDataDictionary
+    End_Object
+
+    Set Main_DD to oCustomer_DD
+    Set Server to oCustomer_DD
+
+    Object oCustomer_Customer_Number is a cRestField
+        Set pbReadOnly to True
+        Entry_Item Customer.Customer_Number
+    End_Object 
+
+    Object oCustomer_Name is a cRestField
+        Entry_Item Customer.Name
+    End_Object
+
+    Object oCustomer_Address is a cRestField
+        Entry_Item Customer.Address
+    End_Object
+
+    Object oCustomer_City is a cRestField
+        Entry_Item Customer.City
+    End_Object
+
+    Object oCustomer_State is a cRestField
+        Entry_Item Customer.State
+    End_Object
+
+    Object oCustomer_EMail_Address is a cRestField
+        Entry_Item Customer.EMail_Address
+    End_Object
+    
+    
+    
+End_Object

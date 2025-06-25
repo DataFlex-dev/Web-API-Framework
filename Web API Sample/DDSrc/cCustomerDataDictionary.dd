@@ -1,0 +1,132 @@
+﻿Use DataDict.pkg
+
+Open Customer
+Open OrderHeader
+Open DFLastID
+
+Register_Object Customer_State_VT
+Register_Object Customer_sl
+
+Object Customer_State_VT is a CodeValidationTable
+    Set Type_Value to "STATES"
+    Set Table_Title to "States"
+End_Object
+
+Register_Function ValidateEmail Integer iColumn String sValue Returns Boolean
+
+Register_Object oCustomerWebLookup
+Class cCustomerDataDictionary is a DataDictionary
+    
+    Procedure Construct_Object
+        Forward Send Construct_Object
+        
+        Set Main_File to Customer.File_Number
+        Set Cascade_Delete_State to False
+        
+        Set Foreign_Field_Option DD_KEYFIELD DD_FINDREQ to True
+        Set Foreign_Field_Option DD_INDEXFIELD DD_NOPUT to True
+        Set Foreign_Field_Option DD_DEFAULT DD_DISPLAYONLY to True
+        
+        Set Add_Client_File to OrderHeader.File_Number
+        
+        Set Add_System_File to DFLastID.File_Number DD_LOCK_ON_NEW_SAVE
+        
+        Set Field_Auto_Increment Field Customer.Customer_Number to File_Field DFLastID.Cust_Number
+        Set Field_Label_Long Field Customer.Customer_Number to "Customer Number"
+        Set Field_Label_Short Field Customer.Customer_Number to "Number"
+        Set Field_Option Field Customer.Customer_Number DD_AUTOFIND to True
+        Set Field_Option Field Customer.Customer_Number DD_NOPUT to True
+        Set Field_Prompt_Object Field Customer.Customer_Number to Customer_sl
+        Set Field_WebPrompt_Object Field Customer.Customer_Number to oCustomerWebLookup
+        Set Key_Field_State Field Customer.Customer_Number to True
+        Set Status_Help Field Customer.Customer_Number to "Customer Id Number (system assigned)."
+        
+        Set Field_Label_Long Field Customer.Name to "Customer Name"
+        Set Field_Label_Short Field Customer.Name to "Customer Name"
+        Set Field_Option Field Customer.Name DD_REQUIRED to True
+        Set Field_Prompt_Object Field Customer.Name to Customer_sl
+        Set Field_WebPrompt_Object Field Customer.Name to oCustomerWebLookup
+        Set Status_Help Field Customer.Name to "Customer/Company Name."
+        
+        Set Field_Label_Long Field Customer.Address to "Street Address"
+        Set Field_Label_Short Field Customer.Address to "Address"
+        Set Status_Help Field Customer.Address to "Street Address."
+        
+        Set Status_Help Field Customer.City to "City Name."
+        
+        Set Field_Class_Name Field Customer.State to "Combo"
+        Set Field_Label_Long Field Customer.State to "State"
+        Set Field_Label_Short Field Customer.State to "St."
+        Set Field_Option Field Customer.State DD_CAPSLOCK to True
+        Set Field_Value_Table Field Customer.State to Customer_State_VT
+        Set Status_Help Field Customer.State to "Two letter state ID."
+        
+        Set Field_Label_Long Field Customer.Zip to "Zip/Postal Code"
+        Set Field_Label_Short Field Customer.Zip to "Zip"
+        Set Field_Mask Field Customer.Zip to "#####-####"
+        Set Field_Mask_Type Field Customer.Zip to MASK_WINDOW
+        Set Status_Help Field Customer.Zip to "Zip or Postal Code."
+        
+        Set Field_Label_Long Field Customer.Phone_Number to "Phone Number"
+        Set Field_Label_Short Field Customer.Phone_Number to "Phone"
+        Set Status_Help Field Customer.Phone_Number to "Phone Number."
+        
+        Set Field_Label_Long Field Customer.Fax_Number to "Fax Number"
+        Set Field_Label_Short Field Customer.Fax_Number to "Fax"
+        Set Status_Help Field Customer.Fax_Number to "Fax Phone Number."
+        
+        Set Field_Label_Long Field Customer.Email_Address to "E-Mail Address"
+        Set Field_Label_Short Field Customer.Email_Address to "E-Mail"
+        Set Status_Help Field Customer.Email_Address to "E-mail Address (internet)."
+        Set Field_Validate_msg Field Customer.EMail_Address to (RefFunc(ValidateEmail))
+        Set Field_Option Field Customer.EMail_Address DD_REQUIRED to True
+        
+        Set Field_Class_Name Field Customer.Credit_Limit to "Spin"
+        Set Field_Mask_Type Field Customer.Credit_Limit to MASK_CURRENCY_WINDOW
+        
+        Set Field_Label_Long Field Customer.Purchases to "Total Purchases"
+        Set Field_Label_Short Field Customer.Purchases to "Purchases"
+        Set Field_Mask_Type Field Customer.Purchases to MASK_CURRENCY_WINDOW
+        Set Field_Option Field Customer.Purchases DD_DISPLAYONLY to True
+        
+        Set Field_Label_Long Field Customer.Balance to "Balance Due"
+        Set Field_Label_Short Field Customer.Balance to "Balance"
+        Set Field_Mask_Type Field Customer.Balance to MASK_CURRENCY_WINDOW
+        Set Field_Option Field Customer.Balance DD_DISPLAYONLY to True
+        
+        Set Status_Help Field Customer.Comments to "Additional Comments and Notes."
+        
+        Set Field_Checkbox_Values Field Customer.Status to "Y" "N"
+        Set Field_Label_Long Field Customer.Status to "Active Status"
+        Set Field_Label_Short Field Customer.Status to "Status"
+        Set Status_Help Field Customer.Status to "Active Inactive Status of customer"
+        
+        Set piPrimaryIndex to 1
+    End_Procedure
+    
+    Procedure Field_defaults
+        Forward Send Field_Defaults
+        Set Field_Changed_Value   Field Customer.State to "FL"
+        Set Field_Changed_Value   Field Customer.Credit_Limit to 1000
+        Set Field_Changed_Value   Field Customer.Status to "Y"
+    End_Procedure
+    
+    //  Validates if the field contains a valid email address (it allows empty values too).
+    Function ValidateEmail Integer iColumn String sValue Returns Boolean
+        Integer iAt iDot
+        Boolean bResult
+        
+        If (Trim(sValue) <> "") Begin
+            Move (Pos("@", sValue)) to iAt
+            Move (RightPos(".", sValue)) to iDot
+            
+            If (not(iAt > 1 and iDot > 0 and iDot > iAt + 1 and iDot < Length(sValue))) Begin
+                Send Data_set_error iColumn DFERR_OPERATOR "Please enter a valid email address"
+                Move True to bResult
+            End
+        End
+        
+        Function_Return bResult
+    End_Function
+    
+End_Class

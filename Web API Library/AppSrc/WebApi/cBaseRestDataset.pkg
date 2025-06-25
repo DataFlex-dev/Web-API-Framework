@@ -1,0 +1,300 @@
+﻿Use WebApi\tRESTRequestBody.pkg
+Use WebApi\cWebApiRouter.pkg
+Use WebApi\cRestField.pkg
+Use WebApi\cRestEntity.pkg
+Use WebApi\cRestChildCollection.pkg
+Use WebApi\cRest_Mixin.pkg
+Use WebApi\cWebApiModifierHost_Mixin.pkg
+Use cWebComponent.pkg
+
+//Base class for all dataset classes.
+{ DataAware=True }
+{ DDOHost=True }
+{ CompositeClass=cRestField }
+Class cBaseRestDataset is a cWebComponent
+    
+    Procedure Construct_Object
+        Forward Send Construct_Object
+        
+        //When this property is set to true only GET operations will be available for this endpoint
+        Property Boolean pbReadOnly False
+        
+        //these properties define what operations are available for this endpoint.
+        Property Boolean pbAllowRead True
+        Property Boolean pbAllowCreate True
+        Property Boolean pbAllowEdit True
+        Property Boolean pbAllowDelete True
+        
+        //These properties define which verbs are protected by the security.
+        Property Boolean pbSecureRead True
+        Property Boolean pbSecureCreate True
+        Property Boolean pbSecureEdit True
+        Property Boolean pbSecureDelete True
+        
+        Send Define_cRest_Mixin
+        Send Define_cWebApiModifierHost_Mixin
+    End_Procedure
+    
+    Import_Class_Protocol cRest_Mixin
+    Import_Class_Protocol cWebApiModifierHost_Mixin   
+    
+        { Visibility = Private }
+    Procedure OnHttpRequest tWebApiCallContext ByRef webapicallcontext
+        Boolean bExposedVerb bHasID
+        Integer iSizeOfPathPieces iID
+        String[] asPathPieces
+        
+        Move (StrSplitToArray(webapicallcontext.sPath, "/")) to asPathPieces
+        Move (SizeOfArray(asPathPieces)-1) to iSizeOfPathPieces
+        Get IsNumeric asPathPieces[iSizeOfPathPieces] to bHasID
+        
+        If bHasID Begin
+            Move asPathPieces[iSizeOfPathPieces] to iID
+        End
+        
+        //Check if the current verb is exposed
+        Get IsVerbAllowed webapicallcontext.sVerb to bExposedVerb
+        
+        //Only route if the verb is actually exposed. Otherwise return a error
+        If (bExposedVerb) Begin
+            
+            //If the verb is exposed we can assume the request can be handled
+            Get GetDatasetTableName to webapicallcontext.sMainTableName
+            
+            Case Begin
+                Case (webapicallcontext.sVerb = C_WEBAPI_GET and not(iID))
+                    Send OnHttpGet (&webapicallcontext)
+                    Case Break
+                Case (webapicallcontext.sVerb = C_WEBAPI_GET)
+                    Send OnHttpGetByID (&webapicallcontext) iID
+                    Case Break
+                Case (webapicallcontext.sVerb = C_WEBAPI_POST)
+                    Send OnHttpPost (&webapicallcontext)
+                    Case Break
+                Case (webapicallcontext.sVerb = C_WEBAPI_PUT)
+                    Send OnHttpPut (&webapicallcontext) iID
+                    Case Break
+                Case (webapicallcontext.sVerb = C_WEBAPI_PATCH)
+                    Send OnHttpPatch (&webapicallcontext) iID
+                    Case Break
+                Case (webapicallcontext.sVerb = C_WEBAPI_DELETE)
+                    Send OnHttpDelete (&webapicallcontext) iID
+                    Case Break
+                Case (webapicallcontext.sVerb = C_WEBAPI_OPTIONS)
+                    Send OnHttpOptions (&webapicallcontext)
+            Case End
+            
+        End
+        Else Begin
+            Move True to webapicallcontext.bErr
+            Move C_WEBAPI_NOTALLOWED to webapicallcontext.iStatusCode
+            Move "Not Allowed" to webapicallcontext.sShortStatusMessage
+            Move (SFormat("The %1 method is not allowed on the current resource", webapicallcontext.sVerb)) to webapicallcontext.sErrorMessage
+        End
+    End_Procedure
+    
+    { Visibility = Private }
+    Procedure RouteRequest tWebApiCallContext ByRef webapicallcontext
+        Move Self to webapicallcontext.hoDataset
+        
+        Send AddModifiersToCallContext (&webapicallcontext)
+    End_Procedure
+    
+    { MethodType = Event }
+    Procedure OnHttpGet tWebApiCallContext ByRef webapicallcontext
+    End_Procedure
+    
+    { MethodType = Event }
+    Procedure OnHttpGetByID tWebApiCallContext ByRef webapicallcontext Integer iID
+    End_Procedure
+    
+    { MethodType = Event }
+    Procedure OnHttpPost tWebApiCallContext ByRef webapicallcontext
+    End_Procedure
+    
+    { MethodType = Event }
+    Procedure OnHttpPut tWebApiCallContext ByRef webapicallcontext Integer iID
+    End_Procedure
+    
+    { MethodType = Event }
+    Procedure OnHttpPatch tWebApiCallContext ByRef webapicallcontext Integer iID
+    End_Procedure
+    
+    { MethodType = Event }
+    Procedure OnHttpDelete tWebApiCallContext ByRef webapicallcontext Integer iID
+    End_Procedure
+    
+    //Should return the available verbs for this endpoint
+    { Visibility = Private }
+    Procedure OnHttpOptions tWebApiCallContext ByRef webapicallcontext
+        String sAvailableVerbs sRequestedVerb
+        String[] asAvailableVerbs
+        Boolean bAllowRead bAllowCreate bAllowEdit bAllowDelete
+        
+        Get HttpRequestHeader "Access-Control-Request-Method" to sRequestedVerb
+        
+        Get pbAllowRead to bAllowRead
+        Get pbAllowCreate to bAllowCreate
+        Get pbAllowEdit to bAllowEdit
+        Get pbAllowDelete to bAllowDelete
+        
+        //Start building up the string to put in the allow header
+        If (bAllowRead) Begin
+            Move C_WEBAPI_GET to asAvailableVerbs[-1]
+        End
+        
+        If (bAllowCreate) Begin
+            Move C_WEBAPI_POST to asAvailableVerbs[-1]
+        End
+        
+        If (bAllowEdit) Begin
+            Move C_WEBAPI_PUT to asAvailableVerbs[-1]
+            Move C_WEBAPI_PATCH to asAvailableVerbs[-1]
+        End
+        
+        If (bAllowDelete) Begin
+            Move C_WEBAPI_DELETE to asAvailableVerbs[-1]
+        End
+        
+        Move C_WEBAPI_OPTIONS to asAvailableVerbs[-1]
+        
+        Get StrJoinFromArray asAvailableVerbs ", " to sAvailableVerbs
+        
+        //If we have a requested verb this is a CORS preflight call.
+        If (sRequestedVerb <> "") Begin
+            Send AddHttpResponseHeader "Access-Control-Allow-Methods" sAvailableVerbs
+            Send AddHttpResponseHeader "Access-Control-Allow-Headers" "*"
+        End
+        Else Begin
+            Send AddHttpResponseHeader "Allow" sAvailableVerbs
+        End
+        
+        
+        Move C_WEBAPI_NOCONTENT to webapicallcontext.iStatusCode
+        Move "No Content" to webapicallcontext.sShortStatusMessage
+    End_Procedure
+    
+    //Parses the current buffered record into a response body
+    Procedure CurrentRecordToResponseBody Handle hoResponseBody Handle hoIterator
+        Integer iIndex iAmountOfDataObjects
+        Handle[] hoExposedDataObjects
+        
+        Get RetrieveExposedDataFields to hoExposedDataObjects
+        
+        Move (SizeOfArray(hoExposedDataObjects)-1) to iAmountOfDataObjects
+        
+        For iIndex from 0 to iAmountOfDataObjects
+            Send AppendToBody of hoExposedDataObjects[iIndex] hoResponseBody hoIterator
+        Loop
+    End_Procedure
+    
+    { Visibility = Private }
+    Function IsNumeric String sNumber Returns Boolean
+        String sCompare
+        Integer iLength iPosition
+        Integer iDecimalSeparator iThousandSeparator
+        
+        // Building compare string.
+        Move "-0123456789" to sCompare
+    
+        // Check the value
+        Move (Length(sNumber)) to iLength
+        For iPosition from 1 to iLength
+            If (not(sCompare contains Mid(sNumber, 1, iPosition))) Function_Return False
+        Loop
+        Function_Return True
+    End_Function
+    
+    { Visibility = Private }
+    Function GetDatasetTableName Returns String
+        String sTableName
+        
+        Get psPath to sTableName
+        
+        Function_Return sTableName  
+    End_Function
+    
+    //This returns all exposed datafields
+    Function RetrieveExposedDataFields Returns Handle[]
+        Integer iIndex iChildCount
+        Handle hoChild
+        Handle[] hoExposedDataObjects
+        
+        Get Child_Count to iChildCount
+        
+        For iIndex from 0 to (iChildCount - 1)
+            Get ChildByIndex iIndex to hoChild
+            If (IsObjectOfClass(hoChild, RefClass(cRestField)) or ;
+            IsObjectOfClass(hoChild, RefClass(cRestEntity)) or ;
+            IsObjectOfClass(hoChild, RefClass(cRestChildCollection))) Begin
+                Move hoChild to hoExposedDataObjects[-1]
+            End
+        Loop
+        
+        Function_Return hoExposedDataObjects
+    End_Function
+    
+    //Should recursively return a string to the highest level router object that this dataset is in
+    { Visibility = Private }
+    Function GetFullEndpointPath Returns String
+        Handle hoParent
+        String sFullPath sParentPath
+        
+        Get psPath to sFullPath
+        Get Parent to hoParent
+        
+        While (IsObjectOfClass(hoParent, RefClass(cWebApiRouter)))
+            Get psPath of hoParent to sParentPath
+            Move (sParentPath + "/" + sFullPath) to sFullPath
+            
+            Get Parent of hoParent to hoParent
+        Loop
+        
+        Function_Return sFullPath
+    End_Function
+    
+    { Visibility = Private }
+    Function IsVerbAllowed String sVerb Returns Boolean
+        Boolean bReadOnly bAllowedVerb
+        
+        //OPTIONS requests should always be allowed and return the available verbs for the endpoint
+        If (sVerb = C_WEBAPI_OPTIONS) Begin
+            Function_Return True
+        End
+        
+        //First check for ReadOnly
+        Get pbReadOnly to bReadOnly
+        
+        //If the request is not a get request and the endpoint is marked as ReadOnly its not allowed
+        If ((sVerb <> C_WEBAPI_GET) and bReadOnly) Begin
+            Function_Return False 
+        End
+        
+        If (sVerb = C_WEBAPI_GET) Begin
+            Get pbAllowRead to bAllowedVerb
+        End
+        
+        If (sVerb = C_WEBAPI_POST) Begin
+            Get pbAllowCreate to bAllowedVerb
+        End
+        
+        If (sVerb = C_WEBAPI_PUT or sVerb = C_WEBAPI_PATCH) Begin
+            Get pbAllowEdit to bAllowedVerb
+        End
+        
+        If (sVerb = C_WEBAPI_DELETE) Begin
+            Get pbAllowDelete to bAllowedVerb
+        End
+        
+        Function_Return bAllowedVerb
+    End_Function
+
+    Procedure End_Construct_Object
+        Forward Send End_Construct_Object
+
+        //Register the endpoint at the route
+        Delegate Send RegisterRoutable Self
+        Send End_Construct_cWebApiModifierHost_Mixin
+    End_Procedure
+
+End_Class

@@ -1,0 +1,119 @@
+﻿Use DataDict.pkg
+
+Open OrderDetail
+Open OrderHeader
+Open Inventory
+
+Class cOrderDetailDataDictionary is a DataDictionary
+    
+    Procedure Construct_Object
+        Forward Send Construct_Object
+        
+        Set Main_File to OrderDetail.File_Number
+        Set Cascade_Delete_State to False
+        
+        Set Foreign_Field_Option DD_KEYFIELD DD_FINDREQ to True
+        Set Foreign_Field_Option DD_INDEXFIELD DD_NOPUT to True
+        Set Foreign_Field_Option DD_DEFAULT DD_DISPLAYONLY to True
+        
+        Set Add_Server_File to OrderHeader.File_Number
+        Set Add_Server_File to Inventory.File_Number
+        
+        Set Field_Auto_Increment Field OrderDetail.Detail_Number to File_Field OrderHeader.Last_Detail_Num
+        
+        Set Field_Option Field OrderDetail.Order_Number DD_NOPUT to True
+        
+        Set Field_Option Field OrderDetail.Detail_Number DD_NOPUT to True
+        
+        Set Field_Exit_msg Field OrderDetail.Qty_Ordered to Adjust_Display_Total
+        Set Field_Label_Long Field OrderDetail.Qty_Ordered to "Quantity Ordered"
+        Set Field_Label_Short Field OrderDetail.Qty_Ordered to "Quantity"
+        Set Field_Mask_Type Field OrderDetail.Qty_Ordered to Mask_Numeric_Window
+        Set Status_Help Field OrderDetail.Qty_Ordered to "Number of items ordered"
+        Set Field_Value_Range Field OrderDetail.Qty_Ordered to 1 100
+        Set Field_Error Field OrderDetail.Qty_Ordered to 0  "Quantity per order line limited to 100"
+
+        
+        Set Field_Entry_msg Field OrderDetail.Price to Entering_Price
+        Set Field_Exit_msg Field OrderDetail.Price to Adjust_Display_Total
+        Set Field_Label_Long Field OrderDetail.Price to "Price per Unit"
+        Set Field_Label_Short Field OrderDetail.Price to "Price"
+        Set Field_Mask_Type Field OrderDetail.Price to MASK_CURRENCY_WINDOW
+        Set Status_Help Field OrderDetail.Price to "Price per Unit"
+        Set Field_Value_Range Field OrderDetail.Price to 0.01 2500
+        Set Field_Error Field OrderDetail.Price to 0 (String("Unit price may not exceed" * FormatCurrency(2500, 2)))
+        
+        Set Field_Label_Long Field OrderDetail.Extended_Price to "Extended Price"
+        Set Field_Label_Short Field OrderDetail.Extended_Price to "Total"
+        Set Field_Mask_Type Field OrderDetail.Extended_Price to MASK_CURRENCY_WINDOW
+        Set Field_Option Field OrderDetail.Extended_Price DD_DISPLAYONLY to True
+        Set Status_Help Field OrderDetail.Extended_Price to "Total extended price"
+        
+        Set piPrimaryIndex to 1
+    End_Procedure
+    
+    // Update and Backout need to adjust the Inventory.On_Hand quantity,
+    // the OrderDetail line's extended price and the OrderHeader total.
+    // We will call the same procedure (Adjust_Balances) to insure that
+    // Backout and Update are inverses of each other.
+    // Note that Backout does not need to change the Extended_Price.
+    // This only gets changed as part of Update.
+    Procedure Update
+        Forward Send Update
+        Move (OrderDetail.Price * OrderDetail.Qty_Ordered) to OrderDetail.Extended_Price
+        Send Adjust_Balances OrderDetail.Qty_Ordered OrderDetail.Extended_Price
+    End_Procedure
+    
+    Procedure Backout
+        Forward Send Backout
+        Send Adjust_Balances (-OrderDetail.Qty_Ordered) (-OrderDetail.Extended_Price)
+    End_Procedure
+    
+    // Called by Backout and Update, passing the quantity and the extended price.
+    // Subtract quantity from on-hand Inventory and add extended Amt to order total.
+    Procedure Adjust_Balances Number Qty Number Amt
+        Subtract Qty from Inventory.On_Hand
+        Add      Amt to   OrderHeader.Order_Total
+    End_Procedure
+    
+    // when entering the price field we may wish to update the
+    // current field value with the standard unit price from the Inventory table.
+    // Only do this if the current amount is zero and an item was actually picked.
+    // If non-zero or no item picked, we assume the field is being edited (and we make no assumptions).
+    Procedure Entering_Price Integer Field# Number nAmnt
+        Handle hoInventoryDD
+        Boolean bHasRecord
+        
+        Get Data_Set Inventory.File_Number to hoInventoryDD
+        
+        If (hoInventoryDD) Begin
+            Get HasRecord of hoInventoryDD to bHasRecord
+            
+            If (nAmnt=0 and bHasRecord) Begin
+                Get File_Field_Current_Value File_Field Inventory.Unit_Price to nAmnt
+                Set Field_Changed_Value Field# to nAmnt
+                Send Adjust_Display_Total
+            End
+        End
+        
+    End_Procedure
+    
+    // This updates the extended price field, which will update any display balances.
+    // This is only done for display purposes.
+    // The actual amount is updated to the field during the save.
+    Procedure Adjust_Display_total Integer iField String sValue
+        Integer iQty
+        Number  nAmnt
+        
+        Get Field_Current_Value Field OrderDetail.Qty_Ordered    to iQty
+        Get Field_Current_Value Field OrderDetail.Price          to nAmnt
+        Set Field_Current_Value Field OrderDetail.Extended_Price to (nAmnt * iQty)
+        // note we set value, but not changed_state!
+    End_Procedure
+    
+    Procedure Field_Defaults
+        Forward Send Field_Defaults
+        Set Field_Changed_Value Field OrderDetail.Qty_Ordered to 1
+    End_Procedure
+    
+End_Class

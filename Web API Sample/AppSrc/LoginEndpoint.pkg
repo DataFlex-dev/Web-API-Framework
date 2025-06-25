@@ -1,0 +1,32 @@
+﻿Use WebApi\cWebApiLoginEndpoint.pkg
+Use WebApi\cRestField.pkg
+Use WebApi\cWebApiModifier.pkg
+
+Object oLoginEndpoint is a cWebApiLoginEndpoint
+    Set pbRegisterMode to False
+
+    Set psPath to "Login"
+
+    Object oUsername is a cRestField
+        Set psFieldName to "Username"
+        Set pbWriteOnly to True
+    End_Object
+
+    Object oPassword is a cRestField
+        Set psFieldName to "Password"
+        Set pbWriteOnly to True
+    End_Object
+    
+    Object oApiKey is a cRestField
+        Set psFieldName to "Api-Key"
+        Set pbReadOnly to True
+
+        Procedure OnSetCalculatedValue String  ByRef sValue
+            //For this example we make use of the SessionKey as api key, but you could implement custom logic here.
+            Move (Trim(WebAppSession.SessionKey)) to sValue   
+        End_Procedure        
+    End_Object
+    
+    
+    
+End_Object

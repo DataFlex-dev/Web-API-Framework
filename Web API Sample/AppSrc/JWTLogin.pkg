@@ -1,0 +1,106 @@
+﻿Use WebApi\cWebApiLoginEndpoint.pkg
+Use cApiWebToken.pkg
+
+Define C_JWT_KEY_IDENTIFIER for 'RESTAPI'
+Define C_JWT_KEY_PUBLIC for """
+        -----BEGIN PUBLIC KEY-----
+        MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAzff46shdA273c3lklEJB
+        7TLZYVnToGT2SCDAuwMUsgyLCUtckIYxn2iZp3GUwwRcKZM1iV5xlsQGf2jDKtqY
+        eeQbZmAEWfqT0IZXS1MpR+ai+KsjNmUdtZqV3k3Ge+yc+fgyyeeQrYqBlUOjcTjM
+        fh2oHA56z80j366RlzSrl2KE94A/rW8IMC1NNDxsJ79S/UtfxQWPAsYgSvrWLxxI
+        ldCoxrK6KTvF1DuskymT/mvHMyGT3Jl5zqXOkVkCXcgidMmgU8tr7Qt9SZp4SgRR
+        zkigZ4ysjGpUfcx6C8LekYuZWJl9kPtcIpXPoUBUdZh5xa+zIEWJi1owafS/iNlI
+        pwIDAQAB
+        -----END PUBLIC KEY-----
+        """
+        
+Define C_JWT_KEY_PRIVATE for """
+        -----BEGIN RSA PRIVATE KEY-----
+        MIIEpgIBAAKCAQEAzff46shdA273c3lklEJB7TLZYVnToGT2SCDAuwMUsgyLCUtc
+        kIYxn2iZp3GUwwRcKZM1iV5xlsQGf2jDKtqYeeQbZmAEWfqT0IZXS1MpR+ai+Ksj
+        NmUdtZqV3k3Ge+yc+fgyyeeQrYqBlUOjcTjMfh2oHA56z80j366RlzSrl2KE94A/
+        rW8IMC1NNDxsJ79S/UtfxQWPAsYgSvrWLxxIldCoxrK6KTvF1DuskymT/mvHMyGT
+        3Jl5zqXOkVkCXcgidMmgU8tr7Qt9SZp4SgRRzkigZ4ysjGpUfcx6C8LekYuZWJl9
+        kPtcIpXPoUBUdZh5xa+zIEWJi1owafS/iNlIpwIDAQABAoIBAQCKWTc81UsNBFt4
+        mCDEKWFJJ6+2YXTyNv7q4f0zYNVk52H440MQ3OK2FbeoLnXjLKmPT49VbzfTMma+
+        7Cq0PVLQBTWWZYZmvhbNqX83XGvNHRF5ANNNNUxocKacRRe+o+epTFspHb8jonZ6
+        QY2mfqV1TQxflCZQMJYZKJQowbtEmjWo14zT+lbVZTW57Be6vntkPmWNH6eYzXPY
+        zj20n5VZhJJ43ddg30wQqs647bLCshTpchMaN+3Z9lRDefDjfvDTZ72no7Jd2g+J
+        HGLfWmVQttkHPC6UyMZJWwQkjop0RcKo0iDpwnWERcynQamPCFdEGbXt8WRyUbOi
+        RrRVAwCZAoGBAPw3/9MqW270fiiQ1TMGqjwjM8ah5urniUChhc676cxCqhnv5R3j
+        m4jNaXL1CArkqqwjTgA8GR+a1IwF+qFBvyZW+fz6gxH4RjMbIZOQZwNy1Oexfi34
+        oSvnee/K0p+7EByyfILwFP3WXtdisa/G4SW+cOzoG85vYTvdBzpRWL3zAoGBANEO
+        d8RDcAYfUnlSS/rhzz1Yf0DQyi9+QyISh4ZiNuxGz48+XLJ0HzrSo+orTaiqEgMN
+        gZZ/gSwC4rLzl1hNbSRGj+maO5wb5+ab8SCIPvV31gnM+s9zzIlxKQPhKpdj3YME
+        6U+IupgcN+UQmKEhjDeGQPpoqt2UMAz7LKApRpN9AoGBALQn29gdvUm34hVfvqm/
+        7QEfs/AB3UuVLvi3ZziQCSQZyh7UuDdtSL+i2dt/IsuFIlPqs+B/DQMCOSf7bVaZ
+        +8uK/O2yksTXLm16x7T7xFk2QNVuds6ndZhCs1qQ6XmmyI92/nEYxCW8Zeo7WOhR
+        iqjHKypNcO83p6B29J63VEf5AoGBAJK7c+amasdxTqLm13uE6L+nENI+edrx5U7R
+        8Juq7d/TJ7Xj0I5UoOLZm8EtmblrfW71GOK4JcLtV47BGJYa6iMO/823umUs1Qzw
+        oULzPjVuYiXI4LWhEovZiC836HwP1Rcz6Eoxrr46+CRoDKjz8gW6znqz4lHZxAwo
+        c78KmYXFAoGBAPMTqYUU4NNj1O0j8Ojt9LqYxDiAia2arckQsdHMjo8dkBuDPQQ/
+        57cLk6WWIdtaQRj/KjJYE390xVIgP31hDCoP6MHuL3vqubmdvrgNHW8zAM5mBa+w
+        tVwkpwjb5kisApPNyfRZYhxjRmEwoTxDOd97FdnzVFNy0l6mT2bAwhGo
+        -----END RSA PRIVATE KEY-----
+        """
+
+Composite cJWTLoginEndpoint is a cWebApiLoginEndpoint
+    Set psPath to "JWTLogin"
+    
+    //This allows you to configure how long a JWT token will be valid for
+    Property String psPublicKey ""
+    Property String psPrivateKey ""
+    Property String psKeyID "DataFlex"
+    Property String psIssuer "FrameworkSample"
+    Property Integer piExpirationInMinutes 1    
+    
+    Object oJWT is a cApiWebToken        
+    End_Object
+   
+    Object oUsernameField is a cRestField
+        Set psFieldName to "Username"
+        Set pbWriteOnly to True
+    End_Object
+    
+    Object oPasswordField is a cRestField
+        Set psFieldName to "Password"
+        Set pbWriteOnly to True
+    End_Object
+    
+    Object oJWTToken is a cRestField
+        Set psFieldName to "Bearer"
+        Set pbReadOnly to True
+
+        Procedure OnSetCalculatedValue String  ByRef sValue
+            String sLoginName sRights
+            String sSubject sIssuer sAudience sJWT sKeyId
+            UBigInt ubiCurrentUnixTime
+            Integer iExpirationInMinutes
+    
+            Get piExpirationInMinutes to iExpirationInMinutes
+            Get psKeyID to sKeyId
+            Get psIssuer to sIssuer
+            
+            //Get the current unix time
+            Move (CurrentUnixTime()) to ubiCurrentUnixTime     
+            
+            //Get the information we want to put into a JWT token
+            Move (Trim(WebAppUser.LoginName)) to sLoginName
+            
+            Move sLoginName to sSubject
+            Move sLoginName to sAudience
+            //IssuedAt and NotBefore will equal the current unix time
+            
+            Set Subject of oJWT to sSubject
+            Set Audience of oJWT to sAudience
+            Set Issuer of oJWT to sIssuer
+            Set IssuedAt of oJWT to ubiCurrentUnixTime
+            Set NotBefore of oJWT to ubiCurrentUnixTime
+            Set ExpirationAfterMinutes of oJWT to iExpirationInMinutes
+            
+            Get EncodeString of oJWT sKeyId to sValue
+        End_Procedure       
+        
+    End_Object  
+    
+End_Composite

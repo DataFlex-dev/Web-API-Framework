@@ -1,0 +1,14 @@
+[Properties]
+Version=25.0
+[WorkspacePaths]
+ConfigFile=.\Programs\Config.ws
+[Preferences]
+DefaultFormHeight=12
+[Conditionals]
+Is$WebApp=True
+Is$Win64=True
+[Libraries]
+Lib1=..\Web API Library\WebAPIFramework-25.0.sws
+Lib2=Libraries\JsonWebToken\Library\JWT 25.0.sws
+[Projects]
+Project0=WebApp.src

@@ -1,0 +1,81 @@
+﻿Use WebApi\cBaseRestDataset.pkg
+
+Enum_List
+    Define WEBAPI_STRING_FIELD for 0
+    Define WEBAPI_NUMBER_FIELD
+    Define WEBAPI_INTEGER_FIELD
+    Define WEBAPI_BOOLEAN_FIELD
+    Define WEBAPI_ARRAY_FIELD
+    Define WEBAPI_OBJECT_FIELD
+    Define WEBAPI_BINARY_FIELD
+    Define WEBAPI_DATETIME_FIELD
+    Define WEBAPI_DATE_FIELD
+End_Enum_List
+
+Enum_List
+    Define WEBAPI_QUERY_PARAMETER for 0
+    Define WEBAPI_HEADER_PARAMETER
+End_Enum_List
+
+Struct tParameterDefinition
+    String sName
+    String sDescription
+    {EnumList="WEBAPI_QUERY_PARAMETER, WEBAPI_HEADER_PARAMETER"}
+    Integer eParameterIn
+    {EnumList="WEBAPI_STRING_FIELD, WEBAPI_NUMBER_FIELD, WEBAPI_INTEGER_FIELD, WEBAPI_BOOLEAN_FIELD, WEBAPI_ARRAY_FIELD, WEBAPI_OBJECT_FIELD, WEBAPI_BINARY_FIELD, WEBAPI_DATETIME_FIELD, WEBAPI_DATE_FIELD"}
+    Integer eParameterType
+    Boolean bRequired
+End_Struct
+
+Struct tFieldDefinition
+    String sFieldName
+    String sExampleValue
+    {EnumList="WEBAPI_STRING_FIELD, WEBAPI_NUMBER_FIELD, WEBAPI_INTEGER_FIELD, WEBAPI_BOOLEAN_FIELD, WEBAPI_ARRAY_FIELD, WEBAPI_OBJECT_FIELD, WEBAPI_BINARY_FIELD, WEBAPI_DATETIME_FIELD, WEBAPI_DATE_FIELD"}
+    Integer eFieldType
+    Boolean bRequired
+    //This only gets used when the eFieldType is either WEBAPI_ARRAY_FIELD or WEBAPI_OBJECT_FIELD
+    tFieldDefinition[] nestedFields
+End_Struct
+
+Struct tResponseDefinition
+    Integer iStatusCode
+    String sStatusCodeDescription
+    String[] asResponseMediaTypes
+    tFieldDefinition[] responseFields
+End_Struct
+
+Struct tVerbDefinition
+    String sVerb
+    String sDescription
+    tResponseDefinition[] responses
+    //These are optional. Request fields are not required for a GET request for example.
+    String[] asRequestMediaTypes
+    tFieldDefinition[] requestFields
+    //Parameters such as header parameters or query parameters
+    tParameterDefinition[] parameters
+End_Struct
+
+//A endpoint can have multiple different verbs
+Struct tEndpointDefinition
+    tVerbDefinition[] verbDefinitions
+End_Struct
+
+{OverrideProcedure=OnHttpGetByID Visibility=Private}
+Class cWebApiCustomEndpoint is a cBaseRestDataset
+    
+    Procedure Construct_Object
+        Forward Send Construct_Object       
+    End_Procedure
+    
+    //Augment this in your custom endpoint to include all the OpenApi specification information
+    //This only needs to be filled when you want to include your custom endpoint in the OpenApi specification
+    { MethodType = Event }
+    Procedure OnDefineSchema tEndpointDefinition ByRef endpointDefinition
+    End_Procedure
+
+    Procedure End_Construct_Object
+        Forward Send End_Construct_Object
+
+    End_Procedure
+
+End_Class

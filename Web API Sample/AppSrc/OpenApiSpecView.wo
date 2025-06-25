@@ -1,0 +1,24 @@
+﻿Use cWebView.pkg
+Use cWebPanel.pkg
+Use WebApi\cSwaggerUI.pkg
+
+Object oOpenApiView is a cWebView
+    Set psCaption to "OpenApiSpecification"
+    Set pbShowCaption to False
+    
+    Set phoDefaultView to Self
+
+    Object oWebMainPanel is a cWebPanel
+        Set piColumnCount to 24
+        
+        Object oSwaggerUI is a cSwaggerUI
+            Set piColumnSpan to 10
+            Set pbShowLabel to False
+            Set piColumnIndex to 5
+            
+            Set psOpenApiUrl to "/Api/OpenApi"
+        End_Object
+        
+    End_Object 
+
+End_Object

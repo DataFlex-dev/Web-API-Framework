@@ -1,0 +1,60 @@
+﻿Use WebApi\cRestDataset.pkg
+Use cVendorDataDictionary.dd
+Use cInventoryDataDictionary.dd
+Use WebApi\cRestField.pkg
+
+Object oVendorInventoryEndpoint is a cRestDataset
+    Set psPath to "VendorInventory"
+    
+    Set pbAllowCreate to False
+    Set pbAllowEdit to False
+    
+    Object oVendor_DD is a cVendorDataDictionary
+    End_Object
+
+    Object oInventory_DD is a cInventoryDataDictionary
+        Set Constrain_file to Vendor.File_number
+        Set DDO_Server to oVendor_DD
+    End_Object
+
+    Set Main_DD to oVendor_DD
+    Set Server to oVendor_DD
+
+    Object oVendor_ID is a cRestField
+        Entry_Item Vendor.ID
+    End_Object 
+
+    Object oVendor_Name is a cRestField
+        Entry_Item Vendor.Name
+    End_Object
+
+    Object oVendor_Address is a cRestField
+        Entry_Item Vendor.Address
+    End_Object
+
+    Object oVendor_City is a cRestField
+        Entry_Item Vendor.City
+    End_Object
+
+    Object oVendor_State is a cRestField
+        Entry_Item Vendor.State
+    End_Object
+    
+    Object oInventoryInformation is a cRestChildCollection
+        Set Server to oInventory_DD
+
+        Object oInventory_Description is a cRestField
+            Entry_Item Inventory.Description
+        End_Object
+
+        Object oInventory_Unit_Price is a cRestField
+            Entry_Item Inventory.Unit_Price
+        End_Object
+
+        Object oInventory_On_Hand is a cRestField
+            Entry_Item Inventory.On_Hand
+        End_Object
+        
+    End_Object  
+    
+End_Object

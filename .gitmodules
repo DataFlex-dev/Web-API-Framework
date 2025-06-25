@@ -1,0 +1,4 @@
+
+[submodule "Web API Sample/Libraries/JsonWebToken"]
+	path = Web API Sample/Libraries/JsonWebToken
+	url = https://github.com/DataFlex-dev/JsonWebToken.git

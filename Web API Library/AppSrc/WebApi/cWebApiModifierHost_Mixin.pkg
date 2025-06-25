@@ -1,0 +1,87 @@
+﻿Use WebApi\tWebApiCallContext.pkg
+
+Class cWebApiModifierHost_Mixin is a Mixin
+    
+    Procedure Define_cWebApiModifierHost_Mixin
+        
+        { Visibility = Private }
+        Property Handle[] phoModifiers
+        //Inherit security modifiers by default
+        Property Boolean pbInheritSecurity True
+    End_Procedure
+    
+    { Visibility = Private }
+    Procedure AddModifiersToCallContext tWebApiCallContext ByRef webapicallcontext
+        Handle[] hoModifiers
+        Integer iIndex iAmountOfModifiers
+        
+        Get phoModifiers to hoModifiers
+        Move (SizeOfArray(hoModifiers) - 1) to iAmountOfModifiers
+        
+        If (iAmountOfModifiers = -1) Begin
+            Procedure_Return
+        End
+        
+        For iIndex from 0 to iAmountOfModifiers
+            Move hoModifiers[iIndex] to webapicallcontext.hoModifiers[-1]
+        Loop
+        
+    End_Procedure
+    
+    { Visibility = Private }
+    Procedure RegisterModifier Handle hModifier
+        Handle[] hoCurrentModifiers
+        
+        Get phoModifiers to hoCurrentModifiers
+        
+        Move hModifier to hoCurrentModifiers[-1]
+        
+        Set phoModifiers to hoCurrentModifiers
+    End_Procedure
+    
+    { Visibility = Private }
+    Function GetAuthModifiers Returns Handle[]
+        Handle[] hoAllModifiers hoAuthModifiers
+        Integer iAmountOfModifiers iIndex
+        Boolean bIsAuthModifier
+        
+        Get phoModifiers to hoAllModifiers
+        Move (SizeOfArray(hoAllModifiers)-1) to iAmountOfModifiers
+        
+        //If there are no modifiers on the current object just return
+        If (iAmountOfModifiers = -1) Begin
+            Function_Return hoAuthModifiers
+        End
+        
+        For iIndex from 0 to iAmountOfModifiers
+            Get pbAuthModifier of hoAllModifiers[iIndex] to bIsAuthModifier
+            
+            If (bIsAuthModifier) Begin
+                Move hoAllModifiers[iIndex] to hoAuthModifiers[-1]
+            End
+        Loop
+        
+        Function_Return hoAuthModifiers
+    End_Function
+
+    Procedure End_Construct_cWebApiModifierHost_Mixin
+        Handle[] hoModifiers
+        Integer iIndex iAmountOfModifiers
+        
+        Get GetAuthModifiers to hoModifiers
+        Move (SizeOfArray(hoModifiers) - 1) to iAmountOfModifiers
+        
+        If (iAmountOfModifiers = -1) Begin
+            Procedure_Return
+        End
+        
+        //Init all security modifiers
+        For iIndex from 0 to iAmountOfModifiers
+            
+            Send InitSecuredEndpoints of hoModifiers[iIndex]   
+            
+        Loop
+
+    End_Procedure
+
+End_Class

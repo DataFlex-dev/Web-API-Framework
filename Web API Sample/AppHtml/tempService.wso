@@ -1,0 +1,7 @@
+[WebService]
+Application=Rest Framework
+Object=oAsdwad
+ServicePageGenerator=DefaultWebServiceHomePage.xslt
+TestPageGenerator=DefaultWebServiceMethodPage.xslt
+WSDLGenerator=DefaultWebServiceDescription.xslt
+SoapBodyStyle=document

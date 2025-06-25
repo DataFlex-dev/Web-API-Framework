@@ -1,0 +1,13 @@
+#REPLACE FILE265 WebAppServerProps
+#REPLACE WebAppServerProps.Recnum |FN265,0
+#REPLACE WebAppServerProps.Key |FS265,1
+#REPLACE WebAppServerProps.CreateDate |FD265,2
+#REPLACE WebAppServerProps.CreateTime |FS265,3
+#REPLACE WebAppServerProps.ExpiresDate |FD265,4
+#REPLACE WebAppServerProps.ExpiresTime |FS265,5
+#REPLACE WebAppServerProps.Locked |FN265,6
+#REPLACE WebAppServerProps.LockedDate |FD265,7
+#REPLACE WebAppServerProps.LockedTime |FS265,8
+#REPLACE WebAppServerProps.Page |FN265,9
+#REPLACE WebAppServerProps.Pages |FN265,10
+#REPLACE WebAppServerProps.Data |FS265,11

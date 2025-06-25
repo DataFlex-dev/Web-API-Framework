@@ -1,0 +1,82 @@
+﻿Use VdfBase.pkg
+
+Class cWebApiRoutableHost_Mixin is a Mixin
+    
+    Procedure Define_cWebApiRoutableHost_Mixin
+
+        //One array for handles and one for strings.
+        //The string array is used to search a endpoint by name. The index retrieved can then be used to call methods from the handle
+        Property Handle[] phoRoutables
+        Property String[] pasRoutables
+    End_Procedure
+    
+    //Updates the routables array by using binary search and insert.
+    { Visibility = Private }
+    Procedure RegisterRoutable Handle hoRoutable
+        Handle[] hoRoutables
+        String[] asRoutables
+        String sRoutableName sRoutableHostName
+        Integer iIndex
+        
+        //Get the properties
+        Get phoRoutables to hoRoutables
+        Get pasRoutables to asRoutables
+        
+        //Retrieve the name of the dataset
+        Get psPath of hoRoutable to sRoutableName
+        
+        //If the array is empty we can just insert it 
+        Move (BinarySearchArray(sRoutableName, asRoutables)) to iIndex
+        
+        //If we find something it means we have a duplicate routable
+        If (iIndex <> -1) Begin
+            Get psPath to sRoutableHostName
+            Error DFERR_PROGRAM (SFormat("Cannot have duplicates. \n%1 is already defined inside of object %2", sRoutableName, sRoutableHostName))
+            Procedure_Return
+        End
+        
+        Move (BinarySearchInsertPos()) to iIndex
+        
+        //If we found a position insert it there
+        If (iIndex <> -1) Begin
+            Move (InsertInArray(asRoutables, iIndex, sRoutableName)) to asRoutables
+            Move (InsertInArray(hoRoutables, iIndex, hoRoutable)) to hoRoutables
+            
+            //Set the properties
+            Set phoRoutables to hoRoutables
+            Set pasRoutables to asRoutables
+        End
+        
+    End_Procedure
+    
+    /*
+    Get the appropriate routable based on the request url
+    
+    Returns -1 if no routable can be found
+    */
+    Function RoutableIndex String sPath Returns Integer
+        String[] asRoutables asPathParts
+        Integer iIndex iPartIndex
+        
+        Get pasRoutables to asRoutables
+        Move (StrSplitToArray(sPath, '/')) to asPathParts
+        
+        Move -1 to iIndex
+        
+        //Loop through the path parts and see if there is a routable with a matching name
+        For iPartIndex from 0 to (SizeOfArray(asPathParts)-1)
+            Move (BinarySearchArray(asPathParts[iPartIndex], asRoutables)) to iIndex
+            
+            If (iIndex <> -1);
+                Break
+        Loop
+        
+        Function_Return iIndex
+    End_Function
+
+    Procedure End_Construct_Object
+        Forward Send End_Construct_Object
+
+    End_Procedure
+
+End_Class

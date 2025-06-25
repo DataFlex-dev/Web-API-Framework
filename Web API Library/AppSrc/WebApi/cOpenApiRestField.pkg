@@ -1,0 +1,28 @@
+﻿Use WebApi\cRestField.pkg
+Use WebApi\cOpenApiSpecification.pkg
+
+Class cOpenApiRestField is a cRestField
+    
+    Procedure Construct_Object
+        Forward Send Construct_Object
+        
+        Set psFieldName to "OpenApiSpecification"
+        Set pbFilterable to False
+        Set pbReadOnly to True
+        
+        Object oOpenApiGenerator is a cOpenApiSpecification
+        End_Object
+        
+    End_Procedure
+    
+    Procedure OnSetCalculatedValue String  ByRef sValue
+        //Get the OpenApi specification        
+        Get GenerateOpenApiSpec of oOpenApiGenerator to sValue
+    End_Procedure
+
+    Procedure End_Construct_Object
+        Forward Send End_Construct_Object
+
+    End_Procedure
+
+End_Class

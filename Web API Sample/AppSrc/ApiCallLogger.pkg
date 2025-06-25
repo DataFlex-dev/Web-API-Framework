@@ -1,0 +1,40 @@
+﻿Use WebApi\cWebApiModifier.pkg
+
+Object oRequestLogger is a cWebApiModifier
+        
+    Object oApiLogs_DD is a cApiLogsDataDictionary
+    End_Object
+
+    //Logs the incoming request time
+    Procedure OnPreRequest tWebApiCallContext  ByRef webapicallcontext
+        String sIncomingTime
+        
+        Send Clear of oApiLogs_DD
+        
+        Move (CurrentDateTime()) to sIncomingTime
+        
+        Set Field_Changed_Value of oApiLogs_DD Field ApiLogs.Verb to webapicallcontext.sVerb
+        Set Field_Changed_Value of oApiLogs_DD Field ApiLogs.TimeReceived to sIncomingTime
+        Set Field_Changed_Value of oApiLogs_DD Field ApiLogs.Endpoint to webapicallcontext.sPath
+    End_Procedure
+    
+    //Logs outgoing request time, status code and saves the record
+    Procedure OnPostRequest tWebApiCallContext  ByRef webapicallcontext
+        Boolean bErr
+        String sResponseTime
+        
+        
+        //GetTickCount
+        Move (CurrentDateTime()) to sResponseTime
+        
+        Set Field_Changed_Value of oApiLogs_DD Field ApiLogs.TimeResponse to sResponseTime
+        Set Field_Changed_Value of oApiLogs_DD Field ApiLogs.StatusCode to webapicallcontext.iStatusCode
+        
+        Get Request_Validate of oApiLogs_DD to bErr
+        
+        If (not(bErr)) Begin
+            Send Request_Save of oApiLogs_DD
+        End
+    End_Procedure        
+    
+End_Object

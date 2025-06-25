@@ -1,0 +1,7 @@
+#REPLACE FILE264 WebAppUser
+#REPLACE WebAppUser.Recnum |FN264,0
+#REPLACE WebAppUser.LoginName |FS264,1
+#REPLACE WebAppUser.Password |FS264,2
+#REPLACE WebAppUser.Rights |FN264,3
+#REPLACE WebAppUser.FullName |FS264,4
+#REPLACE WebAppUser.LastLogin |FD264,5

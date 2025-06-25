@@ -1,0 +1,108 @@
+﻿Use UI
+Use cBaseDEO.pkg
+
+//Class used to refer to data in a child table
+{ DataAware = True }
+{ CompositeClass=cRestField }
+Class cRestChildCollection is a cObject
+    
+    Import_Class_Protocol cBaseDEO_Mixin
+    
+    Procedure Construct_Object
+        Forward Send Construct_Object
+        
+        Send Define_cBaseDEO_Mixin
+        
+        Property String psNodeName
+        
+        Property Boolean pbReadOnly True
+
+    End_Procedure
+    
+    //This procedure should be called from within cRestDataset to append data to the json
+    //This way the cRestChildCollection is responsible for retrieving and setting the value and not the cRestDataset
+    /* This procedure can have different flows depending on the value of peDisplayType.
+    
+    1. The iterator should instantiate a nested array.
+    
+    2. The Main_DD has a record in the buffer. The related field should be found and a find should be performed based on the value of that field
+    
+    3. For each record a new nested object should be instantiated
+    
+    4. After instantiating the record
+    
+    */
+    Procedure AppendToBody Handle hoResponseBody Handle hoIterator
+        Handle hoNestedArray hoNestedObject hoChild hoServer
+        Integer iChildCount iIndex
+        String sNodeName
+        
+        Get Server to hoServer
+        Get SchemaName to sNodeName
+        Get Child_Count to iChildCount
+        
+        //Create nested object
+        Get CreateResponseBodyArray of hoIterator sNodeName to hoNestedArray
+        
+        //Start finding the child records
+        Send Find of hoServer FIRST_RECORD 1
+        
+        While (Found)
+            //When we find a record create a new nested object
+            Get CreateResponseBodyObject of hoIterator sNodeName to hoNestedObject
+            
+            //Loop through this objects children and append their values to the nested object
+            For iIndex from 0 to (iChildCount - 1)
+                Get ChildByIndex iIndex to hoChild
+                Send AppendToBody of hoChild hoNestedObject hoIterator
+            Loop
+            
+            //Add the nested object to the nested array
+            Send AppendToResponseArray of hoIterator hoNestedObject hoNestedArray
+            
+            //Keep finding child records
+            Send Find of hoServer NEXT_RECORD 1
+        Loop
+        
+        Send AppendNestedObject of hoIterator hoNestedArray hoResponseBody sNodeName
+    End_Procedure
+    
+    Function SchemaName Returns String
+        Integer iFile
+        String sTableName
+        Handle hoServer
+        
+        Get psNodeName to sTableName
+        
+        //If the node name was not manually set default to the name of the table
+        If (sTableName <> "") Begin
+            Function_Return sTableName
+        End
+        
+        Get Server to hoServer
+        
+        Get Main_File of hoServer to iFile
+        
+        Get_Attribute DF_FILE_ROOT_NAME of iFile to sTableName
+        
+        Function_Return sTableName
+    End_Function
+    
+    Function FieldName Returns String
+        //Just return a empty string so we know we dont have to do anything with this field
+        Function_Return ""
+    End_Function
+    
+    Function IsFilterable Returns Boolean
+        Function_Return False
+    End_Function
+    
+    Function IsRequired Returns Boolean
+        Function_Return False
+    End_Function
+
+    Procedure End_Construct_Object
+        Forward Send End_Construct_Object
+    End_Procedure
+
+End_Class

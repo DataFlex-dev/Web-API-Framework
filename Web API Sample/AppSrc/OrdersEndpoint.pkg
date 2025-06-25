@@ -1,0 +1,46 @@
+﻿Use WebApi\cRestDataset.pkg
+Use cCustomerDataDictionary.dd
+Use cSalesPersonDataDictionary.dd
+Use cOrderHeaderDataDictionary.dd
+Use WebApi\cRestField.pkg
+
+Object oOrdersEndpoint is a cRestDataset
+    Set psPath to "Orders"
+    
+    Set pbReadOnly to True
+    
+    Object oSalesPerson_DD is a cSalesPersonDataDictionary
+    End_Object
+
+    Object oCustomer_DD is a cCustomerDataDictionary
+    End_Object
+
+    Object oOrderHeader_DD is a cOrderHeaderDataDictionary
+        Set DDO_Server to oSalesPerson_DD
+        Set DDO_Server to oCustomer_DD
+    End_Object
+
+    Set Main_DD to oOrderHeader_DD
+    Set Server to oOrderHeader_DD
+
+    Object oOrderHeader_Order_Date is a cRestField
+        Entry_Item OrderHeader.Order_Date
+    End_Object
+
+    Object oOrderHeader_Terms is a cRestField
+        Entry_Item OrderHeader.Terms
+    End_Object
+
+    Object oOrderHeader_Ship_Via is a cRestField
+        Entry_Item OrderHeader.Ship_Via
+    End_Object
+
+    Object oOrderHeader_Order_Total is a cRestField
+        Entry_Item OrderHeader.Order_Total
+    End_Object
+    
+    
+    
+    
+    
+End_Object

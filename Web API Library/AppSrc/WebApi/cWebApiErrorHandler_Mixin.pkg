@@ -1,0 +1,117 @@
+﻿
+Class cWebApiErrorHandler_Mixin is a Mixin
+    
+    Procedure Define_cWebApiErrorHandler_Mixin
+        //Marks if an unexpected error occured
+        {Visibility = Private}
+        Property Boolean pbUnexpectedError False
+        
+        {Visibility = Private}
+        Property String[] pasErrorCallstack
+        //When running in debug mode more details are returned in the response body
+        Property Boolean pbDebugMode False
+    End_Procedure
+    
+    Procedure Error_Report Integer ErrNum Integer Err_Line String sErrMsg
+        Boolean bDebugMode
+        String sCallstack sCaption
+        String[] asCallstack
+        
+        Get pbDebugMode to bDebugMode
+        //If a error is reported we should remember that it happened.
+        Set pbUnexpectedError to True
+        
+        If (bDebugMode) Begin
+            Get pasErrorCallstack to asCallstack
+            
+            CallStackDump sCallstack
+            
+            Move sCallstack to asCallstack[-1]
+            
+            Set pasErrorCallstack to asCallstack
+            
+            //If we run in debug mode pop up the error window
+            If (IsDebuggerPresent()) Begin
+                Get ErrorDescription ErrNum sErrMsg to sCaption
+                ErrorDisplay ERR_Line sErrMsg sCaption C_$OK C_$Copy
+            End
+        End
+    End_Procedure
+    
+    //Should start trapping errors and mark itself as the error object
+    Procedure StartErrorTracking
+        Move Self to Error_Object_Id
+    End_Procedure
+    
+    //Should stop trapping errors and mark the old error object as Error_Object_ID
+    Procedure StopErrorTracking
+        String[] asEmptyArray
+        
+        //Reset variables
+        Move ghoErrorHandler to Error_Object_Id        
+        Set pasErrorCallstack to asEmptyArray
+        Set pbUnexpectedError to False
+    End_Procedure
+    
+    //Should return the error message when running in debug mode
+    Function HttpErrorMessage Returns String
+        Boolean bDebugMode
+        String sErrorMessage
+        
+        Get pbDebugMode to bDebugMode
+        //Should return a vague error message when not running in debug mode. More details when running in debug mode
+        If (bDebugMode) Begin
+            Get DetailedErrorMessage to sErrorMessage
+        End
+        Else Begin
+            Move "Something went wrong on the server" to sErrorMessage
+        End
+        
+        Function_Return sErrorMessage
+    End_Function
+    
+    //Should be called when running in pbDebugMode
+    Function DetailedErrorMessage Returns String
+        String[] asErrorMessage
+        String sCombinedErrorMessage sCurrentCallstack
+        Integer iIndex
+        
+        Get pasErrorCallstack to asErrorMessage
+        
+        //Print out all the error callstacks if we are in debug mode
+        For iIndex from 0 to (SizeOfArray(asErrorMessage)-1)
+            Move asErrorMessage[iIndex] to sCurrentCallstack
+            Move (Replaces(Character(13)+Character(10),sCurrentCallstack, " ")) to sCurrentCallstack
+            Append sCombinedErrorMessage " " sCurrentCallstack
+        Loop
+        
+        Function_Return sCombinedErrorMessage
+    End_Function
+    
+    { Visibility = Private }
+    Function ErrorDescription Integer iError String sMessage Returns String
+        String sDescription
+        Boolean bAvailable
+        
+        //  Fetch system error text
+        Get Error_Text of Desktop iError to sDescription
+        Get Error_Text_Available of Desktop iError to bAvailable
+        
+        //  Trim both messages
+        Move (Trim(sDescription)) to sDescription
+        Move (Trim(sMessage)) to sMessage
+        
+        //  Append message if needed
+        If (sMessage <> "") Begin
+            If (sDescription <> "" and bAvailable) Begin
+                Move (sDescription + " " + sMessage) to sDescription
+            End
+            Else Begin
+                Move sMessage to sDescription
+            End
+        End
+        
+        Function_Return sDescription
+    End_Function
+    
+End_Class

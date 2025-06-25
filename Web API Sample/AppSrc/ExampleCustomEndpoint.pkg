@@ -1,0 +1,62 @@
+﻿Use WebApi\cWebApiCustomEndpoint.pkg
+
+Object oExampleCustomEndpoint is a cWebApiCustomEndpoint
+    Set psPath to "CustomLogic"
+
+    Procedure OnHttpPost tWebApiCallContext  ByRef webapicallcontext
+        Send OutputString "Augment this event to do something custom!"
+    End_Procedure
+
+    Procedure OnHttpGet tWebApiCallContext  ByRef webapicallcontext
+        Send OutputString "Augment this event to do something custom!"
+    End_Procedure
+
+    Procedure OnDefineSchema tEndpointDefinition  ByRef endpointDefinition
+        tFieldDefinition imageField
+        tVerbDefinition genericVerbInformation getVerb postVerb
+        tParameterDefinition personIDParam       
+        
+        //Configure the Image field
+        Move "image" to imageField.sFieldName
+        Move WEBAPI_BINARY_FIELD to imageField.eFieldType
+        Move True to imageField.bRequired
+        
+        Move "ID" to personIDParam.sName
+        Move "ID of the person" to personIDParam.sDescription
+        Move WEBAPI_QUERY_PARAMETER to personIDParam.eParameterIn
+        Move WEBAPI_INTEGER_FIELD to personIDParam.eParameterType
+        Move True to personIDParam.bRequired
+        
+        Move personIDParam to genericVerbInformation.parameters[-1]
+        
+        //Configure the response data
+        Move imageField to genericVerbInformation.responses[0].responseFields[-1]
+        Move C_WEBAPI_OK to genericVerbInformation.responses[0].iStatusCode
+        Move "OK" to genericVerbInformation.responses[0].sStatusCodeDescription
+        Move "application/octet-stream" to genericVerbInformation.responses[0].asResponseMediaTypes[-1]       
+        
+        //Move the shared info to the seperate structs
+        Move genericVerbInformation to getVerb
+        Move genericVerbInformation to postVerb
+        
+        //Define the image field as a requested field
+        Move imageField to postVerb.requestFields[0]
+        
+        //Configure the requested data
+        Move "application/octet-stream" to postVerb.asRequestMediaTypes[-1]
+        Move "image/jpg" to postVerb.asRequestMediaTypes[-1]
+        
+        //Add the appropriate verbs
+        Move C_WEBAPI_GET to getVerb.sVerb
+        Move C_WEBAPI_POST to postVerb.sVerb
+        
+        //Give it a description
+        Move "Retrieve the image of a person" to getVerb.sDescription
+        Move "Upload a image belonging to a person" to postVerb.sDescription
+        
+        //Finally move it to the struct
+        Move getVerb to endpointDefinition.verbDefinitions[-1]
+        Move postVerb to endpointDefinition.verbDefinitions[-1]
+    End_Procedure
+    
+End_Object

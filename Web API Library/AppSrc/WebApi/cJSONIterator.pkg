@@ -1,0 +1,185 @@
+﻿Use WebApi\cBaseWebApiIterator.pkg
+
+Class cJSONIterator is a cBaseWebApiIterator
+    
+    Procedure Construct_Object
+        Forward Send Construct_Object
+        
+        Set psMessageType to "application/json"
+
+    End_Procedure
+    
+    //Prepares the data type to a format that can be send to the client
+    Procedure PrepareForTransfer tWebApiCallContext ByRef webapicallcontext
+        String sStringifiedJson
+        
+        //Sanity check
+        If (webapicallcontext.hoResponseBody <> 0) Begin
+            Get Stringify of webapicallcontext.hoResponseBody to sStringifiedJson    
+        End        
+        
+        Forward Send PrepareForTransfer (&webapicallcontext)
+        
+        Send OutputString sStringifiedJson
+    End_Procedure
+    
+    //This should create and return a JSON array
+    Function CreateResponseBodyArray String sTableName Returns Handle
+        Handle hoJsonArray
+        
+        //Create the JSON array and initialize it
+        Get Create (RefClass(cJsonObject)) to hoJsonArray
+        Send InitializeJsonType of hoJsonArray jsonTypeArray
+        
+        Function_Return hoJsonArray
+    End_Function
+    
+    //This should create and return a JSON Object
+    Function CreateResponseBodyObject String sTableName Returns Handle
+        Handle hoJsonObject
+        
+        //Create the JSON Object and initialize it
+        Get Create (RefClass(cJsonObject)) to hoJsonObject        
+        Send InitializeJsonType of hoJsonObject jsonTypeObject
+        
+        Function_Return hoJsonObject
+    End_Function
+    
+    //This should append to a response body
+    Procedure ModifyResponseBody Handle hoResponseBody Variant vValue String sFieldName Integer eDataType
+        Integer eJsonType
+        
+        //Localisatie misschien fixed formaat
+        //Kijken naar een standaard voor REST
+        Case Begin
+            Case (eDataType = DF_ASCII or eDataType = DF_DATE or eDataType = DF_TEXT)     
+                Move jsonTypeString to eJsonType
+                Case Break
+            Case (eDataType = DF_BCD)
+                Move jsonTypeDouble to eJsonType
+                Case Break
+        Case End
+        
+        Send SetMemberValue of hoResponseBody sFieldName eJsonType vValue
+    End_Procedure
+    
+    //This should append a JSON object to a JSON array.
+    Procedure AppendToResponseArray Handle hoNestedObject Handle hoResponseArray
+        Send AddMember of hoResponseArray hoNestedObject
+        Send Destroy of hoNestedObject
+    End_Procedure
+    
+    Procedure AppendNestedObject Handle hoNestedObject Handle hoResponseBody String sNestedObjectName
+        Send SetMember of hoResponseBody sNestedObjectName hoNestedObject
+        Send Destroy of hoNestedObject
+    End_Procedure
+    
+    //This should parse the request body into a data type understandable by DataFlex.
+    Function ParseRequestBody Returns tRESTRequestBody[]
+        Handle hoJson
+        String sRequestBodyString
+        Boolean bOk
+        tRESTRequestBody[] requestBodyParts
+        
+        //Retrieve the request body
+        Get RequestDataString to sRequestBodyString
+        
+        //If there is no body we just return the empty array
+        If (sRequestBodyString = "") Begin
+            Function_Return requestBodyParts
+        End
+        
+        //Create the cJsonObject class and convert it to json
+        Get Create (RefClass(cJsonObject)) to hoJson  
+        Get ParseString of hoJson sRequestBodyString to bOk
+        
+        Send RecursiveJsonBodyToStruct hoJson (&requestBodyParts)
+        
+        Function_Return requestBodyParts
+    End_Function
+    
+    Procedure GenerateErrorResponse tWebApiCallContext ByRef webapicallcontext
+        
+        Get Create (RefClass(cJsonObject)) to webapicallcontext.hoResponseBody
+        Send InitializeJsonType of webapicallcontext.hoResponseBody jsonTypeObject
+        
+        Send SetMemberValue of webapicallcontext.hoResponseBody "type" jsonTypeString C_WEBAPI_ERROR_TYPE
+        Send SetMemberValue of webapicallcontext.hoResponseBody "status" jsonTypeInteger webapicallcontext.iStatusCode 
+        Send SetMemberValue of webapicallcontext.hoResponseBody "title" jsonTypeString webapicallcontext.sShortStatusMessage
+        Send SetMemberValue of webapicallcontext.hoResponseBody "detail" jsonTypeString webapicallcontext.sErrorMessage
+        Send SetMemberValue of webapicallcontext.hoResponseBody "instance" jsonTypeString webapicallcontext.sPath        
+        
+    End_Procedure
+    
+    { Visibility = Private }
+    Procedure RecursiveJsonBodyToStruct Handle hoJson tRESTRequestBody[] ByRef requestBody
+        Integer eMemberType iMemberCount iIndex iStructSize
+        String sMemberName sMemberValue
+        String[] asArrayValues
+        Handle hoNestedObject hoArrayElement
+        Boolean bIsJsonObject
+        
+        Move (IsObjectOfClass(hoJson, RefClass(cJsonObject))) to bIsJsonObject
+        
+        If not bIsJsonObject Begin
+            Procedure_Return
+        End
+        
+        // Determine if it's an object or an array
+        Get JsonType of hoJson to eMemberType
+        
+        //Either object or array
+        If (eMemberType = jsonTypeObject) Begin
+            Get MemberCount of hoJson to iMemberCount
+            //Loop over the object members
+            For iIndex from 0 to (iMemberCount - 1)
+                Get MemberNameByIndex of hoJson iIndex to sMemberName
+                Get MemberJsonType of hoJson sMemberName to eMemberType
+                
+                //If the member is a object or array we recursively call this procedure. Else add its value to the struct
+                If (eMemberType = jsonTypeObject or eMemberType = jsonTypeArray) Begin
+                    Get Member of hoJson sMemberName to hoNestedObject
+                    Send RecursiveJsonBodyToStruct hoNestedObject (&requestBody)
+                End
+                Else Begin
+                    Get MemberValue of hoJson sMemberName to sMemberValue
+                    Move (SizeOfArray(requestBody)) to iStructSize
+                    Move sMemberName to requestBody[iStructSize].sFieldName
+                    Move sMemberValue to requestBody[iStructSize].sFieldValue
+                End
+            Loop
+        End
+        Else If (eMemberType = jsonTypeArray) Begin
+            Get MemberCount of hoJson to iMemberCount
+            //If its a array we recursively adds its members
+            For iIndex from 0 to (iMemberCount - 1)
+                Get MemberByIndex of hoJson iIndex to hoArrayElement
+                Get JsonType of hoArrayElement to eMemberType
+                //If the array element is a nested object recursively call this procedure. Otherwise just get its value.
+                If (hoArrayElement > 0 and eMemberType = jsonTypeObject) Begin
+                    Send RecursiveJsonBodyToStruct hoArrayElement (&requestBody)
+                End
+                Else If (hoArrayElement > 0) Begin
+                    Get JsonValue of hoArrayElement to asArrayValues[-1]
+                    
+                    //When we have appended the last element of the array we add it to the request body struct.
+                    If (iIndex = (iMemberCount-1)) Begin
+                        Move (SizeOfArray(requestBody)) to iStructSize
+                        Get StrJoinFromArray asArrayValues "," to requestBody[iStructSize].sFieldValue
+                    End
+                        
+                End
+                
+            Loop
+        End
+        
+        // Destroy the JSON handle at the end
+        Send Destroy of hoJson
+    End_Procedure
+
+
+    Procedure End_Construct_Object
+        Forward Send End_Construct_Object
+    End_Procedure
+
+End_Class

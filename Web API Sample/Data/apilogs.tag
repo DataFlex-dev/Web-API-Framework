@@ -1,0 +1,8 @@
+ApiLogsId
+TimeReceived
+TimeResponse
+TimeTakenInMiliseconds
+StatusCode
+Verb
+Endpoint
+RemoteAddress

@@ -1,0 +1,24 @@
+﻿Use WebApi\cRestDataset.pkg
+Use cSalesPersonDataDictionary.dd
+Use WebApi\cRestField.pkg
+
+Object oSalesPersonEndpoint is a cRestDataset
+    Set psPath to "SalesPersons"
+    
+    Set pbReadOnly to True
+    
+    Object oSalesPerson_DD is a cSalesPersonDataDictionary
+    End_Object
+
+    Set Main_DD to oSalesPerson_DD
+    Set Server to oSalesPerson_DD
+
+    Object oSalesPerson_ID is a cRestField
+        Entry_Item SalesPerson.ID
+    End_Object
+
+    Object oSalesPerson_Name is a cRestField
+        Entry_Item SalesPerson.Name
+    End_Object
+    
+End_Object

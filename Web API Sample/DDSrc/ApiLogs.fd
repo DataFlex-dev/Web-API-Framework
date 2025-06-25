@@ -1,0 +1,10 @@
+#REPLACE FILE1 ApiLogs
+#REPLACE ApiLogs.Recnum |FN1,0
+#REPLACE ApiLogs.ApiLogsId |FN1,1
+#REPLACE ApiLogs.TimeReceived |FS1,2
+#REPLACE ApiLogs.TimeResponse |FS1,3
+#REPLACE ApiLogs.TimeTakenInMiliseconds |FN1,4
+#REPLACE ApiLogs.StatusCode |FN1,5
+#REPLACE ApiLogs.Verb |FS1,6
+#REPLACE ApiLogs.Endpoint |FS1,7
+#REPLACE ApiLogs.RemoteAddress |FS1,8

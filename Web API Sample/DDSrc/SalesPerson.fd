@@ -1,0 +1,5 @@
+#REPLACE FILE27 SalesPerson
+#REPLACE SalesPerson.Recnum |FN27,0
+#REPLACE SalesPerson.ID |FS27,1
+#REPLACE SalesPerson.Name |FS27,2
+#REPLACE SalesPerson.Avatar |FS27,3

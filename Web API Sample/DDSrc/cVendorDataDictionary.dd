@@ -1,0 +1,84 @@
+﻿Use DataDict.pkg
+
+Open Vendor
+Open Inventory
+Open DFLastID
+
+Register_Object Vendor_State_VT
+
+Object Vendor_State_VT is a CodeValidationTable
+    Set Type_Value to "STATES"
+End_Object
+
+Register_Object Vendor_sl
+Register_Object oVendorWebLookup
+
+Class cVendorDataDictionary is a DataDictionary
+    
+    Procedure Construct_Object
+        Forward Send Construct_Object
+        
+        Set Main_File to Vendor.File_Number
+        Set Cascade_Delete_State to False
+        
+        Set Foreign_Field_Option DD_KEYFIELD DD_FINDREQ to True
+        Set Foreign_Field_Option DD_INDEXFIELD DD_NOPUT to True
+        Set Foreign_Field_Option DD_DEFAULT DD_DISPLAYONLY to True
+        
+        Set Add_Client_File to Inventory.File_Number
+        
+        Set Add_System_File to DFLastID.File_Number DD_LOCK_ON_NEW_SAVE
+        
+        Set Field_Auto_Increment Field Vendor.Id to File_Field DFLastID.Vendor_Number
+        
+        Set Field_Label_Long Field Vendor.ID to "Vendor ID"
+        Set Field_Label_Short Field Vendor.ID to "Vndr ID"
+        Set Field_Option Field Vendor.ID DD_AUTOFIND to True
+        Set Field_Option Field Vendor.ID DD_NOPUT to True
+        Set Field_Prompt_Object Field Vendor.ID to Vendor_sl
+        Set Key_Field_State Field Vendor.ID to True
+        Set Status_Help Field Vendor.ID to "Vendor Id Number (system assigned)."
+        Set Field_WebPrompt_Object Field Vendor.ID to oVendorWebLookup
+        
+        Set Field_Label_Long Field Vendor.Name to "Vendor Name"
+        Set Field_Label_Short Field Vendor.Name to "Name"
+        Set Field_Option Field Vendor.Name DD_REQUIRED to True
+        Set Field_Prompt_Object Field Vendor.Name to Vendor_sl
+        Set Status_Help Field Vendor.Name to "Vendor Name."
+        Set Field_WebPrompt_Object Field Vendor.Name to oVendorWebLookup
+        
+        Set Field_Label_Long Field Vendor.Address to "Street Address"
+        Set Field_Label_Short Field Vendor.Address to "Address"
+        Set Status_Help Field Vendor.Address to "Street Address."
+        
+        Set Status_Help Field Vendor.City to "City Name."
+        
+        Set Field_Class_Name Field Vendor.State to "Combo"
+        Set Field_Label_Long Field Vendor.State to "State"
+        Set Field_Label_Short Field Vendor.State to "St."
+        Set Field_Option Field Vendor.State DD_CAPSLOCK to True
+        Set Field_Value_Table Field Vendor.State to Vendor_State_VT
+        Set Status_Help Field Vendor.State to "Two letter state ID."
+        
+        Set Field_Label_Long Field Vendor.Zip to "Zip/Postal Code"
+        Set Field_Label_Short Field Vendor.Zip to "Zip"
+        Set Field_Mask Field Vendor.Zip to "#####-####"
+        Set Field_Mask_Type Field Vendor.Zip to MASK_WINDOW
+        Set Status_Help Field Vendor.Zip to "Zip or Postal Code."
+        
+        Set Field_Label_Long Field Vendor.Phone_Number to "Phone Number"
+        Set Field_Label_Short Field Vendor.Phone_Number to "Phone"
+        Set Status_Help Field Vendor.Phone_Number to "Phone Number."
+        
+        Set Field_Label_Long Field Vendor.Fax_Number to "Fax Number"
+        Set Field_Label_Short Field Vendor.Fax_Number to "Fax"
+        Set Status_Help Field Vendor.Fax_Number to "Fax Phone Number."
+        
+        Set piPrimaryIndex to 1
+    End_Procedure
+    
+    Procedure Field_Defaults
+        Forward Send Field_Defaults
+    End_Procedure
+    
+End_Class

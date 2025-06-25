@@ -1,0 +1,7 @@
+Object
+
+    // If you need an object, but you don't need any special
+    // methods found in superclasses, this is the place to start.
+    // You can use cObject to create custom classes or objects.
+
+End_Object

@@ -1,0 +1,271 @@
+﻿Use WebApi\cWebApiModifierHost_Mixin.pkg
+Use WebApi\cJSONIterator.pkg
+Use cWebHttpHandler.pkg
+Use WebApi\cXMLIterator.pkg
+Use WebApi\cOpenApiSpecification.pkg
+Use WebApi\cWebApiRoutableHost_Mixin.pkg
+Use WebApi\cOpenApiEndpoint.pkg
+Use WebApi\cWebApiErrorHandler_Mixin.pkg
+
+{OverrideProperty=psVerbs Visibility=Private}
+Class cWebApi is a cWebHttpHandler
+    
+    Procedure Construct_Object
+        Forward Send Construct_Object
+        
+        Set psPath to "Api"
+        
+        Property String psApiTitle "DataFlex REST Api"
+        Property String psApiDescription "Documentation for a REST Api written in DataFlex"
+        Property String psApiVersion "1.0.0"
+        Property String psApiRoot ""
+        
+        {Visibility = Private}
+        Property Integer[] piIteratorClasses
+        {Visibility=Private}
+        Property String[] pasIteratorTypes
+        
+        {Visibility=Private}
+        Property Handle phoCachedIterator
+        
+        Send Define_cWebApiModifierHost_Mixin
+        Send Define_cWebApiRoutableHost_Mixin
+        Send Define_cWebApiErrorHandler_Mixin
+        
+        //Standard OpenApi spec endpoint
+        Object oOpenApiEndpoint is a cOpenApiEndpoint
+        End_Object
+    End_Procedure
+    
+    Import_Class_Protocol cWebApiModifierHost_Mixin
+    Import_Class_Protocol cWebApiRoutableHost_Mixin
+    Import_Class_Protocol cWebApiErrorHandler_Mixin
+    
+    { Visibility = Private }
+    Procedure CleanUp
+        Handle hoCachedIterator
+        
+        //Get the handle to the current cached iterator
+        Get phoCachedIterator to hoCachedIterator
+        
+        //Remove the cached iterator if it exists
+        If (hoCachedIterator <> 0) Begin
+            Send Destroy of hoCachedIterator
+            Set phoCachedIterator to 0    
+        End
+        
+    End_Procedure  
+    
+    //Gets the iterator of the specified type
+    { Visibility = Private }
+    Procedure GetIterator tWebApiCallContext ByRef webapicallcontext
+        String sType
+        String[] sIteratorTypes
+        Integer[] iIteratorClasses
+        Integer iIndex iClass
+        Handle hoCachedIterator
+        
+        Get piIteratorClasses to iIteratorClasses
+        Get pasIteratorTypes to sIteratorTypes
+        Get phoCachedIterator to hoCachedIterator
+        
+        //If the request is a get or delete request we determine the response type through the accept-type. Otherwise we default to whatever the content-type is.
+        If (webapicallcontext.sVerb = C_WEBAPI_GET or webapicallcontext.sVerb = C_WEBAPI_DELETE) Begin
+            Move webapicallcontext.sAcceptType to sType
+        End
+        Else If (webapicallcontext.sVerb = C_WEBAPI_POST or webapicallcontext.sVerb = C_WEBAPI_PATCH or webapicallcontext.sVerb = C_WEBAPI_PUT) Begin
+            Move webapicallcontext.sContentType to sType
+        End
+        
+        //Make sure its lowercased
+        Move (Lowercase(sType)) to sType
+        
+        //Check if the type is present in the list of iterators
+        Move (BinarySearchArray(sType, sIteratorTypes)) to iIndex
+        
+        //If no match is found default to the first registered iterator
+        If (iIndex = -1) Begin
+            Move iIteratorClasses[0] to iClass
+        End
+        Else Begin
+            Move iIteratorClasses[iIndex] to iClass
+        End
+        
+        //Check if the cached iterator exists
+        If (hoCachedIterator <> 0) Begin
+            
+            //Check if iClass is equal to that of the cached iterator. If it is we reuse it. Otherwise we clear the cache and later set it again.
+            If (IsObjectOfClass(hoCachedIterator, iClass)) Begin
+                Move hoCachedIterator to webapicallcontext.hoIterator
+                Procedure_Return
+            End
+            Else Begin
+                Send CleanUp
+            End
+            
+        End
+
+        //Set the cached iterator.
+        Get Create iClass to hoCachedIterator
+        Set phoCachedIterator to hoCachedIterator
+        Move hoCachedIterator to webapicallcontext.hoIterator
+    End_Procedure
+    
+    //Allow a iterator to be added to the framework
+    Procedure AddIterator Integer iRefClass String sMessageType
+        Integer[] aiIteratorClasses
+        String[] asIteratorTypes
+        Integer iIndex
+        
+        //Get all the current iterators
+        Get piIteratorClasses to aiIteratorClasses
+        Get pasIteratorTypes to asIteratorTypes
+        
+        //Make sure everything is casted to lowercase
+        Move (Lowercase(sMessageType)) to sMessageType
+        
+        Move (BinarySearchArray(sMessageType, asIteratorTypes)) to iIndex
+        
+        If (iIndex <> -1) Begin
+            Error DFERR_PROGRAM (SFormat("Multiple iterators of type %1 defined.", sMessageType))
+            Procedure_Return
+        End
+        
+        Move (BinarySearchInsertPos()) to iIndex
+        
+        If (iIndex <> -1) Begin
+            Move (InsertInArray(aiIteratorClasses, iIndex, iRefClass)) to aiIteratorClasses
+            Move (InsertInArray(asIteratorTypes, iIndex, sMessageType)) to asIteratorTypes
+            
+             //Set the property to the new list
+            Set piIteratorClasses to aiIteratorClasses
+            Set pasIteratorTypes to asIteratorTypes
+        End
+        
+    End_Procedure
+    
+        { MethodType = Event }
+    Procedure OnHttpPreRequest tWebApiCallContext ByRef webapicallcontext
+    End_Procedure
+    
+    { MethodType = Event }
+    Procedure OnHttpPostRequest tWebApiCallContext ByRef webapicallcontext
+    End_Procedure
+    
+    //Fires all the pre modifier events from all modifiers
+    { Visibility = Private }
+    Procedure FirePreModifierEvents tWebApiCallContext ByRef webapicallcontext
+        Integer iAmountOfModifiers iIndex
+        
+        Move (SizeOfArray(webapicallcontext.hoModifiers)-1) to iAmountOfModifiers
+        
+        If (iAmountOfModifiers = -1) Begin
+            Procedure_Return
+        End
+        
+        For iIndex from 0 to iAmountOfModifiers
+            Send OnPreRequest of webapicallcontext.hoModifiers[iIndex] (&webapicallcontext)
+        Loop
+    End_Procedure
+    
+    //Fires all the post modifier events from all modifiers
+    { Visibility = Private }
+    Procedure FirePostModifierEvents tWebApiCallContext ByRef webapicallcontext
+        Integer iAmountOfModifiers iIndex
+        
+        Move (SizeOfArray(webapicallcontext.hoModifiers)-1) to iAmountOfModifiers
+        
+        If (iAmountOfModifiers = -1) Begin
+            Procedure_Return
+        End
+        
+        For iIndex from 0 to iAmountOfModifiers
+            Send OnPostRequest of webapicallcontext.hoModifiers[iIndex] (&webapicallcontext)
+        Loop
+    End_Procedure
+
+    Procedure OnHttpRequest String sVerb String sPath String sContentType String sAcceptType DWord iSize
+        Integer iIndex iAmountOfModifiers
+        Handle hoOldErrorHandler
+        Handle[] hoRouters
+        tWebApiCallContext webapicallcontext
+        Boolean bUnexpectedError
+        
+        //Add all incoming data to the struct
+        Move sPath to webapicallcontext.sPath
+        Move sVerb to webapicallcontext.sVerb
+        Move sContentType to webapicallcontext.sContentType
+        Move sAcceptType to webapicallcontext.sAcceptType
+        
+        //Remember the old error handler. And mark this object as the error handler
+        Send StartErrorTracking
+        
+        //Fire the OnHttpPreRequest event for developers to augment
+        Send OnHttpPreRequest (&webapicallcontext)
+        
+        //Get the iterator
+        Send GetIterator (&webapicallcontext)
+        
+        //Add all modifiers defined on this level to the webapicallcontext struct
+        Send AddModifiersToCallContext (&webapicallcontext)
+        
+        //Check for a routable object
+        Get RoutableIndex webapicallcontext.sPath to iIndex
+        
+        //Only rout if we find a object, otherwise start generating a error response
+        If (iIndex <> -1) Begin
+            Get phoRoutables to hoRouters
+            Send RouteRequest of hoRouters[iIndex] (&webapicallcontext)
+        End
+        Else Begin
+            Move True to webapicallcontext.bErr
+            Move C_WEBAPI_NOTFOUND to webapicallcontext.iStatusCode
+            Move "Not Found" to webapicallcontext.sShortStatusMessage
+            Move (SFormat("Resource with path '%1' does not exist on the server", webapicallcontext.sPath)) to webapicallcontext.sErrorMessage   
+        End
+        
+        //We fire all the pre modifiers before we fire the main logic
+        Send FirePreModifierEvents (&webapicallcontext)
+        
+        //Either the router/dataset could not be found or we are not authenticated
+        If (not(webapicallcontext.bErr)) Begin          
+            Send OnHttpRequest of webapicallcontext.hoDataset (&webapicallcontext)
+        End
+        
+        Get pbUnexpectedError to bUnexpectedError
+        
+        //Errors such as record could not be found will happen here
+        If (webapicallcontext.bErr or bUnexpectedError) Begin
+            
+            //If we have a unexpected error we should write generic error information to webapicallcontext.
+            If (bUnexpectedError) Begin
+                Get HttpErrorMessage to webapicallcontext.sErrorMessage
+                Move 500 to webapicallcontext.iStatusCode
+            End
+            
+            
+            Send GenerateErrorResponse of webapicallcontext.hoIterator (&webapicallcontext)
+        End
+        
+        //We fire all the post modifiers after the main logic has been completed.
+        Send FirePostModifierEvents (&webapicallcontext)
+        
+        //After everything is done we send the postrequest event of this object
+        Send OnHttpPostRequest (&webapicallcontext)
+        
+        //Use the iterator to send the response back to the client using the responsebody, statuscode and a short status description
+        If (not(webapicallcontext.bIsCustom)) Begin
+            Send PrepareForTransfer of webapicallcontext.hoIterator (&webapicallcontext)    
+        End
+        
+        //Restore the old error handler
+        Send StopErrorTracking
+        
+    End_Procedure
+    
+    Procedure End_Construct_Object    
+        Forward Send End_Construct_Object
+        Send End_Construct_cWebApiModifierHost_Mixin
+    End_Procedure
+
+End_Class

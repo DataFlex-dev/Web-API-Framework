@@ -1,0 +1,26 @@
+﻿{ DDOHost = True }
+Class cWebApiModifier is a cObject
+    
+    Procedure Construct_Object
+        Forward Send Construct_Object
+        
+        //Internally used to check if something is a auth modifier
+        { Visibility = Private }
+        Property Boolean pbAuthModifier False
+    End_Procedure
+    
+    { MethodType = Event }
+    Procedure OnPreRequest tWebApiCallContext ByRef webapicallcontext
+    End_Procedure
+    
+    { MethodType = Event }
+    Procedure OnPostRequest tWebApiCallContext ByRef webapicallcontext
+    End_Procedure
+
+    Procedure End_Construct_Object
+        Forward Send End_Construct_Object
+        
+        Delegate Send RegisterModifier Self
+    End_Procedure
+
+End_Class

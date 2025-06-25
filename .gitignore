@@ -1,0 +1,39 @@
+# Files to be ignored by git in a DataFlex workspace
+
+# AppHtml
+**/apphtml/global.asa
+
+# AppSrc
+**/appsrc/**/*.prn
+**/appsrc/**/*.dep
+**/appsrc/**/*.exe.manifest
+**/appsrc/**/*.err
+**/appsrc/**/*.fld
+**/appsrc/**/*.pbg
+**/appsrc/**/*.pdp
+**/appsrc/**/*.pkd
+**/appsrc/**/*.prn
+**/appsrc/**/*.prp
+**/AppSrc/config/classlist.xml
+
+
+# Data
+**/data/**/*.log
+**/data/**/*.vld
+**/data/**/*.bad
+**/data/**/*.hdr
+**/data/**/*.cch
+
+# DDSrc
+**/ddsrc/**/*.def
+
+# IdeSrc
+**/idesrc/*.dsk
+**/idesrc/*.loc
+**/idesrc/*.mtd
+
+# Programs
+**/programs/*.dbg
+**/programs/*.exe
+**/programs/*.exe.manifest
+**/programs/*.log

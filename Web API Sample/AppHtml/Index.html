@@ -1,0 +1,47 @@
+<!DOCTYPE HTML>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, user-scalable=no, initial-scale=1.0, maximum-scale=1.0">
+    
+    <title></title>
+    
+    <link rel="shortcut icon" href="favicon.ico" sizes="48x48" />
+    
+    <!-- Hiding Safari User Interface Components -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black">
+    
+    <!-- DataFlex Engine -->
+    <link href="DfEngine/system.css" rel="stylesheet" type="text/css" />
+    <!-- <link href="CssThemes/Df_Material/theme.css" rel="stylesheet" type="text/css" /> Uncomment this line to optimize loading time, not that the loaded theme should match psTheme!  -->
+    <link href="CssStyle/application.css" rel="stylesheet" type="text/css" />
+    <link rel="stylesheet" type="text/css" href="WebApi/swagger-ui.css">
+        
+    <script src="DfEngine/df-min.js"></script>
+    
+    <!-- DataFlex Custom Controls (do not remove this line, used for automatic insertion) -->
+    <script src="WebApi/swagger-ui-bundle.js"></script>
+    <script src="WebApi/swagger-ui-standalone-preset.js"></script>
+    <script src="WebApi/SwaggerDocumentation.js"></script>
+    
+    
+    <!-- Initialization of the WebApp -->
+    <script>
+        var oWebApp = new df.WebApp("WebServiceDispatcher.wso");
+        
+        oWebApp.displayApp("#viewport");
+    </script>
+    
+    <style>
+        html, body{
+        height: 100%;
+        }
+    </style>
+</head>
+<body>
+    <div id="viewport" style="width: 100%; height: 100%;">
+        
+    </div>
+</body>
+</html>

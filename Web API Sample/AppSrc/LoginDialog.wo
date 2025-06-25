@@ -1,0 +1,108 @@
+Use cWebModalDialog.pkg
+Use cWebForm.pkg
+Use cWebButton.pkg
+Use cWebPanel.pkg
+Use cWebLabel.pkg
+
+Object oLoginDialog is a cWebModalDialog
+    Set piMinWidth to 370
+    Set piMinHeight to 220
+    Set psCaption to "Login"
+    Set pbShowClose to (peLoginMode(oWebApp) <> lmLoginRequired)
+    Set pbLoginModeEnforced to False
+    
+    Delegate Set phoLoginView to Self
+    
+    Object oTopPanel is a cWebPanel
+        Set peRegion to prTop
+        Set piHeight to 55       
+        
+        Object oDescription is a cWebLabel
+            Set psCaption to "Please enter your username and password to login."
+            Set peAlign to alignCenter
+        End_Object
+    End_Object
+    
+    Object oRightPanel is a cWebPanel
+        Set peRegion to prRight
+        Set piWidth to 20       
+    End_Object
+    
+    Object oMainPanel is a cWebPanel
+        Set peRegion to prCenter
+        
+        Object oLoginName is a cWebForm
+            Set psLabel to "Login Name:"
+            Set peLabelAlign to alignRight
+            Set piMaxLength to 20
+            Set psAutoComplete to "username"
+        End_Object
+        
+        Object oPassword is a cWebForm
+            Set psLabel to "Password:"
+            Set pbPassword to True
+            Set peLabelAlign to alignRight
+            Set piMaxLength to 20
+            Set psAutoComplete to "current-password"
+        End_Object   
+        
+        Object oWarning is a cWebLabel
+            Set pbVisible to False
+            Set psCaption to "Invalid loginname or password."
+            Set psCSSClass to "Warning"
+            Set peAlign to alignCenter
+        End_Object
+    End_Object
+    
+    Object oButtonPanel is a cWebPanel
+        Set peRegion to prBottom
+        Set piColumnCount to 3
+        Set piMinHeight to 40
+
+        Object oLoginButton is a cWebButton
+            Set pbShowLabel to False
+            Set piColumnIndex to 2
+            Set psCaption to "Login"
+            Set pbServerOnClick to True
+                        
+            Procedure OnClick
+                Send DoLogin
+            End_Procedure
+            
+        End_Object
+        
+    End_Object
+    
+    Procedure DoLogin
+        String sLoginName sPassword
+        Boolean bResult
+        Handle hoDefaultView
+        
+        WebGet psValue of oLoginName to sLoginName
+        WebGet psValue of oPassword to sPassword
+        
+        Get UserLogin of ghoWebSessionManager sLoginName sPassword to bResult
+        
+        If (bResult) Begin
+            Send Hide of oLoginDialog
+            Get GetDefaultView to hoDefaultView
+            If (hoDefaultView > 0) Begin
+                Send Show of hoDefaultView
+            End
+            
+            // clear the login values. we don't want to return the login id & password as synchronized properties....
+            WebSet psValue of oLoginName to ""
+            WebSet psValue of oPassword  to ""
+            WebSet pbVisible of oWarning to False
+        End
+        Else Begin
+            WebSet pbVisible of oWarning to True
+        End
+    End_Procedure
+    
+    
+    Set pbServerOnSubmit to True
+    Procedure OnSubmit
+         Send DoLogin
+    End_Procedure
+End_Object

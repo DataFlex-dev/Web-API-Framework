@@ -1,0 +1,43 @@
+﻿Use DataDict.pkg
+
+Open ApiLogs
+Open DFLastID
+
+Class cApiLogsDataDictionary is a DataDictionary
+    
+    Procedure Construct_Object
+        Forward Send Construct_Object
+        Set Main_File to ApiLogs.File_Number
+
+        Set Add_System_File to DFLastID.File_Number DD_Lock_On_All
+
+        Set Foreign_Field_Option DD_KEYFIELD DD_NOPUT to True
+        Set Foreign_Field_Option DD_KEYFIELD DD_FINDREQ to True
+        Set Foreign_Field_Option DD_INDEXFIELD DD_NOPUT to True
+        Set Foreign_Field_Option DD_DEFAULT DD_DISPLAYONLY to True
+
+        Set Field_Option Field ApiLogs.ApiLogsId DD_NOPUT to True
+        Set Key_Field_State Field ApiLogs.ApiLogsId to True
+        Set Field_Auto_Increment Field ApiLogs.ApiLogsId to File_Field DFLastID.ApiLogs_ID
+
+    End_Procedure
+
+    Procedure Creating
+        DateTime dtIncomingTime dtResponseTime
+        TimeSpan tsTimeBetween
+        Integer iTimeInMiliseconds
+        
+        Forward Send Creating
+        
+        Move (Cast(ApiLogs.TimeReceived, DateTime)) to dtIncomingTime
+        Move (Cast(ApiLogs.TimeResponse, DateTime)) to dtResponseTime
+        
+        Move (dtResponseTime - dtIncomingTime) to tsTimeBetween
+        Move (SpanMilliseconds(tsTimeBetween)) to iTimeInMiliseconds
+          
+        Move iTimeInMiliseconds to ApiLogs.TimeTakenInMiliseconds
+    End_Procedure
+    
+    
+
+End_Class

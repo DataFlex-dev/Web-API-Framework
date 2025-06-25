@@ -1,0 +1,74 @@
+﻿Use DataDict.pkg
+
+Open Inventory
+Open OrderDetail
+Open Vendor
+
+Register_Object Inventory_sl
+Register_Object oInventoryWebLookup
+Class cInventoryDataDictionary is a DataDictionary
+    
+    Procedure Construct_Object
+        Forward Send Construct_Object
+        
+        Set Main_File to Inventory.File_Number
+        Set Cascade_Delete_State to False
+        
+        Set Foreign_Field_Option DD_KEYFIELD DD_FINDREQ to True
+        Set Foreign_Field_Option DD_INDEXFIELD DD_NOPUT to True
+        Set Foreign_Field_Option DD_DEFAULT DD_DISPLAYONLY to True
+        
+        Set Add_Client_File to OrderDetail.File_Number
+        
+        Set Add_Server_File to Vendor.File_Number
+        
+        Set Field_Label_Long Field Inventory.Item_ID to "Inventory Item ID"
+        Set Field_Label_Short Field Inventory.Item_ID to "Item ID"
+        Set Field_Option Field Inventory.Item_ID DD_AUTOFIND to True
+        Set Field_Option Field Inventory.Item_ID DD_REQUIRED to True
+        Set Field_Option Field Inventory.Item_ID DD_CAPSLOCK to True
+        Set Field_Prompt_Object Field Inventory.Item_ID to Inventory_sl
+        Set Field_WebPrompt_Object Field Inventory.Item_ID to oInventoryWebLookup
+        Set Key_Field_State Field Inventory.Item_ID to True
+        Set Status_Help Field Inventory.Item_ID to "Inventory Item Id - user defined identification"
+        
+        Set Field_Label_Long Field Inventory.Description to "Inventory. Description"
+        Set Field_Label_Short Field Inventory.Description to "Description"
+        Set Field_Option Field Inventory.Description DD_REQUIRED to True
+        Set Status_Help Field Inventory.Description to "Inventory Part Description"
+        
+        Set Field_Option Field Inventory.Vendor_ID DD_CAPSLOCK to True
+        Set Status_Help Field Inventory.Vendor_ID to "Vendor Number"
+        
+        Set Field_Option Field Inventory.Vendor_Part_ID DD_REQUIRED to True
+        Set Status_Help Field Inventory.Vendor_Part_ID to "Vendor ID name for this item"
+        
+        Set Field_Mask_Type Field Inventory.Unit_Price to MASK_CURRENCY_WINDOW
+        Set Field_Value_Range Field Inventory.Unit_Price to 0 999999.99
+        Set Status_Help Field Inventory.Unit_Price to "Retail unit price"
+        
+        Set Field_Value_Range Field Inventory.On_Hand to -999999 999999
+        Set Status_Help Field Inventory.On_Hand to "Units currently available"
+        
+        Set piPrimaryIndex to 1
+    End_Procedure
+    
+    Function Validate_Save Returns Integer
+        Integer iRetVal
+        
+        Forward Get Validate_Save to iRetVal
+        
+        If iRetVal;
+            Function_Return iRetVal
+        
+        If (Inventory.On_Hand < 0) Begin
+            Send UserError "Insufficient Inventory Stock" ""
+            Function_Return 1
+        End
+    End_Function
+    
+    Procedure Field_Defaults
+        Forward Send Field_Defaults
+    End_Procedure
+    
+End_Class

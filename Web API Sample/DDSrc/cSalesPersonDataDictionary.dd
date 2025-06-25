@@ -1,0 +1,46 @@
+﻿Use DataDict.pkg
+
+Open SalesPerson
+Open OrderHeader
+
+Register_Object SalesPerson_sl
+Register_Object oSalesPersonWebLookup
+
+Class cSalesPersonDataDictionary is a DataDictionary
+    
+    Procedure Construct_Object
+        Forward Send Construct_Object
+        
+        Set Main_File to SalesPerson.File_Number
+        Set Cascade_Delete_State to False
+        
+        Set Foreign_Field_Option DD_KEYFIELD DD_NOPUT to True
+        Set Foreign_Field_Option DD_KEYFIELD DD_FINDREQ to True
+        Set Foreign_Field_Option DD_INDEXFIELD DD_NOPUT to True
+        Set Foreign_Field_Option DD_DEFAULT DD_DISPLAYONLY to True
+        
+        Set Add_Client_File to OrderHeader.File_Number
+        
+        Set Field_Label_Long Field SalesPerson.Id to "Sales Person ID"
+        Set Field_Label_Short Field SalesPerson.Id to "ID"
+        Set Field_Option Field SalesPerson.Id DD_AUTOFIND to True
+        Set Field_Option Field SalesPerson.Id DD_REQUIRED to True
+        Set Field_Option Field SalesPerson.Id DD_CAPSLOCK to True
+        Set Field_Prompt_Object Field SalesPerson.Id to SalesPerson_sl
+        Set Field_WebPrompt_Object Field SalesPerson.ID to oSalesPersonWebLookup
+        Set Key_Field_State Field SalesPerson.Id to True
+        Set Status_Help Field SalesPerson.Id to "Sales person ID code - Upper case alpha"
+                
+        Set Field_Label_Long Field SalesPerson.Name to "Sales Person Name"
+        Set Field_Label_Short Field SalesPerson.Name to "Sales Person Name"
+        Set Field_Prompt_Object Field SalesPerson.Name to SalesPerson_sl
+        Set Status_Help Field SalesPerson.Name to "Sales person name - first and last"
+        
+        Set piPrimaryIndex to 1
+    End_Procedure
+    
+    Procedure Field_Defaults
+        Forward Send Field_Defaults
+    End_Procedure
+    
+End_Class

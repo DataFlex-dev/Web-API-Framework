@@ -1,0 +1,130 @@
+﻿Use WebApi\cBaseRestDataset.pkg
+
+{OverrideProperty=pbAllowRead Visibility=Private}
+{OverrideProperty=pbAllowCreate Visibility=Private}
+{OverrideProperty=pbAllowEdit Visibility=Private}
+{OverrideProperty=pbAllowDelete Visibility=Private}
+{OverrideProperty=pbReadOnly Visibility=Private}
+{OverrideProperty=pbSecureRead Visibility=Private}
+{OverrideProperty=pbSecureCreate Visibility=Private}
+{OverrideProperty=pbSecureEdit Visibility=Private}
+{OverrideProperty=pbSecureDelete Visibility=Private}
+Class cWebApiLoginEndpoint is a cBaseRestDataset
+    
+    Procedure Construct_Object
+        Forward Send Construct_Object
+        
+        //This subclass should only allow POST requests
+        Set pbAllowRead to False
+        Set pbAllowEdit to False
+        Set pbAllowDelete to False
+        
+        //Login endpoint should not be secured by default. Otherwise it would be difficult to login.
+        Set pbInheritSecurity to False
+        
+        //Determines if the endpoint is used for registering or logging in users.
+        Property Boolean pbRegisterMode False
+
+    End_Procedure
+    
+    //Augment this procedure to log the user in.
+    Procedure OnHttpPost tWebApiCallContext ByRef webapicallcontext
+        Boolean bRegisterMode bSuccess
+        
+        Get pbRegisterMode to bRegisterMode
+        
+        //If the endpoint is set to register mode we should attempt to create a new user
+        If bRegisterMode Begin
+            Get RegisterUser (&webapicallcontext) to bSuccess      
+        End
+        Else Begin
+            Get LoginUser (&webapicallcontext) to bSuccess
+        End
+        
+        //If register or login is a success
+        If bSuccess Begin
+            Send OnSuccessfulLogin (&webapicallcontext)
+            //Set status codes and create the body
+            Move C_WEBAPI_OK to webapicallcontext.iStatusCode
+            Move "OK" to webapicallcontext.sShortStatusMessage       
+            Get CreateResponseBodyObject of webapicallcontext.hoIterator webapicallcontext.sMainTableName to webapicallcontext.hoResponseBody
+            Send CurrentRecordToResponseBody webapicallcontext.hoResponseBody webapicallcontext.hoIterator
+        End
+        Else Begin
+            Move True to webapicallcontext.bErr
+            Move C_WEBAPI_BADREQUEST to webapicallcontext.iStatusCode
+            Move "Bad Request" to webapicallcontext.sShortStatusMessage
+            Move "Invalid credentials" to webapicallcontext.sErrorMessage
+        End      
+    End_Procedure
+    
+    //Registers a new user using the SessionManager
+    Function RegisterUser tWebApiCallContext ByRef webapicallcontext Returns Boolean
+        Handle[] hoExposedFields
+        Boolean bOk
+        tRESTRequestBody[] requestBodyParts
+        
+        If (ghoWebSessionManager = 0) Begin
+            Error DFERR_PROGRAM "No session manager found. Override the RegisterUser procedure of the cWebApiLoginEndpoint class."
+            Procedure_Return
+        End
+        
+        Get ParseRequestBody of webapicallcontext.hoIterator to requestBodyParts
+        
+        Get UserRegister of ghoWebSessionManager requestBodyParts[0].sFieldValue requestBodyParts[1].sFieldValue to bOk
+        
+        Function_Return bOk
+    End_Procedure
+    
+    //Login for existing users using the SessionManager
+    Function LoginUser tWebApiCallContext ByRef webapicallcontext Returns Boolean
+        Handle hoPasswordField
+        tRESTRequestBody[] requestBodyParts
+        Boolean bOk bSessionOk
+        String sPassword sUsername
+        Integer iIndex
+        
+        //If there is no WebSessionManager we cannot make use of its login functionality.
+        If (ghoWebSessionManager = 0) Begin
+            Error DFERR_PROGRAM "No session manager found. Override the LoginUser procedure of the cWebApiLoginEndpoint class."
+            Procedure_Return
+        End
+        
+        //Get the request body
+        Get ParseRequestBody of webapicallcontext.hoIterator to requestBodyParts
+        
+        //Find the username and password from the request
+        For iIndex from 0 to (SizeOfArray(requestBodyParts)-1)
+            If (requestBodyParts[iIndex].sFieldName = "Username");
+                Move requestBodyParts[iIndex].sFieldValue to sUsername
+                
+            If (requestBodyParts[iIndex].sFieldName = "Password");
+                Move requestBodyParts[iIndex].sFieldValue to sPassword
+        Loop
+        
+        If (sPassword = "" or sUsername = "") Begin
+            Move True to webapicallcontext.bErr
+            Move C_WEBAPI_BADREQUEST to webapicallcontext.iStatusCode
+            Move "Bad Request" to webapicallcontext.sShortStatusMessage
+            Move "Invalid post body" to webapicallcontext.sErrorMessage
+            Function_Return False
+        End
+        //Create a new session for the user that is trying to login
+        Get RecreateSession of ghoWebSessionManager to bSessionOk
+        //Attempt to log in the user     
+        Get UserLogin of ghoWebSessionManager sUsername sPassword to bOk
+        
+        Function_Return bOk
+    End_Procedure
+    
+    //This procedure gets called when the users logs in with valid credentials
+    {MethodType=Event}
+    Procedure OnSuccessfulLogin tWebApiCallContext ByRef webapicallcontext
+    End_Procedure
+
+    Procedure End_Construct_Object
+        Forward Send End_Construct_Object
+
+    End_Procedure
+
+End_Class

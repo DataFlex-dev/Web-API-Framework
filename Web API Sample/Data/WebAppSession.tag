@@ -1,0 +1,9 @@
+SessionKey
+CreateDate
+CreateTime
+LastAccessDate
+LastAccessTime
+UseCount
+RemoteAddress
+LoginName
+Active

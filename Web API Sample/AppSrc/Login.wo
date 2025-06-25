@@ -1,0 +1,149 @@
+﻿Use cWebView.pkg
+Use cWebForm.pkg
+Use cWebButton.pkg
+Use cWebPanel.pkg
+Use cWebLabel.pkg
+Use cWebSpacer.pkg
+Use cWebImage.pkg
+
+Object oLogin is a cWebView
+    Set piMinWidth to 250
+    Set piMaxWidth to 420
+    Set pbLoginModeEnforced to False
+    Set piColumnCount to 12
+    Set psCSSClass to "LoginView"
+    Set pbServerOnSubmit to True
+    
+    Set psStateViewName to "Login"
+    Set pbStateReplace to True  // Always replace the state so the login never becomes its own history item
+    
+    { WebProperty=Server }
+    Property String psPrevStateHash ""  // Remember the state hash that the user navigated too so we can redirect after login
+    
+    Delegate Set phoLoginView to Self
+    
+    Object oTopSpacer is a cWebSpacer
+        Set pbFillHeight to True
+        Set piColumnSpan to 12
+    End_Object
+    
+    Object oWarning is a cWebLabel
+        Set pbVisible to False
+        Set psCaption to "Invalid User ID or password. \n\rHint: 'Guest' & 'guest'."
+        Set peAlign to alignCenter
+        Set piColumnSpan to 12
+        Set psCSSClass to "LoginWarning"
+    End_Object
+    
+    Object oLogo is a cWebImage
+        Set piColumnSpan to 10
+        Set psUrl to "images/DF_Logo_Retina.png"
+        Set pePosition to wiFit
+        Set piColumnIndex to 1
+        Set piHeight to 160
+        
+        WebSetResponsive piHeight rmMobile to 100  // Best for small smart phones
+    End_Object
+    
+    Object oLoginName is a cWebForm
+        Set psLabel to "User ID:"
+        Set peLabelPosition to lpTop
+        Set piMaxLength to 20
+        Set piColumnIndex to 1
+        Set pbShowLabel to False
+        Set psPlaceHolder to "loginname"
+        Set piColumnSpan to 10
+        Set psAutoComplete to "username"
+    End_Object
+    
+    Object oPassword is a cWebForm
+        Set psLabel to "Password:"
+        Set pbPassword to True
+        Set peLabelAlign to alignLeft
+        Set piMaxLength to 20
+        Set peLabelPosition to lpTop
+        Set pbShowLabel to False
+        Set psPlaceHolder to "password"
+        Set piColumnSpan to 10
+        Set piColumnIndex to 1
+        Set psAutoComplete to "current-password"
+    End_Object
+    
+    Object oWebSpacer1 is a cWebSpacer
+        Set piColumnSpan to 12
+        Set piHeight to 10
+    End_Object
+    
+    Object oLoginButton is a cWebButton
+        Set pbShowLabel to False
+        Set psCaption to "sign in"
+        Set pbServerOnClick to True
+        Set piColumnSpan to 10
+        Set piColumnIndex to 1
+        
+        Procedure OnClick
+            Send DoLogin
+        End_Procedure
+    End_Object
+    
+    Object oBottomSpacer is a cWebSpacer
+        Set pbFillHeight to True
+        Set piColumnSpan to 12
+    End_Object
+    
+    Procedure DoLogin
+        String sLoginName sPassword sPrevStateHash
+        Boolean bResult
+        
+        WebGet psValue of oLoginName to sLoginName
+        WebGet psValue of oPassword to sPassword
+        
+        Get UserLogin of ghoWebSessionManager sLoginName sPassword to bResult
+        
+        If (bResult) Begin
+            Send Hide of oLogin
+            Send ShowHeader of ghoWebApp
+            WebSet psCSSClass of ghoWebApp to ""
+            
+            WebGet psPrevStateHash to sPrevStateHash
+            Send NavigateToStateHash of ghoWebApp sPrevStateHash True
+            
+            // clear the login values. we don't want to return the login id & password as synchronized properties....
+            WebSet psValue of oLoginName to ""
+            WebSet psValue of oPassword  to ""
+            WebSet pbVisible of oWarning to False
+        End
+        Else Begin
+            WebSet pbVisible of oWarning to True
+        End
+    End_Procedure
+    
+    Procedure OnSubmit
+        Send DoLogin
+    End_Procedure
+    
+    Procedure OnLoad
+        String sPrevStateHash sView
+        
+        Forward Send OnLoad
+        
+        //  Store the current state so we can go back to that later (only if it points to a different view)
+        Get StateHash of ghoWebApp to sPrevStateHash
+        Send ParseViewStateHash sPrevStateHash (&sView)
+        If (Lowercase(sView) <> Lowercase(psStateViewName(Self))) Begin
+            WebSet psPrevStateHash to sPrevStateHash
+        End
+        
+    End_Procedure
+    
+    Procedure OnBeforeShow
+        //  Hide header & apply nice background style
+        Send HideHeader to ghoWebApp
+        WebSet psCSSClass of ghoWebApp to "LoginBackground"
+    End_Procedure
+    
+End_Object
+
+
+
+

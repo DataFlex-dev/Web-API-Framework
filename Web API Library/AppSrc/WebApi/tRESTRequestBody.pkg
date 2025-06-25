@@ -1,0 +1,5 @@
+﻿Struct tRESTRequestBody
+    String sFieldName
+    String sFieldValue
+    tRESTRequestBody[] nestedFields
+End_Struct

@@ -1,0 +1,183 @@
+﻿Use WebApi\cWebApiModifier.pkg
+Use WebApi\cRestDataset.pkg
+
+Struct tSecuredDataset
+    Handle hoDataset
+    Boolean bSecureRead
+    Boolean bSecureCreate
+    Boolean bSecureEdit
+    Boolean bSecureDelete
+End_Struct
+
+Class cWebApiAuthModifier is a cWebApiModifier
+    
+    Procedure Construct_Object
+        Forward Send Construct_Object
+        
+        //Setting these properties should be MANDATORY when using cOpenApiSpecification class to generate documentation
+        Property String psSecuritySchemaName
+        
+        //This property should be set to a struct that describes the security schema.
+        Property Variant pvSecurityInfo ""
+        
+        Set pbAuthModifier to True
+        
+        //Internal list to keep track of all the secured endpoints
+        { Visibility = Private }
+        Property tSecuredDataset[] ptSecuredDatasets
+    End_Procedure
+    
+    //Initialize the secured endpoints
+    { Visibility = Private }
+    Procedure InitSecuredEndpoints
+        Handle hoParent
+        tSecuredDataset[] securedDatasets
+        
+        Get Parent to hoParent
+        
+        Send RecursiveSecure hoParent (&securedDatasets)
+        
+        Set ptSecuredDatasets to securedDatasets        
+    End_Procedure
+    
+    //Recursive function for finding the datasets to secure
+    { Visibility = Private }
+    Procedure RecursiveSecure Handle hoParent tSecuredDataset[] ByRef securedDatasets       
+        Handle[] hoRoutables
+        Boolean bInheritSecurity bSecuredRead bSecuredCreate bSecuredEdit bSecuredDelete
+        Integer iCount iStructIndex
+        tSecuredDataset currentDataset
+        
+        //If we ever get to this point we do not have to check for pbInheritSecurity anyways
+        If (IsObjectOfClass(hoParent, RefClass(cBaseRestDataset))) Begin
+            
+            Move (SizeOfArray(securedDatasets)) to iStructIndex
+            //Get the relevant info of the dataset
+            Get pbSecureRead of hoParent to bSecuredRead
+            Get pbSecureCreate of hoParent to bSecuredCreate
+            Get pbSecureEdit of hoParent to bSecuredEdit
+            Get pbSecureDelete of hoParent to bSecuredDelete
+            
+            //Move everything to the struct array so we can set the property later
+            Move hoParent to currentDataset.hoDataset
+            Move bSecuredRead to currentDataset.bSecureRead
+            Move bSecuredCreate to currentDataset.bSecureCreate
+            Move bSecuredEdit to currentDataset.bSecureEdit
+            Move bSecuredDelete to currentDataset.bSecureDelete
+            
+            Move (BinarySearchArray(currentDataset, securedDatasets)) to iStructIndex
+            //We dont have to check if BinarySearchArray actually finds something, it should never be possible.
+            Move (BinarySearchInsertPos()) to iStructIndex
+            
+            Move (InsertInArray(securedDatasets, iStructIndex, currentDataset)) to securedDatasets
+        End
+        Else Begin
+            Get phoRoutables of hoParent to hoRoutables
+            
+            For iCount from 0 to (SizeOfArray(hoRoutables)-1)
+                //Check if the object inherits security. If it does we recursively check down
+                Get pbInheritSecurity of hoRoutables[iCount] to bInheritSecurity
+                
+                If bInheritSecurity Begin
+                    Send RecursiveSecure hoRoutables[iCount] (&securedDatasets)
+                End
+                
+            Loop
+        End
+    End_Procedure
+
+    /*
+    Inside of this event we call the OnAuth event if one of the two conditions are true
+    
+    1. sPath is equal to the path in the parent. This is basically a exception if this class is defined inside of a cRESTDataset
+    
+    2. We check inside of the securedDataset struct array if the cRESTDataset path is present in there.
+    If its present we also check if the sVerb is present inside of the structs asVerbs array.
+    This allows certain verbs to have authentication and some others that do not.
+    */
+    Procedure OnPreRequest tWebApiCallContext ByRef webapicallcontext
+        tSecuredDataset[] securedDatasets
+        tSecuredDataset searchDataset
+        String[] asSecuredVerbs
+        Integer iIndex iVerbIndex
+        Boolean bSecuredVerb
+        
+        //No need for the authentication mechanism to be triggered if we have already triggered some form of error
+        If (webapicallcontext.bErr = True) Begin
+            Procedure_Return
+        End
+        
+        Get ptSecuredDatasets to securedDatasets
+        
+        Move webapicallcontext.hoDataset to searchDataset.hoDataset
+        
+        Move (BinarySearchArray(searchDataset, securedDatasets)) to iIndex
+        
+        If (iIndex <> -1) Begin
+            
+            If (webapicallcontext.sVerb = C_WEBAPI_GET) Begin
+                Get pbSecureRead of webapicallcontext.hoDataset to bSecuredVerb
+            End
+            Else If (webapicallcontext.sVerb = C_WEBAPI_POST) Begin
+                Get pbSecureCreate of webapicallcontext.hoDataset to bSecuredVerb
+            End
+            Else If (webapicallcontext.sVerb = C_WEBAPI_PUT or webapicallcontext.sVerb = C_WEBAPI_PATCH) Begin
+                Get pbSecureEdit of webapicallcontext.hoDataset to bSecuredVerb
+            End
+            Else If (webapicallcontext.sVerb = C_WEBAPI_DELETE) Begin
+                Get pbSecureDelete of webapicallcontext.hoDataset to bSecuredVerb
+            End
+            
+            //Only Fire the OnAuth if the verb is secured
+            If (bSecuredVerb) Begin
+                Send OnAuth (&webapicallcontext)
+            End
+      
+        End
+        
+    End_Procedure
+    
+    /*
+    Developers should implement this event themself.
+    When the logic is performed webapicallcontext.bErr should either be set to true or false. Iwebapicallcontextxt.bErr ever turns to false we will not forward the request any further.
+    */
+    { MethodType = Event }
+    Procedure OnAuth tWebApiCallContext ByRef webapicallcontext
+    End_Procedure
+    
+    /*
+    Developers should implements this event. This is used for the OpenApi specification to generate the needed schemes.
+    For example:
+    
+    "BasicAuth": {
+         "type": "http",
+         "scheme": "basic"
+    }
+    
+    Is generated by having the following struct.
+    
+    Struct BasicAuth
+        String type
+        String scheme
+    End_Struct
+    */
+    { MethodType = Event }
+    Procedure OnDefineAuthRules Variant ByRef vSecurityStruct
+    End_Procedure
+    
+    { Visibility = Private }
+    Procedure DefineAuthRules
+        Variant vSecurityStruct
+        
+        Send OnDefineAuthRules (&vSecurityStruct)
+        
+        Set pvSecurityInfo to vSecurityStruct
+    End_Procedure
+    
+    Procedure End_Construct_Object
+        Forward Send End_Construct_Object
+        
+        Send DefineAuthRules
+    End_Procedure
+
+End_Class
