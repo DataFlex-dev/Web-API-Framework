@@ -1,6 +1,7 @@
 ﻿Use WebApi\cWebApiAuthModifier.pkg
 Use WebApi\cRestField.pkg
 Use WebApi\cWebApiCustomEndpoint.pkg
+Use WebApi\cWebApi.pkg
 
 Struct oneOf
     String title
@@ -19,7 +20,7 @@ Class cOpenApiSpecification is a cObject
         String sTitle sDescription sVersion sStringifiedJson sPath
         Handle hoOpenApiSpec hoInfo hoHttpApi
         
-        Get Parent to hoHttpApi
+        Get GetWebApiObject to hoHttpApi
         
         Get psApiTitle of hoHttpApi to sTitle
         Get psApiDescription of hoHttpApi to sDescription
@@ -67,7 +68,7 @@ Class cOpenApiSpecification is a cObject
         String sApiPath sRouterPath sDescription sApiRoot sServerName sSecureString
         Boolean bSecure
         
-        Get Parent to hoHttpApi
+        Get GetWebApiObject to hoHttpApi
         Get psPath of hoHttpApi to sApiPath
         Get psApiRoot of hoHttpApi to sApiRoot
         
@@ -84,8 +85,8 @@ Class cOpenApiSpecification is a cObject
             Else Begin
                 Move "http://" to sSecureString
             End
-            
-            Move (Replace(("/" + sApiPath), sApiRoot, "")) to sApiRoot
+            //The url contains /OpenApi since its part of the requesting url, we can take it out of the url.
+            Move (Replace("/OpenApi", sApiRoot, "")) to sApiRoot
             Move (sSecureString + sServerName + sApiRoot) to sApiRoot
         End
         //Create the JSON objects
@@ -114,7 +115,7 @@ Class cOpenApiSpecification is a cObject
         Handle hoPathsJson hoHttpApi hoSchemasJson hoComponentsJson
         Integer iRoutableIndex iAmountOfRoutables
         
-        Get Parent to hoHttpApi
+        Get GetWebApiObject to hoHttpApi
         Get phoRoutables of hoHttpApi to hoRoutables
         
         Move (SizeOfArray(hoRoutables)-1) to iAmountOfRoutables
@@ -717,7 +718,7 @@ Class cOpenApiSpecification is a cObject
         Boolean bHasComponentsJson bVerbExists bEndpointExists
         Variant vSecurityInfo
         
-        Get Parent to hoHttpApi
+        Get GetWebApiObject to hoHttpApi
         Get GetAuthModifiers of hoHttpApi to hoAuthModifiers
         
         //Get all the authentication objects present in the API
@@ -912,7 +913,7 @@ Class cOpenApiSpecification is a cObject
         
         Move (Uppercase(sVerb)) to sVerb
         
-        Get Parent to hoParent
+        Get GetWebApiObject to hoParent
         
         Get pasIteratorTypes of hoParent to asIteratorTypes
         
@@ -1311,6 +1312,21 @@ Class cOpenApiSpecification is a cObject
         End
         
         Function_Return sPath
+    End_Function
+    
+    //Helper function that returns the cWebApi object tied to this object
+    { Visibility = Private }
+    Function GetWebApiObject Returns Handle
+        Handle hoParent
+        
+        Get Parent to hoParent
+        
+        While ((hoParent <> 0) and (not(IsObjectOfClass(hoParent, RefClass(cWebHttpHandler)))))
+            Get Parent of hoParent to hoParent
+        Loop
+        
+        //If we get here hoParent should be the cWebApi object
+        Function_Return hoParent
     End_Function
     
     Procedure End_Construct_Object
