@@ -88,6 +88,15 @@ Class cRestDataset is a cBaseRestDataset
         //Check for the primary key field
         Get RetrieveKeyField to hoKeyChild
         
+        // If no keychild is found we should thrown an error.
+        If (hoKeyChild = 0) Begin
+            Move True to webapicallcontext.bErr
+            Move C_WEBAPI_BADREQUEST to webapicallcontext.iStatusCode
+            Move "Bad Request" to webapicallcontext.sShortStatusMessage
+            Move "No primary key field defined for this endpoint. Make sure your data dictionary has the Key_Field_State set to true for the primary key." to webapicallcontext.sErrorMessage
+            Procedure_Return 
+        End
+        
         //Get all the fields that are exposed in the REST api
         Get RetrieveExposedDataFields to hoExposedDataObjects
         
@@ -234,6 +243,16 @@ Class cRestDataset is a cBaseRestDataset
         Move (SizeOfArray(hoExposedDataObjects)-1) to iAmountOfDataObjects
         
         Get RetrieveKeyField to hoKeyChild
+        
+        // If no keychild is found we should thrown an error.
+        If (hoKeyChild = 0) Begin
+            Move True to webapicallcontext.bErr
+            Move C_WEBAPI_BADREQUEST to webapicallcontext.iStatusCode
+            Move "Bad Request" to webapicallcontext.sShortStatusMessage
+            Move "No primary key field defined for this endpoint. Make sure your data dictionary has the Key_Field_State set to true for the primary key." to webapicallcontext.sErrorMessage
+            Procedure_Return 
+        End
+        
         Get piFindIndex to iFindIndex
         
         //Retrieve the field name from all the exposed fields
@@ -332,6 +351,16 @@ Class cRestDataset is a cBaseRestDataset
         
         //Get the primary key field
         Get RetrieveKeyField to hoKeyChild
+        
+        // If no keychild is found we should thrown an error.
+        If (hoKeyChild = 0) Begin
+            Move True to webapicallcontext.bErr
+            Move C_WEBAPI_BADREQUEST to webapicallcontext.iStatusCode
+            Move "Bad Request" to webapicallcontext.sShortStatusMessage
+            Move "No primary key field defined for this endpoint. Make sure your data dictionary has the Key_Field_State set to true for the primary key." to webapicallcontext.sErrorMessage
+            Procedure_Return 
+        End
+        
         Get piFindIndex to iFindIndex
         
         //Retrieve the field name from all the exposed 
@@ -408,6 +437,16 @@ Class cRestDataset is a cBaseRestDataset
         
         //Retrieve the field with the unique identifier
         Get RetrieveKeyField to hoKeyChild
+        
+        // If no keychild is found we should thrown an error.
+        If (hoKeyChild = 0) Begin
+            Move True to webapicallcontext.bErr
+            Move C_WEBAPI_BADREQUEST to webapicallcontext.iStatusCode
+            Move "Bad Request" to webapicallcontext.sShortStatusMessage
+            Move "No primary key field defined for this endpoint. Make sure your data dictionary has the Key_Field_State set to true for the primary key." to webapicallcontext.sErrorMessage
+            Procedure_Return 
+        End
+        
         Get piFindIndex to iFindIndex
         //Prepare find
         Send Clear of hoDD
