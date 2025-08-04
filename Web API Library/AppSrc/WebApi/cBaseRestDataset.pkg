@@ -41,15 +41,16 @@ Class cBaseRestDataset is a cWebComponent
         { Visibility = Private }
     Procedure OnHttpRequest tWebApiCallContext ByRef webapicallcontext
         Boolean bExposedVerb bHasID
-        Integer iSizeOfPathPieces iID
+        Integer iSizeOfPathPieces
+        String sID
         String[] asPathPieces
         
         Move (StrSplitToArray(webapicallcontext.sPath, "/")) to asPathPieces
         Move (SizeOfArray(asPathPieces)-1) to iSizeOfPathPieces
-        Get IsNumeric asPathPieces[iSizeOfPathPieces] to bHasID
+        Get UrlContainsID asPathPieces[iSizeOfPathPieces] to bHasID
         
         If bHasID Begin
-            Move asPathPieces[iSizeOfPathPieces] to iID
+            Move asPathPieces[iSizeOfPathPieces] to sID
         End
         
         //Check if the current verb is exposed
@@ -62,23 +63,23 @@ Class cBaseRestDataset is a cWebComponent
             Get GetDatasetTableName to webapicallcontext.sMainTableName
             
             Case Begin
-                Case (webapicallcontext.sVerb = C_WEBAPI_GET and not(iID))
+                Case (webapicallcontext.sVerb = C_WEBAPI_GET and not(bHasID))
                     Send OnHttpGet (&webapicallcontext)
                     Case Break
                 Case (webapicallcontext.sVerb = C_WEBAPI_GET)
-                    Send OnHttpGetByID (&webapicallcontext) iID
+                    Send OnHttpGetByID (&webapicallcontext) sID
                     Case Break
                 Case (webapicallcontext.sVerb = C_WEBAPI_POST)
                     Send OnHttpPost (&webapicallcontext)
                     Case Break
                 Case (webapicallcontext.sVerb = C_WEBAPI_PUT)
-                    Send OnHttpPut (&webapicallcontext) iID
+                    Send OnHttpPut (&webapicallcontext) sID
                     Case Break
                 Case (webapicallcontext.sVerb = C_WEBAPI_PATCH)
-                    Send OnHttpPatch (&webapicallcontext) iID
+                    Send OnHttpPatch (&webapicallcontext) sID
                     Case Break
                 Case (webapicallcontext.sVerb = C_WEBAPI_DELETE)
-                    Send OnHttpDelete (&webapicallcontext) iID
+                    Send OnHttpDelete (&webapicallcontext) sID
                     Case Break
                 Case (webapicallcontext.sVerb = C_WEBAPI_OPTIONS)
                     Send OnHttpOptions (&webapicallcontext)
@@ -105,7 +106,7 @@ Class cBaseRestDataset is a cWebComponent
     End_Procedure
     
     { MethodType = Event }
-    Procedure OnHttpGetByID tWebApiCallContext ByRef webapicallcontext Integer iID
+    Procedure OnHttpGetByID tWebApiCallContext ByRef webapicallcontext String sID
     End_Procedure
     
     { MethodType = Event }
@@ -113,15 +114,15 @@ Class cBaseRestDataset is a cWebComponent
     End_Procedure
     
     { MethodType = Event }
-    Procedure OnHttpPut tWebApiCallContext ByRef webapicallcontext Integer iID
+    Procedure OnHttpPut tWebApiCallContext ByRef webapicallcontext String sID
     End_Procedure
     
     { MethodType = Event }
-    Procedure OnHttpPatch tWebApiCallContext ByRef webapicallcontext Integer iID
+    Procedure OnHttpPatch tWebApiCallContext ByRef webapicallcontext String sID
     End_Procedure
     
     { MethodType = Event }
-    Procedure OnHttpDelete tWebApiCallContext ByRef webapicallcontext Integer iID
+    Procedure OnHttpDelete tWebApiCallContext ByRef webapicallcontext String sID
     End_Procedure
     
     //Should return the available verbs for this endpoint
@@ -187,6 +188,20 @@ Class cBaseRestDataset is a cWebComponent
             Send AppendToBody of hoExposedDataObjects[iIndex] hoResponseBody hoIterator
         Loop
     End_Procedure
+    
+    { Visibility = Private }
+    Function UrlContainsID String sPotentialID Returns Boolean
+        String sPath
+        
+        Get psPath to sPath
+        
+        //If the last path of the url is not the same as this endpoints path we can consider it to be an ID
+        If (sPotentialID <> sPath) Begin
+            Function_Return True
+        End
+        
+        Function_Return False
+    End_Function
     
     { Visibility = Private }
     Function IsNumeric String sNumber Returns Boolean
