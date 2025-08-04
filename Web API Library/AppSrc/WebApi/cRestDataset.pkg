@@ -76,7 +76,7 @@ Class cRestDataset is a cBaseRestDataset
     End_Procedure
     
     { MethodType=Event }
-    Procedure OnHttpGetByID tWebApiCallContext ByRef webapicallcontext Integer iID
+    Procedure OnHttpGetByID tWebApiCallContext ByRef webapicallcontext String sID
         Handle hoDD hoChild hoKeyChild
         Handle[] hoExposedDataObjects
         Integer iIndex iField iFindIndex
@@ -105,7 +105,7 @@ Class cRestDataset is a cBaseRestDataset
         
         //Move the ID into the keyfields buffer so we can perform a search
         If (hoKeyChild <> 0) Begin
-           Send SetFieldGlobalValue of hoKeyChild iID 
+           Send SetFieldGlobalValue of hoKeyChild sID 
         End
         
         Get piFindIndex to iFindIndex
@@ -125,7 +125,7 @@ Class cRestDataset is a cBaseRestDataset
             Move True to webapicallcontext.bErr
             Move C_WEBAPI_NOTFOUND to webapicallcontext.iStatusCode
             Move "Not Found" to webapicallcontext.sShortStatusMessage
-            Move (SFormat("Record with id %1 could not be found", iID)) to webapicallcontext.sErrorMessage
+            Move (SFormat("Record with id %1 could not be found", sID)) to webapicallcontext.sErrorMessage
         End
         
     End_Procedure
@@ -214,7 +214,7 @@ Class cRestDataset is a cBaseRestDataset
     End_Procedure
     
     { MethodType=Event }
-    Procedure OnHttpPut tWebApiCallContext ByRef webapicallcontext Integer iID
+    Procedure OnHttpPut tWebApiCallContext ByRef webapicallcontext String sID
         Handle hoDD hoKeyChild
         Handle[] hoExposedDataObjects
         Integer iIndex iBodyIndex iDataObjectIndex iAmountOfDataObjects iAmountOfRequestFields iFindIndex
@@ -266,7 +266,7 @@ Class cRestDataset is a cBaseRestDataset
         
         Send Clear of hoDD
         Send Rebuild_Constraints of hoDD
-        Send SetFieldGlobalValue of hoKeyChild iID
+        Send SetFieldGlobalValue of hoKeyChild sID
         Send Find of hoDD EQ iFindIndex
         
         //Only change the record if it actually exists
@@ -319,7 +319,7 @@ Class cRestDataset is a cBaseRestDataset
     End_Procedure
 
     { MethodType=Event }
-    Procedure OnHttpPatch tWebApiCallContext ByRef webapicallcontext Integer iID
+    Procedure OnHttpPatch tWebApiCallContext ByRef webapicallcontext String sID
         Handle hoDD hoKeyChild
         Handle[] hoExposedDataObjects
         Integer iIndex iBodyIndex iDataObjectIndex iAmountOfDataObjects iAmountOfRequestFields iFindIndex
@@ -374,7 +374,7 @@ Class cRestDataset is a cBaseRestDataset
         
         Send Clear of hoDD
         Send Rebuild_Constraints of hoDD
-        Send SetFieldGlobalValue of hoKeyChild iID
+        Send SetFieldGlobalValue of hoKeyChild sID
         Send Find of hoDD EQ iFindIndex
         
         //Only actually change the record if it is found
@@ -427,7 +427,7 @@ Class cRestDataset is a cBaseRestDataset
     End_Procedure
     
     { MethodType=Event }
-    Procedure OnHttpDelete tWebApiCallContext ByRef webapicallcontext String iID
+    Procedure OnHttpDelete tWebApiCallContext ByRef webapicallcontext String sID
         Handle hoDD hoKeyChild
         Handle[] hoExposedDataObjects
         Boolean bErr
@@ -450,7 +450,7 @@ Class cRestDataset is a cBaseRestDataset
         Get piFindIndex to iFindIndex
         //Prepare find
         Send Clear of hoDD
-        Send SetFieldGlobalValue of hoKeyChild iID
+        Send SetFieldGlobalValue of hoKeyChild sID
         
         Send Rebuild_Constraints of hoDD
         Send Find of hoDD EQ iFindIndex
