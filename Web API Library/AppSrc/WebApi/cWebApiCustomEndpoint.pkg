@@ -67,6 +67,11 @@ Class cWebApiCustomEndpoint is a cBaseRestDataset
         Forward Send Construct_Object       
     End_Procedure
     
+    Procedure OnHttpRequest tWebApiCallContext ByRef webapicallcontext
+        Forward Send OnHttpRequest (&webapicallcontext)
+        Move True to webapicallcontext.bIsCustom
+    End_Procedure
+    
     //Augment this in your custom endpoint to include all the OpenApi specification information
     //This only needs to be filled when you want to include your custom endpoint in the OpenApi specification
     { MethodType = Event }
