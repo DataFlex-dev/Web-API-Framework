@@ -10,6 +10,9 @@ Class cRestDataset is a cBaseRestDataset
         Property Handle Main_DD
         Property Handle Server
         
+        // This setting determines if it should use the path as table name
+        Property Boolean pbUsePathAsTableName False
+        
         //This determines how many records we return during a get all
         Property Integer piLimitResults 0
         
@@ -590,15 +593,19 @@ Class cRestDataset is a cBaseRestDataset
         Handle hoDD
         Integer iMainFile
         String sTableName
+        Boolean bUsePathAsTableName
         
         Get Main_DD to hoDD
+        Get pbUsePathAsTableName to bUsePathAsTableName
+        
+        // Implement a override to still use psPath
         
         //If the endpoint is data aware and uses a data dictionary we use the name of the main dd to identify the table.
         //Otherwise we just default to psPath
-        If (hoDD <> 0) Begin
+        If (hoDD <> 0 and not(bUsePathAsTableName)) Begin
             Get Main_File of hoDD to iMainFile
         
-            Get_Attribute DF_FILE_ROOT_NAME of iMainFile to sTableName 
+            Get_Attribute DF_FILE_LOGICAL_NAME of iMainFile to sTableName 
         End
         Else Begin
             Get psPath to sTableName
