@@ -1103,6 +1103,7 @@ Class cOpenApiSpecification is a cObject
             Move (IsObjectOfClass(hoField, RefClass(cRestChildCollection))) to bIsChildCollection
             
             Get SchemaName of hoField to sNestedSchemaName
+            Get pbReadOnly of hoField to bReadOnly
             
             //Initialize the nested schema
             Get Create (RefClass(cJsonObject)) to hoNestedSchema
@@ -1138,6 +1139,10 @@ Class cOpenApiSpecification is a cObject
                 //For the entity its sufficient to mark it as type object and append the list of properties (fields)
                 Send SetMemberValue of hoNestedSchema "type" jsonTypeString "object"
                 Send SetMember of hoNestedSchema "properties" hoNestedSchemaProperties    
+            End
+            
+            If bReadOnly Begin
+                Send SetMemberValue of hoNestedSchema "readOnly" jsonTypeBoolean True
             End
             //Append the nested schema to the actual schema
             Send SetMember of hoPropertiesJson sNestedSchemaName hoNestedSchema
