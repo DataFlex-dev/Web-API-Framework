@@ -623,10 +623,4 @@ Class cRestDataset is a cBaseRestDataset
         
         Function_Return sDDErrorMessage
     End_Function
-
-    Procedure End_Construct_Object
-        Forward Send End_Construct_Object
-        
-    End_Procedure
-
 End_Class

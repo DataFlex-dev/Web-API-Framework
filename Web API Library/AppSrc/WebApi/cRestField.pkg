@@ -244,7 +244,7 @@ Class cRestField is a cObject
         Variant[][2] avValidationTable
         Handle hoValidationTable hoDD
         
-        Get Main_DD to hoDD
+        Get Server to hoDD
         Get Data_Field to iField
         
         //Fields that have no data binding cannot have a validation table
@@ -315,10 +315,4 @@ Class cRestField is a cObject
         
         Function_Return bRequired
     End_Function
-
-    Procedure End_Construct_Object
-        Forward Send End_Construct_Object
-
-    End_Procedure
-    
 End_Class
