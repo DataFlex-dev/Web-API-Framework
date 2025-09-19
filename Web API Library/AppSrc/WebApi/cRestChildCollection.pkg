@@ -103,9 +103,4 @@ Class cRestChildCollection is a cObject
     Function IsRequired Returns Boolean
         Function_Return False
     End_Function
-
-    Procedure End_Construct_Object
-        Forward Send End_Construct_Object
-    End_Procedure
-
 End_Class

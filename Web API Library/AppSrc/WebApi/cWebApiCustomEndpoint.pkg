@@ -77,10 +77,4 @@ Class cWebApiCustomEndpoint is a cBaseRestDataset
     { MethodType = Event }
     Procedure OnDefineSchema tEndpointDefinition ByRef endpointDefinition
     End_Procedure
-
-    Procedure End_Construct_Object
-        Forward Send End_Construct_Object
-
-    End_Procedure
-
 End_Class

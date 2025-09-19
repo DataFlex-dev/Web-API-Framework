@@ -1335,9 +1335,4 @@ Class cOpenApiSpecification is a cObject
         //If we get here hoParent should be the cWebApi object
         Function_Return hoParent
     End_Function
-    
-    Procedure End_Construct_Object
-        Forward Send End_Construct_Object
-    End_Procedure
-
 End_Class
