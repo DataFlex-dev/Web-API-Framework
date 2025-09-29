@@ -8,12 +8,43 @@ Object oExampleCustomEndpoint is a cWebApiCustomEndpoint
     End_Procedure
 
     Procedure OnHttpGet tWebApiCallContext  ByRef webapicallcontext
-        Send OutputString "Augment this event to do something custom!"
-    End_Procedure
+        String sFull sUploadFolder sFileParam sDirSeperator
+        UChar[] ucaFile
+        Boolean bFileExists
+        
+        // Get the upload folder along with the correct dir seperator.
+        Move (SysConf(SYSCONF_DIR_SEPARATOR)) to sDirSeperator
+        Get UploadFolder to sUploadFolder
+        Get UrlParameter "ID" to sFileParam
+        
+        // Create the full file path
+        Move (SFormat("%1%2SalesAvatars%2%3.jpg", sUploadFolder, sDirSeperator, sFileParam)) to sFull
+
+        // Check if the file exists
+        File_Exist sFull bFileExists
+        If (not(bFileExists)) Begin
+            Send SetResponseStatus 404
+            Send AddHttpResponseHeader "Content-Type" "text/plain"
+            Send OutputString "File not found"
+            Procedure_Return
+        End
+
+        // Read the file to a UChar array
+        Direct_Input channel 5 ("Binary:" + sFull)
+        Read_Block channel 5 ucaFile -1
+        Close_Input channel 5
+
+        // Set headers
+        Send AddHttpResponseHeader "Content-Type" "application/octet-stream"
+        Send AddHttpResponseHeader "Content-Disposition" (SFormat("attachment; filename=%1.jpg", sFileParam))
+
+        // Output the file
+        Send OutputUChar ucaFile
+    End_Procedure   
 
     Procedure OnDefineSchema tEndpointDefinition  ByRef endpointDefinition
-        tFieldDefinition imageField
-        tVerbDefinition genericVerbInformation getVerb postVerb
+        tFieldDefinition imageField errorField errorCode errorDescription
+        tVerbDefinition genericVerbInformation getVerb postVerb deleteVerb
         tParameterDefinition personIDParam       
         
         //Configure the Image field
@@ -24,7 +55,7 @@ Object oExampleCustomEndpoint is a cWebApiCustomEndpoint
         Move "ID" to personIDParam.sName
         Move "ID of the person" to personIDParam.sDescription
         Move WEBAPI_QUERY_PARAMETER to personIDParam.eParameterIn
-        Move WEBAPI_INTEGER_FIELD to personIDParam.eParameterType
+        Move WEBAPI_STRING_FIELD to personIDParam.eParameterType
         Move True to personIDParam.bRequired
         
         Move personIDParam to genericVerbInformation.parameters[-1]
@@ -33,11 +64,31 @@ Object oExampleCustomEndpoint is a cWebApiCustomEndpoint
         Move imageField to genericVerbInformation.responses[0].responseFields[-1]
         Move C_WEBAPI_OK to genericVerbInformation.responses[0].iStatusCode
         Move "OK" to genericVerbInformation.responses[0].sStatusCodeDescription
-        Move "application/octet-stream" to genericVerbInformation.responses[0].asResponseMediaTypes[-1]       
+        Move "application/octet-stream" to genericVerbInformation.responses[0].asResponseMediaTypes[-1]
+        
+        //Create a generic error response
+        Move WEBAPI_OBJECT_FIELD to errorField.eFieldType
+        
+        // Define ErrorCode for the json object
+        Move "ErrorCode" to errorCode.sFieldName
+        Move WEBAPI_INTEGER_FIELD to errorCode.eFieldType
+        Move errorCode to errorField.nestedFields[-1]
+        
+        // Define ErrorDescription for the json object
+        Move "ErrorDescription" to errorDescription.sFieldName
+        Move WEBAPI_STRING_FIELD to errorDescription.eFieldType
+        Move errorDescription to errorField.nestedFields[-1]
+        
+        // Define the information for a bad request
+        Move C_WEBAPI_BADREQUEST to genericVerbInformation.responses[1].iStatusCode
+        Move "Bad Request" to genericVerbInformation.responses[1].sStatusCodeDescription
+        Move "application/json" to genericVerbInformation.responses[1].asResponseMediaTypes[-1]
+        Move errorField to genericVerbInformation.responses[1].responseFields[-1]        
         
         //Move the shared info to the seperate structs
         Move genericVerbInformation to getVerb
         Move genericVerbInformation to postVerb
+        Move genericVerbInformation to deleteVerb
         
         //Define the image field as a requested field
         Move imageField to postVerb.requestFields[0]
@@ -49,6 +100,7 @@ Object oExampleCustomEndpoint is a cWebApiCustomEndpoint
         //Add the appropriate verbs
         Move C_WEBAPI_GET to getVerb.sVerb
         Move C_WEBAPI_POST to postVerb.sVerb
+        Move C_WEBAPI_DELETE to deleteVerb.sVerb
         
         //Give it a description
         Move "Retrieve the image of a person" to getVerb.sDescription
@@ -57,6 +109,6 @@ Object oExampleCustomEndpoint is a cWebApiCustomEndpoint
         //Finally move it to the struct
         Move getVerb to endpointDefinition.verbDefinitions[-1]
         Move postVerb to endpointDefinition.verbDefinitions[-1]
+        Move deleteVerb to endpointDefinition.verbDefinitions[-1]
     End_Procedure
-    
 End_Object
