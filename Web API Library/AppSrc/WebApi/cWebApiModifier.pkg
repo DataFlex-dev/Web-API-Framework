@@ -1,26 +1,43 @@
-﻿{ DDOHost = True }
-Class cWebApiModifier is a cObject
+﻿Use UI
 
-    Procedure Construct_Object
-        Forward Send Construct_Object
-
+Class cWebApiModifier_Mixin is a Mixin
+    Procedure Define_cWebApiModifier_Mixin
         //Internally used to check if something is a auth modifier
         { Visibility = Private }
         Property Boolean pbAuthModifier False
     End_Procedure
-
+    
+    Procedure End_Define_Define_cWebApiModifier_Mixin
+        Delegate Send RegisterModifier Self
+    End_Procedure
+    
+    Procedure End_Define_Define_cWebApiModifier_Mixin_To_Self
+        Send RegisterModifier Self
+    End_Procedure
+    
     { MethodType = Event }
     Procedure OnPreRequest tWebApiCallContext ByRef webapicallcontext
     End_Procedure
-
+    
     { MethodType = Event }
     Procedure OnPostRequest tWebApiCallContext ByRef webapicallcontext
+    End_Procedure
+End_Class
+
+{ DDOHost = True }
+Class cWebApiModifier is a cObject
+    
+    Import_Class_Protocol cWebApiModifier_Mixin
+    
+    Procedure Construct_Object
+        Forward Send Construct_Object
+        
+        Send Define_cWebApiModifier_Mixin
     End_Procedure
 
     Procedure End_Construct_Object
         Forward Send End_Construct_Object
-
-        Delegate Send RegisterModifier Self
+        Send End_Define_Define_cWebApiModifier_Mixin
     End_Procedure
 
 End_Class
