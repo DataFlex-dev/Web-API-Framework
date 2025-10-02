@@ -99,6 +99,12 @@ Class cWebApi is a cWebHttpHandler
         Integer[] iIteratorClasses
         Integer iIndex iClass
         Handle hoCachedIterator
+        
+        // Handle iterators set or created by modifiers.
+        If (webapicallcontext.hoIterator) Begin
+            Procedure_Return
+        End
+        
 
         Get piIteratorClasses to iIteratorClasses
         Get pasIteratorTypes to sIteratorTypes
@@ -234,10 +240,7 @@ Class cWebApi is a cWebHttpHandler
 
         //Fire the OnHttpPreRequest event for developers to augment
         Send OnHttpPreRequest (&webapicallcontext)
-
-        //Get the iterator
-        Send GetIterator (&webapicallcontext)
-
+        
         //Add all modifiers defined on this level to the webapicallcontext struct
         Send AddModifiersToCallContext (&webapicallcontext)
 
@@ -258,7 +261,10 @@ Class cWebApi is a cWebHttpHandler
 
         //We fire all the pre modifiers before we fire the main logic
         Send FirePreModifierEvents (&webapicallcontext)
-
+        
+        //Get the iterator
+        Send GetIterator (&webapicallcontext)
+        
         //Either the router/dataset could not be found or we are not authenticated
         If (not(webapicallcontext.bErr)) Begin
             Send OnHttpRequest of webapicallcontext.hoDataset (&webapicallcontext)
