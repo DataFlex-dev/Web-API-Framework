@@ -1,5 +1,5 @@
 #REPLACE FILE30 OrderHeader
-#REPLACE OrderHeader.Recnum |FN30,0
+#REPLACE OrderHeader.File_Number |CI30
 #REPLACE OrderHeader.Order_Number |FN30,1
 #REPLACE OrderHeader.Customer_Number |FN30,2
 #REPLACE OrderHeader.Order_Date |FD30,3

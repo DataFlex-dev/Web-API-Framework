@@ -1,0 +1,159 @@
+﻿Use UI
+
+#COMMAND Register_Property R of R
+Register_Function !1 Returns !3 !4 !5 !6 !7 !8 !9
+Register_Procedure Set !1 !3 !4 !5 !6 !7 !8 !9 Value
+#ENDCOMMAND
+
+Register_Function DDByName String sTable Returns Handle
+
+Struct tDDPBuilderResult
+    { Name="err" }
+    Integer iErr
+    { Name="errtext" }
+    String sError
+    { Name="result" }
+    Variant vResult
+End_Struct
+
+Enum_List
+    Define DDPERR_INVALID_FORMAT for 1
+    Define DDPERR_INVALID_TABLES
+    Define DDPERR_INVALID_MODE
+    Define DDPERR_INVALID_ORDER
+    Define DDPERR_INVALID_INDEX
+    Define DDPERR_INVALID_CONSTRAIN
+    Define DDPERR_INVALID_MAIN_TABLE
+    Define DDPERR_UNKOWN_TABLE
+    Define DDPERR_INVALID_LIMIT
+    Define DDPERR_INVALID_FIELDS
+    Define DDPERR_INVALID_FIELD
+    Define DDPERR_VALIDATION_FAILED
+    Define DDPERR_SAVE_FAILED
+    Define DDPERR_MISSING_KEY_FIELD
+    Define DDPERR_RECORD_NOT_FOUND
+    Define DDPERR_RECORD_CHANGED
+    Define DDPERR_DELETE_FAILED
+    Define DDPERR_UPDATE_FAILED
+    Define DDPERR_INVALID_OFFSET
+End_Enum_List
+
+Struct tDDPDataDictPair
+    String sName         // lowercase — binary-search key for case-insensitive lookup
+    String sDisplayName  // original casing — used in all client-facing output
+    Handle hoDD
+End_Struct
+
+Struct tDDPFileDD
+    Handle hFile
+    Handle hoDD
+End_Struct
+
+Enum_List
+    Define DDP_None for 0
+    Define DDP_Parent
+    Define DDP_Child
+End_Enum_List
+
+Enum_List
+    Define DDPFind_Auto for 0
+    Define DDPFind_LT
+    Define DDPFind_LE
+    Define DDPFind_EQ
+    Define DDPFind_GE
+    Define DDPFind_GT
+    Define DDPFind_NE
+    Define DDPFind_LAST for DDPFind_NE
+End_Enum_List
+
+Enum_List 
+    Define DDPOrder_ASC for Ascending
+    Define DDPOrder_DESC for Descending
+End_Enum_List
+
+Struct tDDPConstrain
+    Integer eMode
+    Handle hField
+    Variant[] aParams
+End_Struct
+
+Struct tDDPOrder
+    Handle hField
+    Integer eMode
+    Boolean bNoCase
+End_Struct
+
+Struct tDDPTableQuery
+    Handle hoDD
+    Integer iLimit
+    Integer iOffset
+    tDDPConstrain[] aConstrains
+    tDDPOrder[] aOrder
+    tDDPTableQuery[] aParents
+    tDDPTableQuery[] aChilds
+    Integer[] aFields
+End_Struct
+
+// One field assignment for a store (create) operation.
+Struct tDDPSaveField
+    Handle hField
+    String sValue
+End_Struct
+
+// One record to store, plus nested child records to cascade after the parent is saved.
+// aChilds is flat — multiple records for the same child table appear as separate entries.
+Struct tDDPSaveRecord
+    Handle hoDD
+    tDDPSaveField[] aFields
+    tDDPSaveRecord[] aChilds
+End_Struct
+
+// Top-level wrapper for a store operation (mirrors tDDPQuery).
+Struct tDDPSaveQuery
+    tDDPSaveRecord oMain
+End_Struct
+
+// One field value supplied for identifying or verifying a record during delete.
+// PK fields are used for the find; any additional fields are verified against the
+// found record to detect concurrent modifications (optimistic concurrency check).
+Struct tDDPDeleteField
+    Handle hField
+    String sValue
+End_Struct
+
+// Identifies one record to delete: PK fields for the find plus optional verification fields.
+Struct tDDPDeleteRecord
+    Handle hoDD
+    tDDPDeleteField[] aFields
+End_Struct
+
+// Top-level wrapper for a delete operation (mirrors tDDPQuery / tDDPSaveQuery).
+Struct tDDPDeleteQuery
+    tDDPDeleteRecord oMain
+End_Struct
+
+// One field value for an update operation. PK fields identify the record to find;
+// non-PK fields carry the new values to write.
+Struct tDDPUpdateField
+    Handle hField
+    String sValue
+End_Struct
+
+// All fields for an update in one flat list (PK + values to change).
+Struct tDDPUpdateRecord
+    Handle hoDD
+    tDDPUpdateField[] aFields
+End_Struct
+
+// Top-level wrapper for an update operation (mirrors tDDPDeleteQuery).
+Struct tDDPUpdateQuery
+    tDDPUpdateRecord oMain
+End_Struct
+
+Class IDDP_Backend_Mixin is a Mixin
+    Procedure Define_DDP_Backend_Mixin
+    End_Procedure
+    
+    Procedure End_Define_DDP_Backend_Mixin
+    End_Procedure
+End_Class

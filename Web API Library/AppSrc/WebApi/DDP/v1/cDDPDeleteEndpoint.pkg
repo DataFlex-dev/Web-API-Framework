@@ -1,0 +1,156 @@
+Use WebApi\cBaseRestDataset.pkg
+Use WebApi\DDP\Backends\IBackend.pkg
+Use WebApi\DDP\cDDPBuilder.pkg
+
+// Handles POST /ddp/v1/delete — deletes a record identified by the request body.
+// POST is used instead of DELETE because many HTTP clients do not support a
+// request body on DELETE. The body is either a single delete-object or a JSON
+// array of delete-objects. Each delete-object is a JSON object with exactly one
+// top-level key (the table name) whose value maps field names to values.
+// PK fields identify the record; any additional fields act as a precondition
+// (optimistic concurrency — mismatch returns 409). Use Delegate Send/Get to call
+// builder/backend methods on the parent protocol.
+Class cDDPDeleteEndpoint is a cBaseRestDataset
+
+    Procedure Construct_Object
+        Forward Send Construct_Object
+
+        // Delete is POST-only; the record to remove is identified by the body.
+        Set pbAllowRead to False
+        Set pbAllowEdit to False
+        Set pbAllowDelete to False
+
+        // Shared JSON parser for request bodies.
+        Object oJson is a cJsonObject
+            Set pbRequireAllMembers to False
+        End_Object
+    End_Procedure
+
+    { MethodType = Event }
+    // POST /ddp/v1/delete — delete one or more records.
+    //
+    // Single record (PK only):
+    //   { "Customer": { "Customer_Number": 42 } }
+    //
+    // Single record with verification fields:
+    //   { "Customer": { "Customer_Number": 42, "Name": "Acme Corp" } }
+    //
+    // Array of records:
+    //   [ { "Customer": { "Customer_Number": 42 } }, { "Customer": { "Customer_Number": 43 } } ]
+    //
+    // Response: 200 with a snapshot of the deleted record(s).
+    Procedure OnHttpPost tWebApiCallContext ByRef webapicallcontext
+        String sRequestBodyString sTableName
+        tDDPBuilderResult oResult
+        tDDPDeleteQuery oQuery oEmptyQuery
+        Handle hoElement hoTableJson hoDeletedRecord
+        Integer iIndex iJsonType iElementCount
+
+        Get RequestDataString to sRequestBodyString
+        If (not(ParseString(oJson, sRequestBodyString))) Begin
+            Move True to webapicallcontext.bErr
+            Move C_WEBAPI_NOTALLOWED to webapicallcontext.iStatusCode
+            Move "Invalid format" to webapicallcontext.sShortStatusMessage
+            Procedure_Return
+        End
+
+        Move (JsonType(oJson)) to iJsonType
+        If (iJsonType <> jsonTypeObject and iJsonType <> jsonTypeArray) Begin
+            Move True to webapicallcontext.bErr
+            Move C_WEBAPI_NOTALLOWED to webapicallcontext.iStatusCode
+            Move "Invalid format" to webapicallcontext.sShortStatusMessage
+            Move "root must be an object or array." to webapicallcontext.sErrorMessage
+            Procedure_Return
+        End
+
+        Get Create (RefClass(cJsonObject)) to webapicallcontext.hoResponseBody
+        If (iJsonType = jsonTypeArray) Begin
+            Send InitializeJsonType of webapicallcontext.hoResponseBody jsonTypeArray
+            Move (MemberCount(oJson)) to iElementCount
+        End
+        Else Begin
+            Send InitializeJsonType of webapicallcontext.hoResponseBody jsonTypeObject
+            Move 1 to iElementCount
+        End
+
+        For iIndex from 0 to (iElementCount - 1)
+            If (iJsonType = jsonTypeArray) Begin
+                Get Member of oJson iIndex to hoElement
+            End
+            Else Begin
+                Move oJson to hoElement
+            End
+
+            // Each element must be a JSON object with exactly one top-level key.
+            If (JsonType(hoElement) <> jsonTypeObject or MemberCount(hoElement) <> 1) Begin
+                If (iJsonType = jsonTypeArray) Send Destroy of hoElement
+                Move True to webapicallcontext.bErr
+                Move C_WEBAPI_NOTALLOWED to webapicallcontext.iStatusCode
+                Move "Invalid format" to webapicallcontext.sShortStatusMessage
+                Move "each entry must be a JSON object with exactly one table key." to webapicallcontext.sErrorMessage
+                Procedure_Return
+            End
+
+            Get MemberNameByIndex of hoElement 0 to sTableName
+            Get Member of hoElement sTableName to hoTableJson
+
+            Move oEmptyQuery to oQuery
+            Delegate Get ConstructDeleteScenario sTableName hoTableJson (&oQuery) to oResult
+            Send Destroy of hoTableJson
+            If (iJsonType = jsonTypeArray) Send Destroy of hoElement
+
+            If (oResult.iErr) Begin
+                Delegate Send DestroyDeleteQuery oQuery
+                Move True to webapicallcontext.bErr
+                Move C_WEBAPI_NOTALLOWED to webapicallcontext.iStatusCode
+                Move "Invalid request" to webapicallcontext.sShortStatusMessage
+                Move oResult.sError to webapicallcontext.sErrorMessage
+                Procedure_Return
+            End
+
+            Delegate Get ExecuteDelete oQuery (&hoDeletedRecord) to oResult
+            Delegate Send DestroyDeleteQuery oQuery
+
+            If (oResult.iErr) Begin
+                If (hoDeletedRecord) Send Destroy of hoDeletedRecord
+                Move True to webapicallcontext.bErr
+                If (oResult.iErr = DDPERR_RECORD_NOT_FOUND) Begin
+                    Move C_WEBAPI_NOTFOUND to webapicallcontext.iStatusCode
+                    Move "Not Found" to webapicallcontext.sShortStatusMessage
+                End
+                Else If (oResult.iErr = DDPERR_RECORD_CHANGED) Begin
+                    Move 409 to webapicallcontext.iStatusCode
+                    Move "Record Changed" to webapicallcontext.sShortStatusMessage
+                End
+                Else If (oResult.iErr = DDPERR_MISSING_KEY_FIELD) Begin
+                    Move C_WEBAPI_NOTALLOWED to webapicallcontext.iStatusCode
+                    Move "Missing key field" to webapicallcontext.sShortStatusMessage
+                End
+                Else If (oResult.iErr = DDPERR_VALIDATION_FAILED) Begin
+                    Move 422 to webapicallcontext.iStatusCode
+                    Move "Validation Error" to webapicallcontext.sShortStatusMessage
+                End
+                Else Begin
+                    Move 422 to webapicallcontext.iStatusCode
+                    Move "Delete Error" to webapicallcontext.sShortStatusMessage
+                End
+                Move oResult.sError to webapicallcontext.sErrorMessage
+                Procedure_Return
+            End
+
+            // Single object → response is an object keyed by table name.
+            // Array → response is a flat array of deleted records.
+            If (iJsonType = jsonTypeArray) Begin
+                Send AddMember of webapicallcontext.hoResponseBody hoDeletedRecord
+            End
+            Else Begin
+                Send SetMember of webapicallcontext.hoResponseBody sTableName hoDeletedRecord
+            End
+            Send Destroy of hoDeletedRecord
+            Move 0 to hoDeletedRecord
+        Loop
+
+        Move C_WEBAPI_OK to webapicallcontext.iStatusCode
+    End_Procedure
+
+End_Class

@@ -1,0 +1,1746 @@
+﻿Use UI
+
+// Top-level query descriptor: wraps the root table query so the caller
+// only needs to pass one value through the execution pipeline.
+Struct tDDPQuery
+    tDDPTableQuery oMain
+End_Struct
+
+Enum_List
+    Define DDP_Builder_Find for 0
+End_Enum_List
+
+// Controls how the response JSON is shaped. Nested = default relational nesting;
+// Flat = positionally-aligned parallel arrays (parents and child sub-arrays per row);
+// FlatLinked = deduplicated parallel arrays joined by FK fields.
+Enum_List
+    Define DDPStyle_Nested for 0
+    Define DDPStyle_Flat
+    Define DDPStyle_FlatLinked
+End_Enum_List
+
+// Carries the per-request execution context through the builder pipeline.
+// eType   ΓÇö reserved for future query types (currently only Find is used).
+// eStyle  ΓÇö controls response shape; defaults to DDPStyle_Nested (value 0).
+// hoJsonReq ΓÇö handle to the parsed request JSON object.
+Struct tDDPBuilderContext
+    Integer eType
+    Integer eStyle
+    Handle hoJsonReq
+End_Struct
+
+// cDDPBuilder_Mixin provides the full query-build and query-execute logic.
+// It is mixed into cWebAPIDataDictionaryProtocol, which hosts the exposed DDs
+// and handles HTTP routing.
+Class cDDPBuilder_Mixin is a Mixin
+
+    Procedure Define_cDDPBuilder_Mixin
+        // Sorted array of exposed DD name/handle pairs. Sorted by sName so
+        // BinarySearchArray can be used for O(log n) lookups at query time.
+        Property tDDPDataDictPair[] paDataDicts
+
+        // Guard that prevents Expose from being called after construction is
+        // complete. Set to False in End_Define_cDDPBuilder_Mixin.
+        Property Boolean pbIsCollecting True
+    End_Procedure
+
+    // Seal the collection phase. After this point Expose will raise a runtime
+    // error, preventing tables being added to a live endpoint.
+    Procedure End_Define_cDDPBuilder_Mixin
+        Set pbIsCollecting to False
+    End_Procedure
+
+    // Returns the first (main) table name from a list, or "" if the list is
+    // empty. Used to identify the primary table in a multi-table query.
+    Function MainTableOfList String[] aTables Returns String
+        If (SizeOfArray(aTables) = 0) Begin
+            Function_Return ""
+        End
+        Function_Return aTables[0]
+    End_Function
+
+    // Parses a request key (e.g. "Name_ge") into its field handle, constraint
+    // mode, and whether it is an ordering directive (_di) rather than a filter.
+    // Returns True if the key resolves to a valid field+operator combination.
+    // The field number is returned via iField (1-based), mode via eMode,
+    // and ordering flag via bOrdering.
+    Function DetermineFieldAndConstrainMode Handle hoDD String sSearch Integer ByRef iField Integer ByRef eMode Boolean ByRef bOrdering Returns Boolean
+        Integer iFieldCount iFieldNameLen
+        String sFieldName sContrain
+        Get FieldCount hoDD to iFieldCount
+        Move False to bOrdering
+
+        // Walk every field on the DD checking for an exact name match first
+        // (bare name = equality) then a name+3-char suffix match.
+        For iField from 1 to iFieldCount
+            Move (FieldName(Self, hoDD, iField)) to sFieldName
+            Move (Length(sFieldName)) to iFieldNameLen
+
+            // Bare field name with no suffix — treat as equality constraint.
+            If (Lowercase(sSearch) = Lowercase(sFieldName)) Begin
+                Move DDPFind_EQ to eMode
+                Function_Return True
+            End
+
+            // Name + exactly 3 suffix characters (e.g. "_ge", "_di").
+            // Lowercase the suffix so the API is case-insensitive.
+            If (Lowercase(Left(sSearch, iFieldNameLen)) = Lowercase(sFieldName) and Length(sSearch) = (iFieldNameLen + 3)) Begin
+                Move (Lowercase(Right(sSearch, 3))) to sContrain
+                If (sContrain = "_di") Begin
+                    // Ordering directive ΓÇö caller will build a tDDPOrder entry.
+                    Move True to bOrdering
+                    Function_Return True
+                End
+                Else If (sContrain = "_eq") Begin
+                    Move DDPFind_EQ to eMode
+                    Function_Return True
+                End
+                Else If (sContrain = "_ne") Begin
+                    Move DDPFind_NE to eMode
+                    Function_Return True
+                End
+                Else If (sContrain = "_ge") Begin
+                    Move DDPFind_GE to eMode
+                    Function_Return True
+                End
+                Else If (sContrain = "_gt") Begin
+                    Move DDPFind_GT to eMode
+                    Function_Return True
+                End
+                Else If (sContrain = "_le") Begin
+                    Move DDPFind_LE to eMode
+                    Function_Return True
+                End
+                Else If (sContrain = "_lt") Begin
+                    Move DDPFind_LT to eMode
+                    Function_Return True
+                End
+            End
+        Loop
+
+        // Key did not match any field on this DD.
+        Function_Return False
+    End_Function
+
+    // Looks up a parent table query by its underlying file handle.
+    // Used during serialization to check whether a FK field in the current
+    // table points to one of the requested parent tables ΓÇö if so, the FK
+    // field is omitted from the child row (the parent object carries the data).
+    // Returns an empty tDDPTableQuery if no match is found.
+    Function FindParentFileInQuery tDDPTableQuery query Handle hFile Returns tDDPTableQuery
+        Integer iIndex
+        Handle hMainFile
+        tDDPTableQuery empty
+
+        For iIndex from 0 to (SizeOfArray(query.aParents) - 1)
+            Get Main_File of query.aParents[iIndex].hoDD to hMainFile
+            If (hMainFile = hFile) Begin
+                Function_Return query.aParents[iIndex]
+            End
+        Loop
+
+        // No matching parent found ΓÇö return zero-initialised struct.
+        Function_Return empty
+    End_Function
+
+    // Strips all runtime relationships and constraints from a DD so it can be
+    // safely reused across queries. DDs are long-lived objects shared between
+    // requests; this ensures one query's link-up does not bleed into the next.
+    // The optional hoOptParentDD parameter prevents infinite recursion when
+    // clearing bidirectional relationships ΓÇö it skips re-clearing the caller.
+    Procedure ClearRelationShipsOnDD Handle hoDD Handle hoOptParentDD
+        Handle hFile
+
+        // Disable SQL filter mode and clear any accumulated SQL filter string.
+        Set pbUseDDSQLFilters of hoDD to False
+        Set psSQLFilter of hoDD to ""
+
+        // Remove the constrain-file relationship (child-to-parent scope lock).
+        Set Constrain_File of hoDD to 0
+
+        // Drain all client files (1-to-N child file references) from this DD.
+        // Index 0 is used repeatedly because Remove_Client_File shifts the array down.
+        While (Client_File_Count(hoDD))
+            Get Client_File of hoDD 0 to hFile
+            Send Remove_Client_File of hoDD hFile
+        Loop
+
+        // Drain all server files (N-to-1 parent file references) from this DD.
+        While (Server_File_Count(hoDD))
+            Get Server_File of hoDD 0 to hFile
+            Send Remove_Server_File of hoDD hFile
+        Loop
+
+        // Recursively clear any data-set client DDs (child DDOs), skipping
+        // the optional parent to avoid cycling back up the chain.
+        While (Data_Set_Client_Count(hoDD))
+            Get Data_Set_Client of hoDD 0 to hFile
+            If (num_arguments <= 1 or hoOptParentDD <> hFile) ;
+                Send ClearRelationShipsOnDD hFile hoDD
+            Send Detach_Client of hoDD hFile
+        Loop
+
+        // Recursively clear any data-set server DDs (parent DDOs).
+        While (Data_Set_Server_Count(hoDD))
+            Get Data_Set_Server of hoDD 0 to hFile
+            If (num_arguments <= 1 or hoOptParentDD <> hFile) ;
+                Send ClearRelationShipsOnDD hFile hoDD
+            Send Detach_Server of hoDD hFile
+        Loop
+
+        // Zero the record buffer so there is no stale data after cleanup.
+        Send Clear of hoDD
+    End_Procedure
+
+    // Wires up the live DD relationships described by a tDDPTableQuery tree so
+    // that DataFlex navigation (Request_Read / Constrain_File) works correctly
+    // at execution time. Called once per query after ConstructTableQuery builds
+    // the tree but before any finds are executed.
+    // Recurses depth-first through both parent and child branches.
+    Function QueryLinkUp tDDPTableQuery query Returns tDDPBuilderResult
+        Integer iIndex
+        tDDPBuilderResult oResult
+
+        // For each requested parent: register it as a server file on this DD
+        // and set the DDO_Server pointer so the DataFlex DD layer tracks the
+        // relationship and auto-reads parent buffers during navigation.
+        For iIndex from 0 to (SizeOfArray(query.aParents) - 1)
+            Send Add_Server_File of query.hoDD (Main_File(query.aParents[iIndex].hoDD))
+            Set DDO_Server of query.hoDD to query.aParents[iIndex].hoDD
+
+            // Recurse so grandparent chains are linked up as well.
+            Get QueryLinkUp query.aParents[iIndex] to oResult
+            If (oResult.iErr) Function_Return oResult
+        Loop
+
+        // For each requested child: register it as a client file on this DD,
+        // make this DD a server on the child, and set Constrain_File so that
+        // navigation on the child is automatically scoped to the current parent
+        // record ΓÇö without this, Request_Read on the child would scan the whole table.
+        For iIndex from 0 to (SizeOfArray(query.aChilds) - 1)
+            Send Add_Client_File of query.hoDD (Main_File(query.aChilds[iIndex].hoDD))
+            Send Add_Server_File of query.aChilds[iIndex].hoDD (Main_File(query.hoDD))
+            Set DDO_Server of query.aChilds[iIndex].hoDD to query.hoDD
+            Set Constrain_File of query.aChilds[iIndex].hoDD to (Main_File(query.hoDD))
+
+            // Recurse into the child's own children.
+            Get QueryLinkUp query.aChilds[iIndex] to oResult
+            If (oResult.iErr) Function_Return oResult
+        Loop
+
+        Function_Return oResult
+    End_Function
+
+    // Parses one JSON table-query object (e.g. {"__limit":10, "Name_ge":"A",
+    // "OrderHeader": {...}}) into a tDDPTableQuery struct. Called recursively
+    // for each nested related table. hoParent is the file handle of the calling
+    // table, used to validate that the nested table is directly related.
+    Function ConstructTableQuery String sDDName Handle hoJson tDDPTableQuery ByRef table Handle hoParent Returns tDDPBuilderResult
+        Integer iIndex eType
+        String sKey sValue
+        tDDPBuilderResult oResult
+
+        // Resolve the table name to an exposed DD handle. Lookup is
+        // case-insensitive because Expose lowercases names on registration.
+        Get DDByName sDDName to table.hoDD
+        If (not(table.hoDD)) Begin
+            Move DDPERR_UNKOWN_TABLE to oResult.iErr
+            Move (SFormat("'%1', not known.", sDDName)) to oResult.sError
+            Function_Return oResult
+        End
+
+        // __limit ΓÇö optional integer cap on rows returned for this table.
+        // Validated as integer type; a string "10" is rejected to catch
+        // client encoding mistakes early.
+        If (HasMember(hoJson, "__limit")) Begin
+            Move (MemberJsonType(hoJson, "__limit")) to eType
+            If (eType <> jsonTypeInteger) Begin
+                Move DDPERR_INVALID_LIMIT to oResult.iErr
+                Move "Invalid limit." to oResult.sError
+                Function_Return oResult
+            End
+            Get MemberValue of hoJson "__limit" to table.iLimit
+        End
+
+        // __offset — optional integer number of rows to skip before collecting results.
+        If (HasMember(hoJson, "__offset")) Begin
+            Move (MemberJsonType(hoJson, "__offset")) to eType
+            If (eType <> jsonTypeInteger) Begin
+                Move DDPERR_INVALID_OFFSET to oResult.iErr
+                Move "Invalid offset." to oResult.sError
+                Function_Return oResult
+            End
+            Get MemberValue of hoJson "__offset" to table.iOffset
+        End
+
+        // __fields ΓÇö optional array of field names to include in the response.
+        // Each name is resolved to a 1-based field number so serialization
+        // can access fields by index without re-scanning by name at read time.
+        Handle hoFields
+        Integer iField
+        If (HasMember(hoJson, "__fields")) Begin
+            Move (MemberJsonType(hoJson, "__fields")) to eType
+            If (eType <> jsonTypeArray) Begin
+                Move DDPERR_INVALID_FIELDS to oResult.iErr
+                Move "Invalid fields." to oResult.sError
+                Function_Return oResult
+            End
+
+            Get Member of hoJson "__fields" to hoFields
+
+            For iIndex from 0 to (MemberCount(hoFields) - 1)
+                Get MemberValue of hoFields iIndex to sValue
+                // Reject any name that does not exist on this DD ΓÇö prevents
+                // silent data leakage if a client typos a sensitive field name.
+                If (not(IsField(Self, table.hoDD, sValue, &iField))) Begin
+                    Move DDPERR_INVALID_FIELD to oResult.iErr
+                    Move "Invalid field." to oResult.sError
+                    Function_Return oResult
+                End
+                // Store the resolved field number (1-based) for fast access later.
+                Move iField to table.aFields[-1]
+            Loop
+
+            Send Destroy of hoFields
+        End
+
+        tDDPOrder oOrder
+        tDDPConstrain oConstrain
+        tDDPTableQuery oTable oEmptyTable
+        Boolean bParent bIsOrdering
+        Handle hoMemberTable
+        Integer iParamIndex
+
+        // Walk remaining JSON members; skip the two reserved keys already handled.
+        // Members are either nested table queries (objects) or field constraints/
+        // ordering directives (scalars).
+        For iIndex from 0 to (MemberCount(hoJson) - 1)
+            Get MemberNameByIndex of hoJson iIndex to sKey
+            If (sKey = "__limit" or sKey = "__offset" or sKey = "__fields") Break Begin
+
+            Move (MemberJsonType(hoJson, sKey)) to eType
+
+            If (eType = jsonTypeObject) Begin
+                // Nested object ΓÇö must be a related table name.
+                Get DDByName sKey to oTable.hoDD
+                If (not(oTable.hoDD)) Begin
+                    Move DDPERR_UNKOWN_TABLE to oResult.iErr
+                    Move (SFormat("'%1', not known.", sKey)) to oResult.sError
+                    Function_Return oResult
+                End
+
+                // Verify a direct relationship exists between this table and
+                // the nested one. IsDDRelated also sets bParent to distinguish
+                // server-file (parent) from client-file (child) direction.
+                If (not(IsDDRelated(Self, table.hoDD, oTable.hoDD, &bParent))) Begin
+                    Move DDPERR_UNKOWN_TABLE to oResult.iErr
+                    Move (SFormat("'%1', not related.", sKey)) to oResult.sError
+                    Function_Return oResult
+                End
+
+                // Recurse to parse the nested table's own constraints and relations.
+                Get Member of hoJson sKey to hoMemberTable
+                Get ConstructTableQuery sKey hoMemberTable (&oTable) table.hoDD to oResult
+                Send Destroy of hoMemberTable
+
+                If (oResult.iErr) Function_Return oResult
+
+                // Slot into the correct relation array based on direction.
+                If (bParent) Begin
+                    Move oTable to table.aParents[-1]
+                End
+                Else Begin
+                    Move oTable to table.aChilds[-1]
+                End
+
+                // Reset the scratch variable for the next iteration.
+                Move oEmptyTable to oTable
+            End
+            Else Begin
+                // Scalar value ΓÇö reject arrays/objects that sneaked past the
+                // object branch (defensive check; should not normally occur).
+                If (eType = jsonTypeObject or eType = jsonTypeArray) Begin
+                    Move DDPERR_INVALID_CONSTRAIN to oResult.iErr
+                    Move (SFormat("Invalid parameter '%1' in '%2'.", sKey, sDDName)) to oResult.sError
+                    Function_Return oResult
+                End
+
+                // Parse the key into a field handle and constraint mode.
+                // DetermineFieldAndConstrainMode also signals ordering directives.
+                If (not(DetermineFieldAndConstrainMode(Self, table.hoDD, sKey, &oConstrain.hField, &oConstrain.eMode, &bIsOrdering))) Begin
+                    Move DDPERR_INVALID_CONSTRAIN to oResult.iErr
+                    Move (SFormat("Invalid parameter field '%1' in '%2'.", sKey, sDDName)) to oResult.sError
+                    Function_Return oResult
+                End
+
+                Get MemberValue of hoJson sKey to sValue
+                If (bIsOrdering) Begin
+                    // Ordering directive (_di suffix). Normalise the value to
+                    // lowercase so "ASC"/"asc" are treated the same.
+                    Move (Lowercase(sValue)) to sValue
+                    Move oConstrain.hField to oOrder.hField
+                    If (sValue = "asc") Begin
+                        Move DDPOrder_ASC to oOrder.eMode
+                    End
+                    Else If (sValue = "desc") Begin
+                        Move DDPOrder_DESC to oOrder.eMode
+                    End
+                    Else Begin
+                        Move DDPERR_INVALID_ORDER to oResult.iErr
+                        Move (SFormat("Invalid ordering on field '%1' in '%2'.", sKey, sDDName)) to oResult.sError
+                        Function_Return oResult
+                    End
+                    Move oOrder to table.aOrder[-1]
+                End
+                Else Begin
+                    // Regular filter constraint ΓÇö store the value string for later
+                    // application via AddConstrain / Set_Constrains_To_Buffers.
+                    Move sValue to oConstrain.aParams[0]
+                    Move oConstrain to table.aConstrains[-1]
+                End
+            End
+        Loop
+
+        Function_Return oResult
+    End_Function
+
+    // Applies constraints from a child or parent query to the main DD's SQL
+    // filter or VConstrain buffer. When an optional parent (optParent) is
+    // supplied, constraints on FK fields that are physically stored in the
+    // parent table are redirected to the parent's field instead.
+    Function AddConstrainsToCurrentSet Handle hoMainDD tDDPTableQuery query tDDPTableQuery optParent Returns tDDPBuilderResult
+        Integer iIndex iRelatedField
+        tDDPBuilderResult oResult
+
+        If (num_arguments > 2) Begin
+            // Child/parent table with a known parent context: check each
+            // constraint field to see if it is actually a FK stored on the
+            // parent. If so, apply the constraint to the parent field so the
+            // DD layer evaluates it in the correct table scope.
+            For iIndex from 0 to (SizeOfArray(query.aConstrains) - 1)
+                Get IsParentFieldRelated query.hoDD query.aConstrains[iIndex].hField optParent.hoDD to iRelatedField
+                If (iRelatedField) Begin
+                    // Constraint field is a FK to the parent ΓÇö apply it there.
+                    Get AddConstrain hoMainDD optParent.hoDD iRelatedField query.aConstrains[iIndex].eMode query.aConstrains[iIndex].aParams[0] to oResult
+                    If (oResult.iErr) Function_Return oResult
+                End
+                Else Begin
+                    // Constraint belongs directly on this table.
+                    Get AddConstrain hoMainDD query.hoDD query.aConstrains[iIndex].hField query.aConstrains[iIndex].eMode query.aConstrains[iIndex].aParams[0] to oResult
+                    If (oResult.iErr) Function_Return oResult
+                End
+            Loop
+        End
+        Else Begin
+            // Main table ΓÇö apply all constraints directly without FK redirect.
+            For iIndex from 0 to (SizeOfArray(query.aConstrains) - 1)
+                Get AddConstrain hoMainDD query.hoDD query.aConstrains[iIndex].hField query.aConstrains[iIndex].eMode query.aConstrains[iIndex].aParams[0] to oResult
+                If (oResult.iErr) Function_Return oResult
+            Loop
+        End
+
+        // Recurse into parent tables so their constraints are also applied to
+        // the main DD. This allows filtering by parent fields (e.g. Customer.Name)
+        // in a query rooted on OrderHeader.
+        For iIndex from 0 to (SizeOfArray(query.aParents) - 1)
+            Get AddConstrainsToCurrentSet hoMainDD query.aParents[iIndex] query to oResult
+            If (oResult.iErr) Function_Return oResult
+        Loop
+
+        Function_Return oResult
+    End_Function
+
+    // Full query preparation pipeline: parse the JSON tree into a tDDPQuery,
+    // wire up all DD relationships, then apply constraints so the DD layer is
+    // ready for Request_Read. Called once per top-level table per request.
+    Function ConstructFindScenario String sMainDD Handle hoDDJson tDDPQuery ByRef oQuery Returns tDDPBuilderResult
+        tDDPBuilderResult oResult
+
+        // Phase 1 ΓÇö parse JSON into the query tree (validates all names and types).
+        Get ConstructTableQuery sMainDD hoDDJson (&oQuery.oMain) 0 to oResult
+        If (oResult.iErr) Function_Return oResult
+
+        // Phase 2 ΓÇö wire up live DD relationships (Add_Server_File, Constrain_File).
+        Get QueryLinkUp oQuery.oMain to oResult
+        If (oResult.iErr) Function_Return oResult
+
+        // Phase 3 ΓÇö push constraints into the main DD. Rebuild_Constraints must
+        // run first to clear any old constraints left from a prior query.
+        Send Rebuild_Constraints of oQuery.oMain.hoDD
+        Get AddConstrainsToCurrentSet oQuery.oMain.hoDD oQuery.oMain to oResult
+        If (oResult.iErr) Function_Return oResult
+
+        // Phase 4 ΓÇö push constraints for each child DD independently.
+        // Children need their own Rebuild_Constraints because they are separate
+        // DD objects with their own constraint state.
+        Integer iChild
+        For iChild from 0 to (SizeOfArray(oQuery.oMain.aChilds) - 1)
+            Send Rebuild_Constraints of oQuery.oMain.aChilds[iChild].hoDD
+            Get AddConstrainsToCurrentSet oQuery.oMain.hoDD oQuery.oMain.aChilds[iChild] to oResult
+            If (oResult.iErr) Function_Return oResult
+        Loop
+
+        Function_Return oResult
+    End_Function
+
+    // -------------------------------------------------------------------------
+    // Nested-style execution: produces a JSON array of row objects.
+    // Each row embeds parent data as nested objects and child data as nested
+    // arrays, matching the relational nesting structure of the query.
+    // Called recursively for child tables.
+    // -------------------------------------------------------------------------
+    Function ExecuteFindTable tDDPBuilderContext ByRef ctx tDDPTableQuery query Handle hoParent Handle ByRef hoJson Returns tDDPBuilderResult
+        Integer eMode
+        Handle hoRow hoRelatedJson
+        Integer iMainFile iIndex iRelatedIndex iConstrain
+        tDDPBuilderResult oResult
+
+        // Initialise the result as an empty JSON array.
+        Get Create (RefClass(cJsonObject)) to hoJson
+        Send InitializeJsonType of hoJson jsonTypeArray
+        Get Main_File of query.hoDD to iMainFile
+
+        // Use a custom index if ordering was requested, otherwise fall back to
+        // the table's primary index for predictable result ordering.
+        Move DDPFind_GE to eMode
+        If (SizeOfArray(query.aOrder)) Begin
+            Get CreateIndex query.hoDD query.aOrder to iIndex
+        End
+        Else Begin
+            Get PrimaryDDIndex query.hoDD to iIndex
+        End
+
+        // Default to "all records" when no limit was specified.
+        // |CI$FFFFFFFF is the maximum unsigned 32-bit integer.
+        If (not(query.iLimit)) Begin
+            Move |CI$FFFFFFFF to query.iLimit
+        End
+
+        // Clear the buffer and seed it with any filter values, then issue
+        // the priming read. (eMode - 1) translates DDPFind_GE to the
+        // DataFlex Request_Read mode constant for a GE (first-in-range) find.
+        Send Clear of query.hoDD
+        Send Set_Constrains_To_Buffers query
+        Send Request_Read of query.hoDD (eMode - 1) iMainFile iIndex
+
+        // Skip the first iOffset rows before beginning collection.
+        While (Found and query.iOffset)
+            Decrement query.iOffset
+            Send Request_Read of query.hoDD NEXT_RECORD iMainFile iIndex
+        Loop
+
+        While (Found and query.iLimit)
+            // Serialise the main table's current buffer into a JSON object row.
+            Get Create (RefClass(cJsonObject)) to hoRow
+            Send InitializeJsonType of hoRow jsonTypeObject
+            Send SerializeBufferToJson hoRow query
+
+            // Embed each requested parent as a nested object on the row.
+            // Parent buffers are already populated by the DataFlex navigation layer
+            // because Add_Server_File / DDO_Server was set up in QueryLinkUp.
+            For iRelatedIndex from 0 to (SizeOfArray(query.aParents) - 1)
+                Get Create (RefClass(cJsonObject)) to hoRelatedJson
+                Send InitializeJsonType of hoRelatedJson jsonTypeObject
+                Send SerializeBufferToJson hoRelatedJson query.aParents[iRelatedIndex]
+                Send SetMember of hoRow (NameOfDD(Self, query.aParents[iRelatedIndex].hoDD)) hoRelatedJson
+                Send Destroy of hoRelatedJson
+            Loop
+
+            // Recurse for each child table. Constrain_File (set in QueryLinkUp)
+            // scopes the child find to the records belonging to this parent row.
+            For iRelatedIndex from 0 to (SizeOfArray(query.aChilds) - 1)
+                Get ExecuteFindTable (&ctx) query.aChilds[iRelatedIndex] query.hoDD (&hoRelatedJson) to oResult
+                Send SetMember of hoRow (NameOfDD(Self, query.aChilds[iRelatedIndex].hoDD)) hoRelatedJson
+                Send Destroy of hoRelatedJson
+                If (oResult.iErr) Function_Return oResult
+            Loop
+
+            Send AddMember of hoJson hoRow
+            Send Destroy of hoRow
+            Decrement query.iLimit
+            Send Request_Read of query.hoDD NEXT_RECORD iMainFile iIndex
+        Loop
+
+        // Clean up any temporary index created for custom ordering.
+        Send DeleteIndex query.hoDD iIndex
+
+        Function_Return oResult
+    End_Function
+
+    // -------------------------------------------------------------------------
+    // Flat-style execution: all tables are top-level arrays in the response.
+    // Parents are positionally aligned ΓÇö element i of a parent array corresponds
+    // to element i of the main array (same parent may appear multiple times if
+    // multiple main rows share it).
+    // Children are arrays of arrays ΓÇö element i is the array of child rows for
+    // main row i.
+    // -------------------------------------------------------------------------
+    Function ExecuteFindTableFlat tDDPBuilderContext ByRef ctx tDDPTableQuery query Handle hoParent Handle ByRef hoJson Returns tDDPBuilderResult
+        Integer eMode
+        Handle hoMain
+        Handle[] ahParents ahChilds
+        Handle hoRow hoRelatedJson
+        Integer iMainFile iIndex iRelatedIndex iConstrain
+        tDDPBuilderResult oResult
+
+        // Main array ΓÇö one element per matching main-table row.
+        Get Create (RefClass(cJsonObject)) to hoMain
+        Send InitializeJsonType of hoMain jsonTypeArray
+        Get Main_File of query.hoDD to iMainFile
+
+        // Allocate one top-level array per requested parent table.
+        // These will be positionally aligned with hoMain.
+        For iRelatedIndex from 0 to (SizeOfArray(query.aParents) - 1)
+            Get Create (RefClass(cJsonObject)) to hoRelatedJson
+            Send InitializeJsonType of hoRelatedJson jsonTypeArray
+            Move hoRelatedJson to ahParents[-1]
+        Loop
+
+        // Allocate one top-level array per requested child table.
+        // Each element of these arrays will itself be an array (child rows for
+        // that main row), giving a positionally-aligned array-of-arrays shape.
+        For iRelatedIndex from 0 to (SizeOfArray(query.aChilds) - 1)
+            Get Create (RefClass(cJsonObject)) to hoRelatedJson
+            Send InitializeJsonType of hoRelatedJson jsonTypeArray
+            Move hoRelatedJson to ahChilds[-1]
+        Loop
+
+        Move DDPFind_GE to eMode
+        If (SizeOfArray(query.aOrder)) Begin
+            Get CreateIndex query.hoDD query.aOrder to iIndex
+        End
+        Else Begin
+            Get PrimaryDDIndex query.hoDD to iIndex
+        End
+        If (not(query.iLimit)) Begin
+            Move |CI$FFFFFFFF to query.iLimit
+        End
+
+        Send Clear of query.hoDD
+        Send Set_Constrains_To_Buffers query
+        Send Request_Read of query.hoDD (eMode - 1) iMainFile iIndex
+
+        // Skip the first iOffset rows before beginning collection.
+        While (Found and query.iOffset)
+            Decrement query.iOffset
+            Send Request_Read of query.hoDD NEXT_RECORD iMainFile iIndex
+        Loop
+
+        While (Found and query.iLimit)
+            // Serialise the main row.
+            Get Create (RefClass(cJsonObject)) to hoRow
+            Send InitializeJsonType of hoRow jsonTypeObject
+            Send SerializeBufferToJson hoRow query
+
+            // Append one parent object per parent array. The same parent record
+            // may be appended multiple times (once per main row that references
+            // it), preserving positional alignment with the main array.
+            For iRelatedIndex from 0 to (SizeOfArray(query.aParents) - 1)
+                Get Create (RefClass(cJsonObject)) to hoRelatedJson
+                Send InitializeJsonType of hoRelatedJson jsonTypeObject
+                Send SerializeBufferToJson hoRelatedJson query.aParents[iRelatedIndex]
+                Send AddMember of ahParents[iRelatedIndex] hoRelatedJson
+                Send Destroy of hoRelatedJson
+            Loop
+
+            // Collect child rows for this main row using the nested executor
+            // (Constrain_File scopes it automatically), then append the resulting
+            // array as a single element of the child's top-level array.
+            For iRelatedIndex from 0 to (SizeOfArray(query.aChilds) - 1)
+                Get ExecuteFindTable (&ctx) query.aChilds[iRelatedIndex] query.hoDD (&hoRelatedJson) to oResult
+                Send AddMember of ahChilds[iRelatedIndex] hoRelatedJson
+                Send Destroy of hoRelatedJson
+                If (oResult.iErr) Function_Return oResult
+            Loop
+
+            Send AddMember of hoMain hoRow
+            Send Destroy of hoRow
+            Decrement query.iLimit
+            Send Request_Read of query.hoDD NEXT_RECORD iMainFile iIndex
+        Loop
+
+        // Assemble the final response object: one key per table, each mapped
+        // to its accumulated array.
+        Get Create (RefClass(cJsonObject)) to hoJson
+        Send InitializeJsonType of hoJson jsonTypeObject
+        Send SetMember of hoJson (NameOfDD(Self, query.hoDD)) hoMain
+        Send Destroy of hoMain
+
+        For iRelatedIndex from 0 to (SizeOfArray(query.aParents) - 1)
+            Send SetMember of hoJson (NameOfDD(Self, query.aParents[iRelatedIndex].hoDD)) ahParents[iRelatedIndex]
+            Send Destroy of ahParents[iRelatedIndex]
+        Loop
+
+        For iRelatedIndex from 0 to (SizeOfArray(query.aChilds) - 1)
+            Send SetMember of hoJson (NameOfDD(Self, query.aChilds[iRelatedIndex].hoDD)) ahChilds[iRelatedIndex]
+            Send Destroy of ahChilds[iRelatedIndex]
+        Loop
+
+        Send DeleteIndex query.hoDD iIndex
+
+        Function_Return oResult
+    End_Function
+
+    // Entry point for nested-style execution. Destroys any previous result
+    // handle before delegating to ExecuteFindTable.
+    Function ExecuteFind tDDPBuilderContext ByRef ctx tDDPQuery query Handle ByRef hoResult Returns tDDPBuilderResult
+        Integer eMode
+        Integer iMainFile iIndex
+        tDDPBuilderResult oResult
+
+        If (hoResult) Begin
+            Send Destroy of hoResult
+            Move 0 to hoResult
+        End
+
+        Get ExecuteFindTable (&ctx) query.oMain 0 (&hoResult) to oResult
+
+        Function_Return oResult
+    End_Function
+
+    // Entry point for flat-style execution.
+    Function ExecuteFindFlat tDDPBuilderContext ByRef ctx tDDPQuery query Handle ByRef hoResult Returns tDDPBuilderResult
+        Integer eMode
+        Integer iMainFile iIndex
+        tDDPBuilderResult oResult
+
+        If (hoResult) Begin
+            Send Destroy of hoResult
+            Move 0 to hoResult
+        End
+
+        Get ExecuteFindTableFlat (&ctx) query.oMain 0 (&hoResult) to oResult
+
+        Function_Return oResult
+    End_Function
+
+    // -------------------------------------------------------------------------
+    // FlatLinked-style execution: like flat but fully deduplicated.
+    // Parents appear at most once per unique record (identified by RowID).
+    // Children are collected into a single flat array across all main rows,
+    // also deduplicated by RowID. FK fields on each row provide the join key.
+    //
+    // Deduplication uses a cJsonObject as an O(1) hash set: the serialised
+    // RowID string is used as the member key; presence of the key means the
+    // record has already been emitted. Using cJsonObject avoids introducing a
+    // separate data structure and reuses the existing JSON infrastructure.
+    // -------------------------------------------------------------------------
+    Function ExecuteFindTableFlatLinked tDDPBuilderContext ByRef ctx tDDPTableQuery query Handle hoParent Handle ByRef hoJson Returns tDDPBuilderResult
+        Integer eMode iChildIdx
+        Handle hoMain
+        // ahParents / ahChilds ΓÇö accumulator arrays for each related table.
+        // aParentSeenSets / aChildSeenSets ΓÇö one cJsonObject hash-set per
+        // related table, keyed by SerializedRowID to track emitted records.
+        Handle[] ahParents aParentSeenSets ahChilds aChildSeenSets
+        Handle hoRow hoRelatedJson
+        Handle hChildFile hParentFile
+        Integer iMainFile iIndex iRelatedIndex
+        // Child indexes are created once before the main loop and shared across
+        // all iterations to avoid recreating temporary indexes for every row.
+        Integer[] aChildIndexes
+        RowID riParentRowID riChildRowID
+        tDDPBuilderResult oResult
+
+        Get Create (RefClass(cJsonObject)) to hoMain
+        Send InitializeJsonType of hoMain jsonTypeArray
+        Get Main_File of query.hoDD to iMainFile
+
+        // Initialise one result array and one seen-set per parent table.
+        For iRelatedIndex from 0 to (SizeOfArray(query.aParents) - 1)
+            // Result array ΓÇö unique parent records will be appended here.
+            Get Create (RefClass(cJsonObject)) to hoRelatedJson
+            Send InitializeJsonType of hoRelatedJson jsonTypeArray
+            Move hoRelatedJson to ahParents[-1]
+
+            // Seen-set ΓÇö empty JSON object used as a hash map.
+            // Key = SerializeRowID(rowID), Value = True (the value is irrelevant;
+            // only HasMember is ever called on it).
+            Get Create (RefClass(cJsonObject)) to hoRelatedJson
+            Send InitializeJsonType of hoRelatedJson jsonTypeObject
+            Move hoRelatedJson to aParentSeenSets[-1]
+        Loop
+
+        // Initialise one result array, one seen-set, and one index per child table.
+        // Child indexes are created here (outside the main loop) so they are not
+        // repeatedly created and destroyed for every main-table row.
+        For iRelatedIndex from 0 to (SizeOfArray(query.aChilds) - 1)
+            Get Create (RefClass(cJsonObject)) to hoRelatedJson
+            Send InitializeJsonType of hoRelatedJson jsonTypeArray
+            Move hoRelatedJson to ahChilds[-1]
+
+            Get Create (RefClass(cJsonObject)) to hoRelatedJson
+            Send InitializeJsonType of hoRelatedJson jsonTypeObject
+            Move hoRelatedJson to aChildSeenSets[-1]
+
+            // Build a temporary index for the child's ordering specification,
+            // or fall back to its primary index. Stored in aChildIndexes so the
+            // same index is reused for each parent row's child scan.
+            If (SizeOfArray(query.aChilds[iRelatedIndex].aOrder)) Begin
+                Get CreateIndex query.aChilds[iRelatedIndex].hoDD query.aChilds[iRelatedIndex].aOrder to iChildIdx
+            End
+            Else Begin
+                Get PrimaryDDIndex query.aChilds[iRelatedIndex].hoDD to iChildIdx
+            End
+            Move iChildIdx to aChildIndexes[-1]
+        Loop
+
+        Move DDPFind_GE to eMode
+        If (SizeOfArray(query.aOrder)) Begin
+            Get CreateIndex query.hoDD query.aOrder to iIndex
+        End
+        Else Begin
+            Get PrimaryDDIndex query.hoDD to iIndex
+        End
+        If (not(query.iLimit)) Begin
+            Move |CI$FFFFFFFF to query.iLimit
+        End
+
+        Send Clear of query.hoDD
+        Send Set_Constrains_To_Buffers query
+        Send Request_Read of query.hoDD (eMode - 1) iMainFile iIndex
+
+        // Skip the first iOffset rows before beginning collection.
+        While (Found and query.iOffset)
+            Decrement query.iOffset
+            Send Request_Read of query.hoDD NEXT_RECORD iMainFile iIndex
+        Loop
+
+        While (Found and query.iLimit)
+            // Serialise and immediately append the main row. Main rows are never
+            // deduplicated ΓÇö the main table's primary key guarantees uniqueness.
+            Get Create (RefClass(cJsonObject)) to hoRow
+            Send InitializeJsonType of hoRow jsonTypeObject
+            Send SerializeBufferToJson hoRow query
+            Send AddMember of hoMain hoRow
+            Send Destroy of hoRow
+
+            // Parent deduplication: read the file-level RowID from the parent's
+            // physical buffer (populated by Add_Server_File auto-read during main-
+            // table navigation). GetRowID reads the buffer directly and is reliable
+            // for server files not in a full DDO hierarchy; CurrentRowId of ddObj
+            // only reflects DDO-level state which may not be updated here.
+            // IsNullRowID guards against nullable parent references.
+            For iRelatedIndex from 0 to (SizeOfArray(query.aParents) - 1)
+                Get Main_File of query.aParents[iRelatedIndex].hoDD to hParentFile
+                Move (GetRowID(hParentFile)) to riParentRowID
+
+                // Skip null RowIDs (parent not present, e.g. nullable FK).
+                // Skip RowIDs already in the seen-set (duplicate parent record).
+                If (not(IsNullRowID(riParentRowID)) and ;
+                    not(HasMember(aParentSeenSets[iRelatedIndex], (SerializeRowID(riParentRowID))))) Begin
+                    // Mark as seen by inserting its serialised RowID into the hash set.
+                    Send SetMemberValue of aParentSeenSets[iRelatedIndex] (SerializeRowID(riParentRowID)) jsonTypeBoolean True
+
+                    Get Create (RefClass(cJsonObject)) to hoRelatedJson
+                    Send InitializeJsonType of hoRelatedJson jsonTypeObject
+                    Send SerializeBufferToJson hoRelatedJson query.aParents[iRelatedIndex]
+                    Send AddMember of ahParents[iRelatedIndex] hoRelatedJson
+                    Send Destroy of hoRelatedJson
+                End
+            Loop
+
+            // Child deduplication: clear the child DD buffer and run a scoped
+            // find. Constrain_File (set in QueryLinkUp) restricts the find to
+            // children of the current main row. Each child row is checked against
+            // its seen-set before being emitted, preventing duplicates if the same
+            // child record were somehow reachable via multiple parent rows.
+            For iRelatedIndex from 0 to (SizeOfArray(query.aChilds) - 1)
+                Get Main_File of query.aChilds[iRelatedIndex].hoDD to hChildFile
+
+                // Clear resets the child buffer; the scoped find then reads from
+                // the beginning of the current parent's child range.
+                Send Clear of query.aChilds[iRelatedIndex].hoDD
+                Send Request_Read of query.aChilds[iRelatedIndex].hoDD (eMode - 1) hChildFile aChildIndexes[iRelatedIndex]
+
+                While (Found)
+                    Move (GetRowID(hChildFile)) to riChildRowID
+
+                    If (not(IsNullRowID(riChildRowID)) and ;
+                        not(HasMember(aChildSeenSets[iRelatedIndex], (SerializeRowID(riChildRowID))))) Begin
+                        Send SetMemberValue of aChildSeenSets[iRelatedIndex] (SerializeRowID(riChildRowID)) jsonTypeBoolean True
+
+                        Get Create (RefClass(cJsonObject)) to hoRelatedJson
+                        Send InitializeJsonType of hoRelatedJson jsonTypeObject
+                        Send SerializeBufferToJson hoRelatedJson query.aChilds[iRelatedIndex]
+                        Send AddMember of ahChilds[iRelatedIndex] hoRelatedJson
+                        Send Destroy of hoRelatedJson
+                    End
+
+                    Send Request_Read of query.aChilds[iRelatedIndex].hoDD NEXT_RECORD hChildFile aChildIndexes[iRelatedIndex]
+                Loop
+            Loop
+
+            Decrement query.iLimit
+            Send Request_Read of query.hoDD NEXT_RECORD iMainFile iIndex
+        Loop
+
+        // Assemble the response object.
+        Get Create (RefClass(cJsonObject)) to hoJson
+        Send InitializeJsonType of hoJson jsonTypeObject
+        Send SetMember of hoJson (NameOfDD(Self, query.hoDD)) hoMain
+        Send Destroy of hoMain
+
+        // Emit parent arrays and destroy both the array and its seen-set.
+        For iRelatedIndex from 0 to (SizeOfArray(query.aParents) - 1)
+            Send SetMember of hoJson (NameOfDD(Self, query.aParents[iRelatedIndex].hoDD)) ahParents[iRelatedIndex]
+            Send Destroy of ahParents[iRelatedIndex]
+            Send Destroy of aParentSeenSets[iRelatedIndex]
+        Loop
+
+        // Emit child arrays, destroy accumulators, seen-sets, and temp indexes.
+        For iRelatedIndex from 0 to (SizeOfArray(query.aChilds) - 1)
+            Send SetMember of hoJson (NameOfDD(Self, query.aChilds[iRelatedIndex].hoDD)) ahChilds[iRelatedIndex]
+            Send Destroy of ahChilds[iRelatedIndex]
+            Send Destroy of aChildSeenSets[iRelatedIndex]
+            Send DeleteIndex query.aChilds[iRelatedIndex].hoDD aChildIndexes[iRelatedIndex]
+        Loop
+
+        Send DeleteIndex query.hoDD iIndex
+
+        Function_Return oResult
+    End_Function
+
+    // Entry point for FlatLinked-style execution.
+    Function ExecuteFindFlatLinked tDDPBuilderContext ByRef ctx tDDPQuery query Handle ByRef hoResult Returns tDDPBuilderResult
+        tDDPBuilderResult oResult
+
+        If (hoResult) Begin
+            Send Destroy of hoResult
+            Move 0 to hoResult
+        End
+
+        Get ExecuteFindTableFlatLinked (&ctx) query.oMain 0 (&hoResult) to oResult
+
+        Function_Return oResult
+    End_Function
+
+    // Tears down all live DD relationships established by QueryLinkUp so the
+    // shared DD objects are clean for the next request.
+    Procedure DestroyQuery tDDPQuery ByRef query
+        If (query.oMain.hoDD) Send ClearRelationShipsOnDD query.oMain.hoDD
+    End_Procedure
+
+    // Registers a data dictionary class as an exposed DDP resource.
+    // Must be called during object construction (pbIsCollecting = True).
+    // Creates a permanent instance of the DD, captures its file layout for
+    // relationship detection, then strips all relationships so it is neutral
+    // between queries. The name is stored lowercase to make lookups
+    // case-insensitive. DDs are kept in a sorted array for binary search.
+    Procedure Expose Integer iDDClass
+        // Prevent runtime exposure ΓÇö all tables must be declared at startup.
+        If (not(pbIsCollecting(Self))) Begin
+            Error DFERR_PROGRAM "Cannot expose at runtime."
+            Procedure_Return
+        End
+
+        tDDPDataDictPair DDDef
+
+        // Instantiate the DD class and validate it before accepting it.
+        Get Create iDDClass to DDDef.hoDD
+        If (not(IsObjectValidDataDictionary(Self, DDDef.hoDD))) Begin
+            Send Destroy of DDDef.hoDD
+            Error DFERR_PROGRAM "To expose class is not a valid Data Dictionary."
+            Procedure_Return
+        End
+
+        // The name is derived from the DataFlex logical file name (DF_FILE_LOGICAL_NAME).
+        Get NameOfDD DDDef.hoDD to DDDef.sDisplayName
+        If (SizeOfString(DDDef.sDisplayName) = 0) Begin
+            Send Destroy of DDDef.hoDD
+            Error DFERR_PROGRAM "To expose class does not have a valid name."
+            Procedure_Return
+        End
+
+        // Normalise to lowercase for the binary-search key so request table names
+        // like "Customer" and "customer" both resolve to the same DD.
+        // sDisplayName retains the original casing for client-facing output.
+        Move (Lowercase(DDDef.sDisplayName)) to DDDef.sName
+
+        Integer iIndex iInsert
+        tDDPDataDictPair[] aDataDicts
+
+        Get paDataDicts to aDataDicts
+
+        // Reject duplicates ΓÇö two DDs for the same table would cause ambiguous
+        // query resolution.
+        Move (BinarySearchArray(DDDef, aDataDicts)) to iIndex
+        If (iIndex <> -1) Begin
+            Send Destroy of DDDef.hoDD
+            Error DFERR_PROGRAM "To expose class is already exposed."
+            Procedure_Return
+        End
+        Move (BinarySearchInsertPos()) to iInsert
+
+        // Snapshot the file layout (parent/child file handles) before clearing
+        // relationships, so IsDDRelated can detect relationships at query-parse
+        // time without requiring the DD to be linked up.
+        Send StoreDDFileLayout DDDef.hoDD
+
+        // Allow the backend to perform any custom registration work.
+        Send OnExposeDD DDDef
+
+        // Strip all relationships from the newly registered DD so it starts each
+        // query from a neutral state.
+        Send ClearRelationShipsOnDD DDDef.hoDD
+
+        // Insert into the sorted array at the position BinarySearchInsertPos returned.
+        Move (InsertInArray(aDataDicts, iInsert, DDDef)) to aDataDicts
+        Set paDataDicts to aDataDicts
+    End_Procedure
+
+    // Looks up a DD handle by logical file name (case-insensitive).
+    // Returns 0 if not found. Raises a runtime error if bThrow is True and
+    // the name is not in the registry.
+    Function DDByName String sName Boolean bThrow Returns Handle
+        Integer iIndex
+        tDDPDataDictPair Def
+        tDDPDataDictPair[] aDataDicts
+
+        Get paDataDicts to aDataDicts
+
+        // Normalise before searching so the binary search key matches the
+        // lowercased names stored during Expose.
+        Move (Lowercase(sName)) to Def.sName
+
+        Move (BinarySearchArray(Def, aDataDicts)) to iIndex
+        If (iIndex = -1) Begin
+            If (num_arguments > 1 and bThrow) Error DFERR_PROGRAM "Cannot find Data Dictionary."
+            Function_Return 0
+        End
+
+        Function_Return aDataDicts[iIndex].hoDD
+    End_Function
+
+    // ---------------------------------------------------------------------------
+    // Store pipeline: parse JSON body ΓåÆ tDDPSaveQuery, wire up relationships,
+    // clear/fill/validate/save, and serialize the saved record(s) back to JSON.
+    // ---------------------------------------------------------------------------
+
+    // Parses one JSON save object into a tDDPSaveRecord struct.
+    // Scalar members are field assignments; object/array members whose key resolves
+    // to a child table are parsed recursively. Null values are skipped.
+    Function ConstructSaveRecord String sDDName Handle hoJson tDDPSaveRecord ByRef record Returns tDDPBuilderResult
+        Integer iIndex eType iField iChildIdx
+        String sKey sValue
+        tDDPBuilderResult oResult
+        Boolean bParent
+        tDDPSaveField oField
+        tDDPSaveRecord oChild oEmptyChild
+        Handle hoChildArray hoChildElement hoChildDD
+
+        Get DDByName sDDName to record.hoDD
+        If (not(record.hoDD)) Begin
+            Move DDPERR_UNKOWN_TABLE to oResult.iErr
+            Move (SFormat("'%1', not known.", sDDName)) to oResult.sError
+            Function_Return oResult
+        End
+
+        For iIndex from 0 to (MemberCount(hoJson) - 1)
+            Get MemberNameByIndex of hoJson iIndex to sKey
+            Move (MemberJsonType(hoJson, sKey)) to eType
+
+            If (eType = jsonTypeArray or eType = jsonTypeObject) Begin
+                // Nested table ΓÇö must be an exposed child of this table.
+                Get DDByName sKey to hoChildDD
+                If (not(hoChildDD)) Begin
+                    Move DDPERR_UNKOWN_TABLE to oResult.iErr
+                    Move (SFormat("'%1', not known.", sKey)) to oResult.sError
+                    Function_Return oResult
+                End
+                If (not(IsDDRelated(Self, record.hoDD, hoChildDD, &bParent))) Begin
+                    Move DDPERR_UNKOWN_TABLE to oResult.iErr
+                    Move (SFormat("'%1', not related.", sKey)) to oResult.sError
+                    Function_Return oResult
+                End
+                If (bParent) Begin
+                    // The related table is a parent ΓÇö only children may be nested for store.
+                    Move DDPERR_UNKOWN_TABLE to oResult.iErr
+                    Move (SFormat("'%1', is a parent table.", sKey)) to oResult.sError
+                    Function_Return oResult
+                End
+
+                If (eType = jsonTypeArray) Begin
+                    Get Member of hoJson sKey to hoChildArray
+                    For iChildIdx from 0 to (MemberCount(hoChildArray) - 1)
+                        Get Member of hoChildArray iChildIdx to hoChildElement
+                        Move oEmptyChild to oChild
+                        Get ConstructSaveRecord sKey hoChildElement (&oChild) to oResult
+                        Send Destroy of hoChildElement
+                        If (oResult.iErr) Begin
+                            Send Destroy of hoChildArray
+                            Function_Return oResult
+                        End
+                        Move oChild to record.aChilds[-1]
+                    Loop
+                    Send Destroy of hoChildArray
+                End
+                Else Begin
+                    Get Member of hoJson sKey to hoChildElement
+                    Move oEmptyChild to oChild
+                    Get ConstructSaveRecord sKey hoChildElement (&oChild) to oResult
+                    Send Destroy of hoChildElement
+                    If (oResult.iErr) Function_Return oResult
+                    Move oChild to record.aChilds[-1]
+                End
+            End
+            Else If (eType <> jsonTypeNull) Begin
+                // Scalar field assignment ΓÇö validate the name then store number + value.
+                If (not(IsField(Self, record.hoDD, sKey, &iField))) Begin
+                    Move DDPERR_INVALID_FIELD to oResult.iErr
+                    Move (SFormat("Unknown field '%1' in '%2'.", sKey, sDDName)) to oResult.sError
+                    Function_Return oResult
+                End
+                Get MemberValue of hoJson sKey to sValue
+                Move iField to oField.hField
+                Move sValue to oField.sValue
+                Move oField to record.aFields[-1]
+            End
+        Loop
+
+        Function_Return oResult
+    End_Function
+
+    // Wires up live DD relationships for a save cascade. Unlike QueryLinkUp, no
+    // Constrain_File is needed -- children are new records and the DataFlex DD layer
+    // auto-seeds FK fields when Clear is called on a child whose DDO_Server points to
+    // the saved parent.
+    //
+    // Two wiring passes:
+    // 1. Wire ALL schema-declared server files for the current record as Add_Server_File
+    //    so DD procedures (e.g. Adjust_Balances) can access related tables during save.
+    // 2. For each JSON-specified child: wire the parent->child link and set DDO_Server
+    //    so the DataFlex DD layer seeds FK fields on Clear, then recurse.
+    Function SaveLinkUp tDDPSaveRecord record Returns tDDPBuilderResult
+        Integer iIndex iDupIdx iParentIdx
+        tDDPBuilderResult oResult
+        Handle hChildFile hDupFile hDirectParentFile
+        Handle[] aSchemaParents aExtraParents
+        Boolean bAlreadyWired
+
+        // Pass 1: wire this record's own schema-declared server files.
+        // Add_Server_File registers the file number; Set DDO_Server attaches the live DD
+        // object. Valid_Servers checks that every registered file number has a matching
+        // DD object — so both calls are required for every parent, not just the first.
+        Get DDParents record.hoDD to aSchemaParents
+        For iParentIdx from 0 to (SizeOfArray(aSchemaParents) - 1)
+            If (aSchemaParents[iParentIdx] <> 0) Begin
+                Send Add_Server_File of record.hoDD (Main_File(aSchemaParents[iParentIdx]))
+                Set DDO_Server of record.hoDD to aSchemaParents[iParentIdx]
+            End
+        Loop
+
+        // Pass 2: wire each JSON-specified child and recurse.
+        For iIndex from 0 to (SizeOfArray(record.aChilds) - 1)
+            Get Main_File of record.aChilds[iIndex].hoDD to hChildFile
+
+            Move False to bAlreadyWired
+            For iDupIdx from 0 to (iIndex - 1)
+                Get Main_File of record.aChilds[iDupIdx].hoDD to hDupFile
+                If (hDupFile = hChildFile) Begin
+                    Move True to bAlreadyWired
+                    Break
+                End
+            Loop
+
+            If (not(bAlreadyWired)) Begin
+                Get Main_File of record.hoDD to hDirectParentFile
+                Send Add_Client_File of record.hoDD hChildFile
+                Send Add_Server_File of record.aChilds[iIndex].hoDD hDirectParentFile
+                Set DDO_Server of record.aChilds[iIndex].hoDD to record.hoDD
+            End
+
+            Get SaveLinkUp record.aChilds[iIndex] to oResult
+            If (oResult.iErr) Function_Return oResult
+        Loop
+
+        Function_Return oResult
+    End_Function
+
+    // Full store preparation pipeline: parse the JSON body into a tDDPSaveQuery tree and
+    // wire up all DD relationships so the save cascade is ready to execute.
+    Function ConstructSaveScenario String sMainDD Handle hoJson tDDPSaveQuery ByRef oQuery Returns tDDPBuilderResult
+        tDDPBuilderResult oResult
+
+        Get ConstructSaveRecord sMainDD hoJson (&oQuery.oMain) to oResult
+        If (oResult.iErr) Function_Return oResult
+
+        Get SaveLinkUp oQuery.oMain to oResult
+        Function_Return oResult
+    End_Function
+    // For each schema-declared parent of hoDD, reads the FK value from the current
+    // child buffer, seeds the parent DD's primary key field with that value, and calls
+    // Find EQ so the parent record is loaded into its buffer before Request_Save runs.
+    // This is required because Request_Save validates FK integrity against live parent
+    // buffers, and DD procedures like Adjust_Balances read from those same buffers.
+    // aFields contains the JSON-supplied values (set via File_Field_Changed_Value into the
+    // DD pending layer, NOT the physical buffer). We look up FK values from aFields rather
+    // than Get_Field_Value because the physical buffer is still zeroed after Clear.
+    Procedure FindSchemaParentsFromBuffer Handle hoDD tDDPSaveField[] aFields
+        Handle hFile hParentFile
+        Integer iField iFieldCount iRelatedFile iRelatedField iPrimaryIndex iParent iAF
+        Handle[] aParents
+        String sFKValue
+
+        Get Main_File of hoDD to hFile
+        Get_Attribute DF_FILE_NUMBER_FIELDS of hFile to iFieldCount
+        Get DDParents hoDD to aParents
+
+        For iParent from 0 to (SizeOfArray(aParents) - 1)
+            If (aParents[iParent] <> 0) Begin
+                Get Main_File of aParents[iParent] to hParentFile
+                For iField from 1 to iFieldCount
+                    Get_Attribute DF_FIELD_RELATED_FILE of hFile iField to iRelatedFile
+                    If (iRelatedFile = hParentFile) Begin
+                        Move "" to sFKValue
+                        For iAF from 0 to (SizeOfArray(aFields) - 1)
+                            If (aFields[iAF].hField = iField) Begin
+                                Move aFields[iAF].sValue to sFKValue
+                                Break
+                            End
+                        Loop
+                        If (sFKValue <> "" and sFKValue <> "0") Begin
+                            Get_Attribute DF_FIELD_RELATED_FIELD of hFile iField to iRelatedField
+                            Set_Field_Value hParentFile iRelatedField to sFKValue
+                            Get PrimaryDDIndex aParents[iParent] to iPrimaryIndex
+                            Send Request_Find of aParents[iParent] EQ hParentFile iPrimaryIndex
+                        End
+                        Break
+                    End
+                Loop
+            End
+        Loop
+    End_Procedure
+
+
+    // Clears the DD buffer, writes client-supplied fields, validates, saves, and serialises
+    // the saved record into hoJson. Recurses into child records and groups them as JSON
+    // arrays keyed by table name on the result object.
+    Function ExecuteSaveRecord tDDPSaveRecord record Handle ByRef hoJson Returns tDDPBuilderResult
+        Integer iIndex iChildIdx
+        tDDPBuilderResult oResult
+        Handle hFile hoChildJson hoChildArray
+        tDDPTableQuery serialQuery
+        String sChildName
+        Boolean bErr
+
+        // Clear resets the buffer; when DDO_Server is set the DD layer auto-seeds FK fields
+        // from the parent buffer so the caller does not need to supply them explicitly.
+        Send Clear of record.hoDD
+
+        // File_Field_Changed_Value marks the field as modified in the DD layer so that
+        // Request_Validate and Request_Save operate on the correct dirty set.
+        Get Main_File of record.hoDD to hFile
+        For iIndex from 0 to (SizeOfArray(record.aFields) - 1)
+            Set File_Field_Changed_Value of record.hoDD hFile record.aFields[iIndex].hField to record.aFields[iIndex].sValue
+        Loop
+
+        // Find parent records before Request_Validate so the parent buffers are populated.
+        // Request_Validate checks server-file requirements and validation tables (e.g. State)
+        // against the live parent buffer; if the buffer is empty those checks fail.
+        Send FindSchemaParentsFromBuffer record.hoDD record.aFields
+
+        Get Request_Validate of record.hoDD to bErr
+        If (bErr) Begin
+            Move DDPERR_VALIDATION_FAILED to oResult.iErr
+            Get Error_Text LastErr to oResult.sError
+            Function_Return oResult
+        End
+
+        Send Request_Save of record.hoDD
+        Move (Err) to bErr
+        If (bErr) Begin
+            Move DDPERR_SAVE_FAILED to oResult.iErr
+            Get Error_Text LastErr to oResult.sError
+            Function_Return oResult
+        End
+
+        // Serialise the saved buffer (all fields; no field projection applied).
+        Move record.hoDD to serialQuery.hoDD
+        Get Create (RefClass(cJsonObject)) to hoJson
+        Send InitializeJsonType of hoJson jsonTypeObject
+        Send SerializeBufferToJson hoJson serialQuery
+
+        // Save each child record and group results into per-table JSON arrays.
+        For iChildIdx from 0 to (SizeOfArray(record.aChilds) - 1)
+            Get NameOfDD record.aChilds[iChildIdx].hoDD to sChildName
+
+            Get ExecuteSaveRecord record.aChilds[iChildIdx] (&hoChildJson) to oResult
+            If (oResult.iErr) Begin
+                If (hoChildJson) Send Destroy of hoChildJson
+                Function_Return oResult
+            End
+
+            If (not(HasMember(hoJson, sChildName))) Begin
+                // First record for this child table ΓÇö create the array.
+                Get Create (RefClass(cJsonObject)) to hoChildArray
+                Send InitializeJsonType of hoChildArray jsonTypeArray
+                Send AddMember of hoChildArray hoChildJson
+                Send SetMember of hoJson sChildName hoChildArray
+                Send Destroy of hoChildArray
+            End
+            Else Begin
+                // Subsequent record for the same child table ΓÇö append to existing array.
+                Get Member of hoJson sChildName to hoChildArray
+                Send AddMember of hoChildArray hoChildJson
+                Send Destroy of hoChildArray
+            End
+
+            Send Destroy of hoChildJson
+        Loop
+
+        Function_Return oResult
+    End_Function
+
+    // Entry point for a store operation: saves the main record and all nested children.
+    Function ExecuteStore tDDPSaveQuery query Handle ByRef hoResult Returns tDDPBuilderResult
+        tDDPBuilderResult oResult
+
+        If (hoResult) Begin
+            Send Destroy of hoResult
+            Move 0 to hoResult
+        End
+
+        Get ExecuteSaveRecord query.oMain (&hoResult) to oResult
+        Function_Return oResult
+    End_Function
+
+    // Tears down all live DD relationships established by SaveLinkUp.
+    Procedure DestroySaveQuery tDDPSaveQuery ByRef query
+        If (query.oMain.hoDD) Send ClearRelationShipsOnDD query.oMain.hoDD
+    End_Procedure
+
+    // ---------------------------------------------------------------------------
+    // Delete pipeline: parse JSON body ΓåÆ tDDPDeleteQuery, wire up relationships,
+    // find ΓåÆ verify ΓåÆ snapshot ΓåÆ validate ΓåÆ delete, return the deleted record(s).
+    // ---------------------------------------------------------------------------
+
+    // Returns the 1-based field numbers that make up the primary index of hoDD.
+    // Used in ExecuteDeleteRecord to identify which supplied fields are PK fields.
+    Function GetPrimaryKeyFields Handle hoDD Returns Integer[]
+        Handle hFile
+        Integer iPrimaryIndex iSegmentCount iSegment iField
+        Integer[] aFields
+
+        Get Main_File of hoDD to hFile
+        Get PrimaryDDIndex hoDD to iPrimaryIndex
+        If (not(iPrimaryIndex)) Function_Return aFields
+
+        Get_Attribute DF_INDEX_NUMBER_SEGMENTS of hFile iPrimaryIndex to iSegmentCount
+        For iSegment from 1 to iSegmentCount
+            Get_Attribute DF_INDEX_SEGMENT_FIELD of hFile iPrimaryIndex iSegment to iField
+            Move iField to aFields[-1]
+        Loop
+
+        Function_Return aFields
+    End_Function
+
+    // Parses one JSON delete object into a tDDPDeleteRecord struct.
+    // Only scalar (non-null) values are accepted ΓÇö no nested tables are allowed.
+    // All provided keys must be valid field names on the named table.
+    Function ConstructDeleteRecord String sDDName Handle hoJson tDDPDeleteRecord ByRef record Returns tDDPBuilderResult
+        Integer iIndex eType iField
+        String sKey sValue
+        tDDPBuilderResult oResult
+        tDDPDeleteField oField
+
+        Get DDByName sDDName to record.hoDD
+        If (not(record.hoDD)) Begin
+            Move DDPERR_UNKOWN_TABLE to oResult.iErr
+            Move (SFormat("'%1', not known.", sDDName)) to oResult.sError
+            Function_Return oResult
+        End
+
+        For iIndex from 0 to (MemberCount(hoJson) - 1)
+            Get MemberNameByIndex of hoJson iIndex to sKey
+            Move (MemberJsonType(hoJson, sKey)) to eType
+
+            // Nested objects and arrays are not valid in a delete request.
+            If (eType = jsonTypeObject or eType = jsonTypeArray) Begin
+                Move DDPERR_INVALID_FORMAT to oResult.iErr
+                Move (SFormat("Nested tables are not allowed in a delete request ('%1').", sKey)) to oResult.sError
+                Function_Return oResult
+            End
+
+            // Skip null values silently.
+            If (eType <> jsonTypeNull) Begin
+                If (not(IsField(Self, record.hoDD, sKey, &iField))) Begin
+                    Move DDPERR_INVALID_FIELD to oResult.iErr
+                    Move (SFormat("Unknown field '%1' in '%2'.", sKey, sDDName)) to oResult.sError
+                    Function_Return oResult
+                End
+                Get MemberValue of hoJson sKey to sValue
+                Move iField to oField.hField
+                Move sValue to oField.sValue
+                Move oField to record.aFields[-1]
+            End
+        Loop
+
+        Function_Return oResult
+    End_Function
+
+    // Wires up live DD relationships for a delete operation.
+    // Parent DDs (server files) are always wired so the DD layer can read parent buffers.
+    // Child DDs (client files) are wired only when Cascade_Delete_State is True so the
+    // DataFlex DD layer can cascade-delete child records automatically.
+    Function DeleteLinkUp tDDPDeleteRecord record Returns tDDPBuilderResult
+        Integer iIndex
+        tDDPBuilderResult oResult
+        Handle[] aParents aChilds
+        Boolean bCascade
+
+        Get DDParents record.hoDD to aParents
+        For iIndex from 0 to (SizeOfArray(aParents) - 1)
+            If (aParents[iIndex] <> 0) Begin
+                Send Add_Server_File of record.hoDD (Main_File(aParents[iIndex]))
+                Set DDO_Server of record.hoDD to aParents[iIndex]
+            End
+        Loop
+
+        Get Cascade_Delete_State of record.hoDD to bCascade
+        If (bCascade) Begin
+            Get DDChilds record.hoDD to aChilds
+            For iIndex from 0 to (SizeOfArray(aChilds) - 1)
+                If (aChilds[iIndex] <> 0) Begin
+                    Send Add_Client_File of record.hoDD (Main_File(aChilds[iIndex]))
+                    Send Add_Server_File of aChilds[iIndex] (Main_File(record.hoDD))
+                    Set DDO_Server of aChilds[iIndex] to record.hoDD
+                End
+            Loop
+        End
+
+        Function_Return oResult
+    End_Function
+
+    // Full delete preparation pipeline: parse the JSON body into a tDDPDeleteQuery and
+    // wire up all DD relationships so the find and delete cascade are ready to execute.
+    Function ConstructDeleteScenario String sDDName Handle hoJson tDDPDeleteQuery ByRef oQuery Returns tDDPBuilderResult
+        tDDPBuilderResult oResult
+
+        Get ConstructDeleteRecord sDDName hoJson (&oQuery.oMain) to oResult
+        If (oResult.iErr) Function_Return oResult
+
+        Get DeleteLinkUp oQuery.oMain to oResult
+        Function_Return oResult
+    End_Function
+
+    // Finds the record by PK, optionally verifies additional fields, snapshots the buffer,
+    // validates the delete, then deletes. hoJson receives the pre-deletion snapshot on success.
+    Function ExecuteDeleteRecord tDDPDeleteRecord record Handle ByRef hoJson Returns tDDPBuilderResult
+        Integer iIndex iPKIndex
+        tDDPBuilderResult oResult
+        Handle hFile
+        Integer[] aPKFields
+        Boolean bPKFound bErr
+        String sCurrentValue
+        tDDPTableQuery serialQuery
+
+        Get GetPrimaryKeyFields record.hoDD to aPKFields
+
+        // Verify all PK fields were supplied by the client.
+        For iPKIndex from 0 to (SizeOfArray(aPKFields) - 1)
+            Move False to bPKFound
+            For iIndex from 0 to (SizeOfArray(record.aFields) - 1)
+                If (record.aFields[iIndex].hField = aPKFields[iPKIndex]) Begin
+                    Move True to bPKFound
+                    Break
+                End
+            Loop
+            If (not(bPKFound)) Begin
+                Move DDPERR_MISSING_KEY_FIELD to oResult.iErr
+                Move (SFormat("Primary key field %1 is required for delete.", aPKFields[iPKIndex])) to oResult.sError
+                Function_Return oResult
+            End
+        Loop
+
+        // Clear the buffer and set PK field values for the find.
+        Send Clear of record.hoDD
+        Get Main_File of record.hoDD to hFile
+        For iIndex from 0 to (SizeOfArray(record.aFields) - 1)
+            For iPKIndex from 0 to (SizeOfArray(aPKFields) - 1)
+                If (record.aFields[iIndex].hField = aPKFields[iPKIndex]) Begin
+                    Set_Field_Value hFile record.aFields[iIndex].hField to record.aFields[iIndex].sValue
+                    Break
+                End
+            Loop
+        Loop
+
+        Send Rebuild_Constraints of record.hoDD
+        Send Find of record.hoDD EQ (PrimaryDDIndex(Self, record.hoDD))
+        If (not(Found) or Err) Begin
+            Move DDPERR_RECORD_NOT_FOUND to oResult.iErr
+            Move "Record not found." to oResult.sError
+            Function_Return oResult
+        End
+
+        // Verify any non-PK fields the client supplied match the found record.
+        For iIndex from 0 to (SizeOfArray(record.aFields) - 1)
+            Move False to bPKFound
+            For iPKIndex from 0 to (SizeOfArray(aPKFields) - 1)
+                If (record.aFields[iIndex].hField = aPKFields[iPKIndex]) Begin
+                    Move True to bPKFound
+                    Break
+                End
+            Loop
+            If (not(bPKFound)) Begin
+                Get_Field_Value hFile record.aFields[iIndex].hField to sCurrentValue
+                If (sCurrentValue <> record.aFields[iIndex].sValue) Begin
+                    Move DDPERR_RECORD_CHANGED to oResult.iErr
+                    Move "Record has been modified since it was last read." to oResult.sError
+                    Function_Return oResult
+                End
+            End
+        Loop
+
+        // Snapshot the full buffer before deletion so we can return what was removed.
+        Move record.hoDD to serialQuery.hoDD
+        Get Create (RefClass(cJsonObject)) to hoJson
+        Send InitializeJsonType of hoJson jsonTypeObject
+        Send SerializeBufferToJson hoJson serialQuery
+
+        // Validate the delete through the DD layer (checks referential integrity rules).
+        Get Validate_Delete of record.hoDD to bErr
+        If (bErr) Begin
+            Send Destroy of hoJson
+            Move 0 to hoJson
+            Move DDPERR_VALIDATION_FAILED to oResult.iErr
+            Get Error_Text LastErr to oResult.sError
+            Function_Return oResult
+        End
+
+        Send Request_Delete of record.hoDD
+        Move (Err) to bErr
+        If (bErr) Begin
+            Send Destroy of hoJson
+            Move 0 to hoJson
+            Move DDPERR_DELETE_FAILED to oResult.iErr
+            Get Error_Text LastErr to oResult.sError
+            Function_Return oResult
+        End
+
+        Function_Return oResult
+    End_Function
+
+    // Entry point for a delete operation.
+    Function ExecuteDelete tDDPDeleteQuery query Handle ByRef hoResult Returns tDDPBuilderResult
+        tDDPBuilderResult oResult
+
+        If (hoResult) Begin
+            Send Destroy of hoResult
+            Move 0 to hoResult
+        End
+
+        Get ExecuteDeleteRecord query.oMain (&hoResult) to oResult
+        Function_Return oResult
+    End_Function
+
+    // Tears down all live DD relationships established by DeleteLinkUp.
+    Procedure DestroyDeleteQuery tDDPDeleteQuery ByRef query
+        If (query.oMain.hoDD) Send ClearRelationShipsOnDD query.oMain.hoDD
+    End_Procedure
+
+    // ---------------------------------------------------------------------------
+    // Update pipeline: parse JSON body → tDDPUpdateQuery, wire up relationships,
+    // find → apply fields → validate → save, return the updated record.
+    // ---------------------------------------------------------------------------
+
+    // Parses one JSON update object into a tDDPUpdateRecord struct.
+    // Only scalar (non-null) values are accepted — no nested tables are allowed.
+    // All provided keys must be valid field names on the named table.
+    Function ConstructUpdateRecord String sDDName Handle hoJson tDDPUpdateRecord ByRef record Returns tDDPBuilderResult
+        Integer iIndex eType iField
+        String sKey sValue
+        tDDPBuilderResult oResult
+        tDDPUpdateField oField
+
+        Get DDByName sDDName to record.hoDD
+        If (not(record.hoDD)) Begin
+            Move DDPERR_UNKOWN_TABLE to oResult.iErr
+            Move (SFormat("'%1', not known.", sDDName)) to oResult.sError
+            Function_Return oResult
+        End
+
+        For iIndex from 0 to (MemberCount(hoJson) - 1)
+            Get MemberNameByIndex of hoJson iIndex to sKey
+            Move (MemberJsonType(hoJson, sKey)) to eType
+
+            If (eType = jsonTypeObject or eType = jsonTypeArray) Begin
+                Move DDPERR_INVALID_FORMAT to oResult.iErr
+                Move (SFormat("Nested tables are not allowed in an update request ('%1').", sKey)) to oResult.sError
+                Function_Return oResult
+            End
+
+            If (eType <> jsonTypeNull) Begin
+                If (not(IsField(Self, record.hoDD, sKey, &iField))) Begin
+                    Move DDPERR_INVALID_FIELD to oResult.iErr
+                    Move (SFormat("Unknown field '%1' in '%2'.", sKey, sDDName)) to oResult.sError
+                    Function_Return oResult
+                End
+                Get MemberValue of hoJson sKey to sValue
+                Move iField to oField.hField
+                Move sValue to oField.sValue
+                Move oField to record.aFields[-1]
+            End
+        Loop
+
+        Function_Return oResult
+    End_Function
+
+    // Wires up live DD relationships for an update operation.
+    // Parent DDs (server files) are always wired so the DD layer can validate FK integrity.
+    // Children are not wired — updates do not cascade.
+    Function UpdateLinkUp tDDPUpdateRecord record Returns tDDPBuilderResult
+        Integer iIndex
+        tDDPBuilderResult oResult
+        Handle[] aParents
+
+        Get DDParents record.hoDD to aParents
+        For iIndex from 0 to (SizeOfArray(aParents) - 1)
+            If (aParents[iIndex] <> 0) Begin
+                Send Add_Server_File of record.hoDD (Main_File(aParents[iIndex]))
+                Set DDO_Server of record.hoDD to aParents[iIndex]
+            End
+        Loop
+
+        Function_Return oResult
+    End_Function
+
+    // Full update preparation pipeline: parse the JSON body into a tDDPUpdateQuery and
+    // wire up all DD relationships so the find and save are ready to execute.
+    Function ConstructUpdateScenario String sDDName Handle hoJson tDDPUpdateQuery ByRef oQuery Returns tDDPBuilderResult
+        tDDPBuilderResult oResult
+
+        Get ConstructUpdateRecord sDDName hoJson (&oQuery.oMain) to oResult
+        If (oResult.iErr) Function_Return oResult
+
+        Get UpdateLinkUp oQuery.oMain to oResult
+        Function_Return oResult
+    End_Function
+
+    // Finds the record by PK, applies non-PK field changes, validates, and saves.
+    // hoJson receives the post-save buffer on success.
+    Function ExecuteUpdateRecord tDDPUpdateRecord record Handle ByRef hoJson Returns tDDPBuilderResult
+        Integer iIndex iPKIndex
+        tDDPBuilderResult oResult
+        Handle hFile
+        Integer[] aPKFields
+        Boolean bPKFound bErr
+        tDDPTableQuery serialQuery
+
+        Get GetPrimaryKeyFields record.hoDD to aPKFields
+
+        // Verify all PK fields were supplied by the client.
+        For iPKIndex from 0 to (SizeOfArray(aPKFields) - 1)
+            Move False to bPKFound
+            For iIndex from 0 to (SizeOfArray(record.aFields) - 1)
+                If (record.aFields[iIndex].hField = aPKFields[iPKIndex]) Begin
+                    Move True to bPKFound
+                    Break
+                End
+            Loop
+            If (not(bPKFound)) Begin
+                Move DDPERR_MISSING_KEY_FIELD to oResult.iErr
+                Move (SFormat("Primary key field %1 is required for update.", aPKFields[iPKIndex])) to oResult.sError
+                Function_Return oResult
+            End
+        Loop
+
+        // Clear the buffer and set only PK field values for the find.
+        Send Clear of record.hoDD
+        Get Main_File of record.hoDD to hFile
+        For iIndex from 0 to (SizeOfArray(record.aFields) - 1)
+            For iPKIndex from 0 to (SizeOfArray(aPKFields) - 1)
+                If (record.aFields[iIndex].hField = aPKFields[iPKIndex]) Begin
+                    Set_Field_Value hFile record.aFields[iIndex].hField to record.aFields[iIndex].sValue
+                    Break
+                End
+            Loop
+        Loop
+
+        Send Rebuild_Constraints of record.hoDD
+        Send Find of record.hoDD EQ (PrimaryDDIndex(Self, record.hoDD))
+        If (not(Found) or Err) Begin
+            Move DDPERR_RECORD_NOT_FOUND to oResult.iErr
+            Move "Record not found." to oResult.sError
+            Function_Return oResult
+        End
+
+        // Apply non-PK fields via File_Field_Changed_Value so the DD layer tracks the dirty set.
+        For iIndex from 0 to (SizeOfArray(record.aFields) - 1)
+            Move False to bPKFound
+            For iPKIndex from 0 to (SizeOfArray(aPKFields) - 1)
+                If (record.aFields[iIndex].hField = aPKFields[iPKIndex]) Begin
+                    Move True to bPKFound
+                    Break
+                End
+            Loop
+            If (not(bPKFound)) Begin
+                Set File_Field_Changed_Value of record.hoDD hFile record.aFields[iIndex].hField to record.aFields[iIndex].sValue
+            End
+        Loop
+
+        Get Request_Validate of record.hoDD to bErr
+        If (bErr) Begin
+            Move DDPERR_VALIDATION_FAILED to oResult.iErr
+            Get Error_Text LastErr to oResult.sError
+            Function_Return oResult
+        End
+
+        Send Request_Save of record.hoDD
+        Move (Err) to bErr
+        If (bErr) Begin
+            Move DDPERR_UPDATE_FAILED to oResult.iErr
+            Get Error_Text LastErr to oResult.sError
+            Function_Return oResult
+        End
+
+        // Serialise the updated buffer (all fields; no field projection applied).
+        Move record.hoDD to serialQuery.hoDD
+        Get Create (RefClass(cJsonObject)) to hoJson
+        Send InitializeJsonType of hoJson jsonTypeObject
+        Send SerializeBufferToJson hoJson serialQuery
+
+        Function_Return oResult
+    End_Function
+
+    // Entry point for an update operation.
+    Function ExecuteUpdate tDDPUpdateQuery query Handle ByRef hoResult Returns tDDPBuilderResult
+        tDDPBuilderResult oResult
+
+        If (hoResult) Begin
+            Send Destroy of hoResult
+            Move 0 to hoResult
+        End
+
+        Get ExecuteUpdateRecord query.oMain (&hoResult) to oResult
+        Function_Return oResult
+    End_Function
+
+    // Tears down all live DD relationships established by UpdateLinkUp.
+    Procedure DestroyUpdateQuery tDDPUpdateQuery ByRef query
+        If (query.oMain.hoDD) Send ClearRelationShipsOnDD query.oMain.hoDD
+    End_Procedure
+
+    // Looks up a DD handle by its underlying file handle (file number).
+    // Used during relationship detection and serialization when only the
+    // file handle (not the name) is available.
+    Function DDByFile Handle hSearchFile Boolean bThrow Returns Handle
+        Integer iIndex
+        Handle hFile
+        tDDPDataDictPair[] aDataDicts
+
+        Get paDataDicts to aDataDicts
+
+        // Linear scan ΓÇö no binary search possible because the array is sorted
+        // by name, not by file handle.
+        For iIndex from 0 to (SizeOfArray(aDataDicts) - 1)
+            Get Main_File of aDataDicts[iIndex].hoDD to hFile
+            If (hSearchFile = hFile) Begin
+                Function_Return aDataDicts[iIndex].hoDD
+            End
+        Loop
+
+        If (num_arguments > 1 and bThrow) Error DFERR_PROGRAM "Cannot find Data Dictionary."
+        Function_Return 0
+    End_Function
+
+End_Class

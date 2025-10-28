@@ -1,0 +1,138 @@
+Use WebApi\cBaseRestDataset.pkg
+Use WebApi\DDP\Backends\IBackend.pkg
+Use WebApi\DDP\cDDPBuilder.pkg
+
+// Handles POST /ddp/v1/store — creates a new record identified by the request body.
+// The body is either a single save-object or a JSON array of save-objects.
+// Each save-object is a JSON object with exactly one top-level key (the table name)
+// whose value maps field names to values. Child records can be nested as arrays or
+// single objects under their table name (1-to-N children only; no parent nesting).
+// Use Delegate Send/Get to call builder/backend methods on the parent protocol.
+Class cDDPStoreEndpoint is a cBaseRestDataset
+
+    Procedure Construct_Object
+        Forward Send Construct_Object
+
+        // Store is POST-only (create); updates are handled by cDDPUpdateEndpoint.
+        Set pbAllowRead to False
+        Set pbAllowEdit to False
+        Set pbAllowDelete to False
+
+        // Shared JSON parser for request bodies.
+        Object oJson is a cJsonObject
+            Set pbRequireAllMembers to False
+        End_Object
+    End_Procedure
+
+    { MethodType = Event }
+    // POST /ddp/v1/store — create a new record.
+    //
+    // Single record:   { "Customer": { "Name": "Acme" } }
+    // Array of records: [ { "Customer": { "Name": "Acme" } }, ... ]
+    // With children:   { "OrderHeader": { "Customer_Number": 1,
+    //                     "OrderDetail": [ { "Detail_Number": 1, "Qty_Ordered": 2 } ] } }
+    //
+    // Response: 201 with the saved record(s) serialised back, including any
+    // server-assigned values (auto-increment PKs, etc.).
+    Procedure OnHttpPost tWebApiCallContext ByRef webapicallcontext
+        String sRequestBodyString sTableName
+        tDDPBuilderResult oResult
+        tDDPSaveQuery oQuery oEmptyQuery
+        Handle hoElement hoTableJson hoSavedRecord
+        Integer iIndex iJsonType iElementCount
+
+        Get RequestDataString to sRequestBodyString
+        If (not(ParseString(oJson, sRequestBodyString))) Begin
+            Move True to webapicallcontext.bErr
+            Move C_WEBAPI_NOTALLOWED to webapicallcontext.iStatusCode
+            Move "Invalid format" to webapicallcontext.sShortStatusMessage
+            Procedure_Return
+        End
+
+        Move (JsonType(oJson)) to iJsonType
+        If (iJsonType <> jsonTypeObject and iJsonType <> jsonTypeArray) Begin
+            Move True to webapicallcontext.bErr
+            Move C_WEBAPI_NOTALLOWED to webapicallcontext.iStatusCode
+            Move "Invalid format" to webapicallcontext.sShortStatusMessage
+            Move "root must be an object or array." to webapicallcontext.sErrorMessage
+            Procedure_Return
+        End
+
+        Get Create (RefClass(cJsonObject)) to webapicallcontext.hoResponseBody
+        If (iJsonType = jsonTypeArray) Begin
+            Send InitializeJsonType of webapicallcontext.hoResponseBody jsonTypeArray
+            Move (MemberCount(oJson)) to iElementCount
+        End
+        Else Begin
+            Send InitializeJsonType of webapicallcontext.hoResponseBody jsonTypeObject
+            Move 1 to iElementCount
+        End
+
+        For iIndex from 0 to (iElementCount - 1)
+            If (iJsonType = jsonTypeArray) Begin
+                Get Member of oJson iIndex to hoElement
+            End
+            Else Begin
+                Move oJson to hoElement
+            End
+
+            // Each element must be a JSON object with exactly one top-level key.
+            If (JsonType(hoElement) <> jsonTypeObject or MemberCount(hoElement) <> 1) Begin
+                If (iJsonType = jsonTypeArray) Send Destroy of hoElement
+                Move True to webapicallcontext.bErr
+                Move C_WEBAPI_NOTALLOWED to webapicallcontext.iStatusCode
+                Move "Invalid format" to webapicallcontext.sShortStatusMessage
+                Move "each entry must be a JSON object with exactly one table key." to webapicallcontext.sErrorMessage
+                Procedure_Return
+            End
+
+            Get MemberNameByIndex of hoElement 0 to sTableName
+            Get Member of hoElement sTableName to hoTableJson
+
+            Move oEmptyQuery to oQuery
+            Delegate Get ConstructSaveScenario sTableName hoTableJson (&oQuery) to oResult
+            Send Destroy of hoTableJson
+            If (iJsonType = jsonTypeArray) Send Destroy of hoElement
+
+            If (oResult.iErr) Begin
+                Delegate Send DestroySaveQuery oQuery
+                Move True to webapicallcontext.bErr
+                Move C_WEBAPI_NOTALLOWED to webapicallcontext.iStatusCode
+                Move "Invalid request" to webapicallcontext.sShortStatusMessage
+                Move oResult.sError to webapicallcontext.sErrorMessage
+                Procedure_Return
+            End
+
+            Delegate Get ExecuteStore oQuery (&hoSavedRecord) to oResult
+            Delegate Send DestroySaveQuery oQuery
+
+            If (oResult.iErr) Begin
+                If (hoSavedRecord) Send Destroy of hoSavedRecord
+                Move True to webapicallcontext.bErr
+                Move 422 to webapicallcontext.iStatusCode
+                If (oResult.iErr = DDPERR_VALIDATION_FAILED) Begin
+                    Move "Validation Error" to webapicallcontext.sShortStatusMessage
+                End
+                Else Begin
+                    Move "Save Error" to webapicallcontext.sShortStatusMessage
+                End
+                Move oResult.sError to webapicallcontext.sErrorMessage
+                Procedure_Return
+            End
+
+            // Single object → response is an object keyed by table name.
+            // Array → response is a flat array of saved records.
+            If (iJsonType = jsonTypeArray) Begin
+                Send AddMember of webapicallcontext.hoResponseBody hoSavedRecord
+            End
+            Else Begin
+                Send SetMember of webapicallcontext.hoResponseBody sTableName hoSavedRecord
+            End
+            Send Destroy of hoSavedRecord
+            Move 0 to hoSavedRecord
+        Loop
+
+        Move C_WEBAPI_CREATED to webapicallcontext.iStatusCode
+    End_Procedure
+
+End_Class

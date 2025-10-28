@@ -1,0 +1,40 @@
+﻿Use WebApi\cBaseWebApiIterator.pkg
+
+Define C_WebAPIDDP_Content_Type for "application/ddp"
+
+Class cDDPIterator is a cBaseWebApiIterator
+    
+    Procedure Construct_Object
+        Forward Send Construct_Object
+        
+        Set psMessageType to "application/json"
+
+    End_Procedure
+    
+    //Prepares the data type to a format that can be send to the client
+    Procedure PrepareForTransfer tWebApiCallContext ByRef webapicallcontext
+        String sStringifiedJson
+        
+        //Sanity check
+        If (webapicallcontext.hoResponseBody <> 0) Begin
+            Get Stringify of webapicallcontext.hoResponseBody to sStringifiedJson    
+        End        
+        
+        Forward Send PrepareForTransfer (&webapicallcontext)
+        
+        Send OutputString sStringifiedJson
+    End_Procedure
+    
+    Procedure GenerateErrorResponse tWebApiCallContext ByRef webapicallcontext
+        
+        Get Create (RefClass(cJsonObject)) to webapicallcontext.hoResponseBody
+        Send InitializeJsonType of webapicallcontext.hoResponseBody jsonTypeObject
+        
+        Send SetMemberValue of webapicallcontext.hoResponseBody "type" jsonTypeString C_WEBAPI_ERROR_TYPE
+        Send SetMemberValue of webapicallcontext.hoResponseBody "status" jsonTypeInteger webapicallcontext.iStatusCode 
+        Send SetMemberValue of webapicallcontext.hoResponseBody "title" jsonTypeString webapicallcontext.sShortStatusMessage
+        Send SetMemberValue of webapicallcontext.hoResponseBody "detail" jsonTypeString webapicallcontext.sErrorMessage
+        Send SetMemberValue of webapicallcontext.hoResponseBody "instance" jsonTypeString webapicallcontext.sPath        
+        
+    End_Procedure
+End_Class

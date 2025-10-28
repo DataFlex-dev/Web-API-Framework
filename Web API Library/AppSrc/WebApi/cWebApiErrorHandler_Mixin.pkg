@@ -15,6 +15,9 @@ Class cWebApiErrorHandler_Mixin is a Mixin
 
         {Visibility = Private}
         Property String[] pasErrorCallstack
+        // Stores the actual DataFlex error message from the most recent Error_Report call.
+        {Visibility = Private}
+        Property String psLastErrorMessage ""
         //When running in debug mode more details are returned in the response body
         Property Boolean pbDebugMode False
         {Visibility = Private}
@@ -24,22 +27,21 @@ Class cWebApiErrorHandler_Mixin is a Mixin
 
     Procedure Error_Report Integer ErrNum Integer Err_Line String sErrMsg
         Boolean bDebugMode
-        String sCallstack sCaption
+        String sFormattedMsg sCaption
         String[] asCallstack
 
         Get pbDebugMode to bDebugMode
         //If a error is reported we should remember that it happened.
         Set pbUnexpectedError to True
-        Set psLastErrorMessage to sErrMsg
+        // Always store the actual error text so HttpErrorMessage can return it.
+        Move (SFormat("Error %1 at line %2: %3", ErrNum, Err_Line, sErrMsg)) to sFormattedMsg
+        Set psLastErrorMessage to sFormattedMsg
         Send Error_Report of ghoErrorHandler ErrNum Err_Line sErrMsg
 
         // If we are running in the debugger forward it.
         If (IsDebuggerPresent() or bDebugMode) Begin
             Get pasErrorCallstack to asCallstack
-
-            CallStackDump sCallstack
-            Move sCallstack to asCallstack[-1]
-
+            Move sFormattedMsg to asCallstack[-1]
             Set pasErrorCallstack to asCallstack
 
             //If we run in debug mode pop up the error window
@@ -68,6 +70,7 @@ Class cWebApiErrorHandler_Mixin is a Mixin
         Set pasErrorCallstack to asEmptyArray
         Set psLastErrorMessage to ""
         Set pbUnexpectedError to False
+        Set psLastErrorMessage to ""
     End_Procedure
 
     { Visibility = Private }
@@ -85,7 +88,11 @@ Class cWebApiErrorHandler_Mixin is a Mixin
         If (bDebugMode or IsDebuggerPresent()) Begin
             Get DetailedErrorMessage to sErrorMessage
         End
-        Else Begin
+        // Always fall back to the stored error message so callers see the actual problem.
+        If (sErrorMessage = "") Begin
+            Get psLastErrorMessage to sErrorMessage
+        End
+        If (sErrorMessage = "") Begin
             Move "Something went wrong on the server" to sErrorMessage
         End
 

@@ -276,7 +276,11 @@ Class cWebApi is a cWebHttpHandler
         If (webapicallcontext.bErr or bUnexpectedError) Begin
 
             //If we have a unexpected error we should write generic error information to webapicallcontext.
-            If (bUnexpectedError) Begin
+            // Only override to 500 when the endpoint has not already handled the error (bErr=False).
+            // When bErr=True the endpoint set its own status code; the DataFlex error system firing
+            // through Error_Report is a side-effect of DD validation (e.g. Data_set_Error) and has
+            // already been caught by the endpoint's return-value check.
+            If (bUnexpectedError and not(webapicallcontext.bErr)) Begin
                 Get HttpErrorMessage to webapicallcontext.sErrorMessage
                 Move 500 to webapicallcontext.iStatusCode
             End

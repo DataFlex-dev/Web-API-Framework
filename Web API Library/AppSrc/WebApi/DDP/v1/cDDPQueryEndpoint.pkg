@@ -1,0 +1,142 @@
+Use WebApi\cBaseRestDataset.pkg
+Use WebApi\DDP\Backends\IBackend.pkg
+Use WebApi\DDP\cDDPBuilder.pkg
+
+// Handles POST /ddp/v1/query — executes a DDP query described by the JSON request body.
+// Builder and backend logic live on the parent cWebAPIDataDictionaryProtocol object;
+// Delegate Send/Get walks up the parent chain to reach them without explicit wiring.
+Class cDDPQueryEndpoint is a cBaseRestDataset
+
+    Procedure Construct_Object
+        Forward Send Construct_Object
+
+        // Query is POST-only; suppress the other verbs.
+        Set pbAllowRead to False
+        Set pbAllowEdit to False
+        Set pbAllowDelete to False
+
+        // Shared JSON parser; lenient so partial bodies do not error at parse time.
+        Object oJson is a cJsonObject
+            Set pbRequireAllMembers to False
+        End_Object
+    End_Procedure
+
+    { MethodType = Event }
+    // POST /ddp/v1/query
+    //
+    // Expects a JSON body whose top-level keys are table names and whose values are
+    // table query objects (see DataDictionaryProtocol.md for the full schema).
+    // The DDPStyle header controls the response shape:
+    //   nested     — related tables embedded inside each row (default)
+    //   flat       — positionally-aligned parallel arrays
+    //   flatlinked — deduplicated parallel arrays joined by FK fields
+    Procedure OnHttpPost tWebApiCallContext ByRef webapicallcontext
+        String sStyle
+        tDDPBuilderContext ctx
+        tDDPBuilderResult oResult
+
+        // Read the DDPStyle header; absent means nested.
+        Get HttpRequestHeader "DDPStyle" to sStyle
+        If (sStyle = "flat") Begin
+            Move DDPStyle_Flat to ctx.eStyle
+        End
+        Else If (sStyle = "flatlinked") Begin
+            Move DDPStyle_FlatLinked to ctx.eStyle
+        End
+        Else If (sStyle = "nested" or sStyle = "") Begin
+            Move DDPStyle_Nested to ctx.eStyle
+        End
+        Else Begin
+            Move True to webapicallcontext.bErr
+            Move C_WEBAPI_NOTALLOWED to webapicallcontext.iStatusCode
+            Move "Invalid style" to webapicallcontext.sShortStatusMessage
+            Procedure_Return
+        End
+
+        // Parse and validate the request body.
+        String sRequestBodyString
+        Get RequestDataString to sRequestBodyString
+        If (not(ParseString(oJson, sRequestBodyString))) Begin
+            Move True to webapicallcontext.bErr
+            Move C_WEBAPI_NOTALLOWED to webapicallcontext.iStatusCode
+            Move "Invalid format" to webapicallcontext.sShortStatusMessage
+            Procedure_Return
+        End
+        Move oJson to ctx.hoJsonReq
+
+        // The root must be a JSON object; arrays and primitives are rejected.
+        If (JsonType(ctx.hoJsonReq) <> jsonTypeObject) Begin
+            Move True to webapicallcontext.bErr
+            Move C_WEBAPI_NOTALLOWED to webapicallcontext.iStatusCode
+            Move "Invalid format" to webapicallcontext.sShortStatusMessage
+            Move "root should be an object." to webapicallcontext.sErrorMessage
+            Procedure_Return
+        End
+
+        // Flat and flatlinked require exactly one top-level table because their
+        // positional/deduplicated arrays are undefined for multiple root tables.
+        If (ctx.eStyle <> DDPStyle_Nested and MemberCount(ctx.hoJsonReq) > 1) Begin
+            Move True to webapicallcontext.bErr
+            Move C_WEBAPI_NOTALLOWED to webapicallcontext.iStatusCode
+            Move "Cannot have multiple mainDDs in flattened style" to webapicallcontext.sShortStatusMessage
+            Procedure_Return
+        End
+
+        Get Create (RefClass(cJsonObject)) to webapicallcontext.hoResponseBody
+        Send InitializeJsonType of webapicallcontext.hoResponseBody jsonTypeObject
+
+        // Iterate over every top-level table name in the request and execute its query.
+        Integer iIndex
+        String sDDName
+        Handle hoDDJson hoQueryResult
+        tDDPQuery oQuery oEmptyQuery
+        For iIndex from 0 to (MemberCount(ctx.hoJsonReq) - 1)
+            Move (MemberNameByIndex(ctx.hoJsonReq, iIndex)) to sDDName
+            Get Member of ctx.hoJsonReq sDDName to hoDDJson
+
+            // ConstructFindScenario and Execute* live on cWebAPIDataDictionaryProtocol;
+            // Delegate walks up the parent chain to find and call them there.
+            Delegate Get ConstructFindScenario sDDName hoDDJson (&oQuery) to oResult
+            If (oResult.iErr) Begin
+                Delegate Send DestroyQuery oQuery
+                Move True to webapicallcontext.bErr
+                Move C_WEBAPI_NOTALLOWED to webapicallcontext.iStatusCode
+                Move "Not Allowed" to webapicallcontext.sShortStatusMessage
+                Move oResult.sError to webapicallcontext.sErrorMessage
+                Procedure_Return
+            End
+
+            // Execute using the style requested by the client.
+            Case Begin
+                Case (ctx.eStyle = DDPStyle_Flat)
+                    Delegate Get ExecuteFindFlat (&ctx) oQuery (&webapicallcontext.hoResponseBody) to oResult
+                    Case Break
+                Case (ctx.eStyle = DDPStyle_FlatLinked)
+                    Delegate Get ExecuteFindFlatLinked (&ctx) oQuery (&webapicallcontext.hoResponseBody) to oResult
+                    Case Break
+                Case Else
+                    Delegate Get ExecuteFind (&ctx) oQuery (&hoQueryResult) to oResult
+                    Send SetMember of webapicallcontext.hoResponseBody sDDName hoQueryResult
+                    Send Destroy of hoQueryResult
+            Case End
+            If (oResult.iErr) Begin
+                If (hoQueryResult) Send Destroy of hoQueryResult
+                Delegate Send DestroyQuery oQuery
+                Move True to webapicallcontext.bErr
+                Move C_WEBAPI_NOTALLOWED to webapicallcontext.iStatusCode
+                Move "Not Allowed" to webapicallcontext.sShortStatusMessage
+                Move oResult.sError to webapicallcontext.sErrorMessage
+                Procedure_Return
+            End
+
+            Delegate Send DestroyQuery oQuery
+
+            // Reset per-iteration state so stale values don't leak into the next iteration.
+            Move 0 to hoQueryResult
+            Move oEmptyQuery to oQuery
+        Loop
+
+        Move 200 to webapicallcontext.iStatusCode
+    End_Procedure
+
+End_Class

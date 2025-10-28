@@ -1,5 +1,5 @@
 #REPLACE FILE1 ApiLogs
-#REPLACE ApiLogs.Recnum |FN1,0
+#REPLACE ApiLogs.File_Number |CI1
 #REPLACE ApiLogs.ApiLogsId |FN1,1
 #REPLACE ApiLogs.TimeReceived |FS1,2
 #REPLACE ApiLogs.TimeResponse |FS1,3

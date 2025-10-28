@@ -1,5 +1,5 @@
 #REPLACE FILE25 Customer
-#REPLACE Customer.Recnum |FN25,0
+#REPLACE Customer.File_Number |CI25
 #REPLACE Customer.Customer_Number |FN25,1
 #REPLACE Customer.Name |FS25,2
 #REPLACE Customer.Address |FS25,3

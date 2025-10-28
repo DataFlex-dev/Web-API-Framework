@@ -1,0 +1,207 @@
+Use WebApi\cWebApiRouter.pkg
+Use WebApi\cWebApiModifierHost_Mixin.pkg
+Use cWebComponent.pkg
+
+Use WebApi\DDP\cDDPBuilder.pkg
+
+// Root DDP endpoint mixin. Mounted at /ddp and handles:
+//   GET  /ddp       — protocol version + list of exposed tables
+//   OPTIONS /ddp    — CORS preflight and capability discovery
+//
+// All query, find, delete, and save operations are handled by the versioned
+// sub-endpoints under /ddp/v1/. This mixin therefore disables POST/PUT/PATCH/DELETE
+// by default (pbAllowCreate/Edit/Delete = False).
+Class cDDPDataSet_Mixin is a cWebComponent
+
+    Import_Class_Protocol cWebApiModifierHost_Mixin
+
+    Procedure Define_cDDPDataSet_Mixin
+        // When True the endpoint accepts only GET requests; all mutating verbs are blocked.
+        Property Boolean pbReadOnly False
+
+        // The root /ddp endpoint does not handle any data verbs — all operations
+        // including GET live on the versioned sub-routers (e.g. /ddp/v1).
+        // Only OPTIONS is available here for CORS capability discovery.
+        Property Boolean pbAllowRead False
+        Property Boolean pbAllowCreate False
+        Property Boolean pbAllowEdit False
+        Property Boolean pbAllowDelete False
+
+        // Security gates per verb.
+        Property Boolean pbSecureRead True
+        Property Boolean pbSecureCreate True
+        Property Boolean pbSecureEdit True
+        Property Boolean pbSecureDelete True
+
+        Send Define_cWebApiModifierHost_Mixin
+    End_Procedure
+
+    Procedure End_Define_cDDPDataSet_Mixin
+        Send End_Construct_cWebApiModifierHost_Mixin
+    End_Procedure
+
+    { Visibility = Private }
+    // Central dispatcher: validates the verb then routes to the appropriate OnHttp* handler.
+    Procedure OnHttpRequest tWebApiCallContext ByRef webapicallcontext
+        Boolean bExposedVerb bHasID
+        Integer iSizeOfPathPieces
+        String sID
+        String[] asPathPieces
+
+        Move (StrSplitToArray(webapicallcontext.sPath, "/")) to asPathPieces
+        Move (SizeOfArray(asPathPieces)-1) to iSizeOfPathPieces
+
+        Get IsVerbAllowed webapicallcontext.sVerb to bExposedVerb
+
+        If (bExposedVerb) Begin
+            Case Begin
+                Case (webapicallcontext.sVerb = C_WEBAPI_GET and not(bHasID))
+                    Send OnHttpGet (&webapicallcontext)
+                    Case Break
+                Case (webapicallcontext.sVerb = C_WEBAPI_GET)
+                    Send OnHttpGetByID (&webapicallcontext) sID
+                    Case Break
+                Case (webapicallcontext.sVerb = C_WEBAPI_POST)
+                    Send OnHttpPost (&webapicallcontext)
+                    Case Break
+                Case (webapicallcontext.sVerb = C_WEBAPI_PUT)
+                    Send OnHttpPut (&webapicallcontext) sID
+                    Case Break
+                Case (webapicallcontext.sVerb = C_WEBAPI_PATCH)
+                    Send OnHttpPatch (&webapicallcontext) sID
+                    Case Break
+                Case (webapicallcontext.sVerb = C_WEBAPI_DELETE)
+                    Send OnHttpDelete (&webapicallcontext) sID
+                    Case Break
+                Case (webapicallcontext.sVerb = C_WEBAPI_OPTIONS)
+                    Send OnHttpOptions (&webapicallcontext)
+            Case End
+        End
+        Else Begin
+            Move True to webapicallcontext.bErr
+            Move C_WEBAPI_NOTALLOWED to webapicallcontext.iStatusCode
+            Move "Not Allowed" to webapicallcontext.sShortStatusMessage
+            Move (SFormat("The %1 method is not allowed on the current resource", webapicallcontext.sVerb)) to webapicallcontext.sErrorMessage
+        End
+    End_Procedure
+
+    { Visibility = Private }
+    // Attaches this object as the dataset for the current request and injects modifiers.
+    Procedure RouteRequest tWebApiCallContext ByRef webapicallcontext
+        Move Self to webapicallcontext.hoDataset
+
+        Send AddModifiersToCallContext (&webapicallcontext)
+    End_Procedure
+
+    { MethodType = Event }
+    // Stub — GET at the root /ddp path is not active (pbAllowRead = False).
+    // Protocol info is served at /ddp/v1 by cDDPV1Router.
+    Procedure OnHttpGet tWebApiCallContext ByRef webapicallcontext
+    End_Procedure
+
+    { MethodType = Event }
+    Procedure OnHttpGetByID tWebApiCallContext ByRef webapicallcontext String sID
+    End_Procedure
+
+    { MethodType = Event }
+    Procedure OnHttpPost tWebApiCallContext ByRef webapicallcontext
+    End_Procedure
+
+    { MethodType = Event }
+    Procedure OnHttpPut tWebApiCallContext ByRef webapicallcontext String sID
+    End_Procedure
+
+    { MethodType = Event }
+    Procedure OnHttpPatch tWebApiCallContext ByRef webapicallcontext String sID
+    End_Procedure
+
+    { MethodType = Event }
+    Procedure OnHttpDelete tWebApiCallContext ByRef webapicallcontext String sID
+    End_Procedure
+
+    { Visibility = Private }
+    // OPTIONS /ddp — responds with the verbs available on this endpoint.
+    // Handles both CORS preflight (Access-Control-Request-Method present) and
+    // plain capability discovery (returns Allow header).
+    Procedure OnHttpOptions tWebApiCallContext ByRef webapicallcontext
+        String sAvailableVerbs sRequestedVerb
+        String[] asAvailableVerbs
+        Boolean bAllowRead bAllowCreate bAllowEdit bAllowDelete
+
+        Get HttpRequestHeader "Access-Control-Request-Method" to sRequestedVerb
+
+        Get pbAllowRead to bAllowRead
+        Get pbAllowCreate to bAllowCreate
+        Get pbAllowEdit to bAllowEdit
+        Get pbAllowDelete to bAllowDelete
+
+        If (bAllowRead) Begin
+            Move C_WEBAPI_GET to asAvailableVerbs[-1]
+        End
+
+        If (bAllowCreate) Begin
+            Move C_WEBAPI_POST to asAvailableVerbs[-1]
+        End
+
+        If (bAllowEdit) Begin
+            Move C_WEBAPI_PUT to asAvailableVerbs[-1]
+            Move C_WEBAPI_PATCH to asAvailableVerbs[-1]
+        End
+
+        If (bAllowDelete) Begin
+            Move C_WEBAPI_DELETE to asAvailableVerbs[-1]
+        End
+
+        Move C_WEBAPI_OPTIONS to asAvailableVerbs[-1]
+
+        Get StrJoinFromArray asAvailableVerbs ", " to sAvailableVerbs
+
+        If (sRequestedVerb <> "") Begin
+            Send AddHttpResponseHeader "Access-Control-Allow-Methods" sAvailableVerbs
+            Send AddHttpResponseHeader "Access-Control-Allow-Headers" "*"
+        End
+        Else Begin
+            Send AddHttpResponseHeader "Allow" sAvailableVerbs
+        End
+
+        Move C_WEBAPI_NOCONTENT to webapicallcontext.iStatusCode
+        Move "No Content" to webapicallcontext.sShortStatusMessage
+    End_Procedure
+
+    { Visibility = Private }
+    // Returns True when sVerb is permitted on this endpoint.
+    // OPTIONS is always allowed. pbReadOnly blocks all non-GET verbs.
+    // Each remaining verb is checked against its pbAllow* property.
+    Function IsVerbAllowed String sVerb Returns Boolean
+        Boolean bReadOnly bAllowedVerb
+
+        If (sVerb = C_WEBAPI_OPTIONS) Begin
+            Function_Return True
+        End
+
+        Get pbReadOnly to bReadOnly
+
+        If ((sVerb <> C_WEBAPI_GET) and bReadOnly) Begin
+            Function_Return False
+        End
+
+        If (sVerb = C_WEBAPI_GET) Begin
+            Get pbAllowRead to bAllowedVerb
+        End
+
+        If (sVerb = C_WEBAPI_POST) Begin
+            Get pbAllowCreate to bAllowedVerb
+        End
+
+        If (sVerb = C_WEBAPI_PUT or sVerb = C_WEBAPI_PATCH) Begin
+            Get pbAllowEdit to bAllowedVerb
+        End
+
+        If (sVerb = C_WEBAPI_DELETE) Begin
+            Get pbAllowDelete to bAllowedVerb
+        End
+
+        Function_Return bAllowedVerb
+    End_Function
+
+End_Class

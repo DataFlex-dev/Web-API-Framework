@@ -1,5 +1,5 @@
 #REPLACE FILE254 CodeMast
-#REPLACE CodeMast.Recnum |FN254,0
+#REPLACE CodeMast.File_Number |CI254
 #REPLACE CodeMast.Type |FS254,1
 #REPLACE CodeMast.Code |FS254,2
 #REPLACE CodeMast.Description |FS254,3

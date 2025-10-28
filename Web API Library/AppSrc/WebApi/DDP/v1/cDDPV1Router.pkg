@@ -1,0 +1,102 @@
+Use WebApi\cWebApiRouter.pkg
+Use WebApi\DDP\cDDPBuilder.pkg
+
+// Versioned entry point for the DDP API, mounted at /ddp/v1.
+//
+// Acts as both a router and an endpoint:
+//   GET        /ddp/v1         — protocol version + list of exposed tables
+//   GET        /ddp/v1/schema  — field names and types for all exposed tables
+//   POST       /ddp/v1/query   — execute a DDP query (nested / flat / flatlinked)
+//   POST       /ddp/v1/store   — create one or more records
+//   PUT|PATCH  /ddp/v1/update  — update a record identified by the request body
+//   POST       /ddp/v1/delete  — delete a record identified by the request body
+//
+// paDataDicts is read from the parent cWebAPIDataDictionaryProtocol via Delegate Get,
+// so no explicit protocol reference needs to be wired.
+Class cDDPV1Router is a cWebApiRouter
+
+    { Visibility = Private }
+    // Try children first (sub-endpoints for query/find/delete/save). When no child
+    // path segment matches — e.g. the request is exactly GET /ddp/v1 — fall back to
+    // handling the request at this level by setting Self as the dataset.
+    Procedure RouteRequest tWebApiCallContext ByRef webapicallcontext
+        Integer iIndex
+        Handle[] hoRoutables
+
+        Move Self to webapicallcontext.hoRouter[-1]
+        Send AddModifiersToCallContext (&webapicallcontext)
+
+        Get RoutableIndex webapicallcontext.sPath to iIndex
+        If (iIndex <> -1) Begin
+            Get phoRoutables to hoRoutables
+            Send RouteRequest of hoRoutables[iIndex] (&webapicallcontext)
+        End
+        Else Begin
+            // No sub-path matched — this router handles the request itself.
+            Move Self to webapicallcontext.hoDataset
+        End
+    End_Procedure
+
+    { Visibility = Private }
+    // Verb dispatcher for requests that land directly on /ddp/v1 (no further path).
+    Procedure OnHttpRequest tWebApiCallContext ByRef webapicallcontext
+        If (webapicallcontext.sVerb = C_WEBAPI_GET) Begin
+            Send OnHttpGet (&webapicallcontext)
+        End
+        Else If (webapicallcontext.sVerb = C_WEBAPI_OPTIONS) Begin
+            Send OnHttpOptions (&webapicallcontext)
+        End
+        Else Begin
+            Move True to webapicallcontext.bErr
+            Move C_WEBAPI_NOTALLOWED to webapicallcontext.iStatusCode
+            Move "Not Allowed" to webapicallcontext.sShortStatusMessage
+            Move (SFormat("The %1 method is not allowed on the current resource", webapicallcontext.sVerb)) to webapicallcontext.sErrorMessage
+        End
+    End_Procedure
+
+    { MethodType = Event }
+    // GET /ddp/v1 — returns the protocol version and the names of all exposed tables.
+    // paDataDicts is retrieved from the parent protocol via Delegate Get.
+    Procedure OnHttpGet tWebApiCallContext ByRef webapicallcontext
+        Handle hoArr
+        String[] aDDs
+        tDDPDataDictPair[] aDataDicts
+        Integer iIndex
+
+        Get Create (RefClass(cJsonObject)) to webapicallcontext.hoResponseBody
+        Send InitializeJsonType of webapicallcontext.hoResponseBody jsonTypeObject
+        Send SetMemberValue of webapicallcontext.hoResponseBody "version" jsonTypeString "1.0"
+
+        // paDataDicts lives on cWebAPIDataDictionaryProtocol; Delegate walks up to it.
+        Delegate Get paDataDicts to aDataDicts
+        Get Create (RefClass(cJsonObject)) to hoArr
+
+        For iIndex from 0 to (SizeOfArray(aDataDicts) - 1)
+            Move aDataDicts[iIndex].sDisplayName to aDDs[-1]
+        Loop
+
+        Send DataTypeToJson of hoArr aDDs
+        Send SetMember of webapicallcontext.hoResponseBody "exposed" hoArr
+        Send Destroy of hoArr
+
+        Move 200 to webapicallcontext.iStatusCode
+    End_Procedure
+
+    { Visibility = Private }
+    Procedure OnHttpOptions tWebApiCallContext ByRef webapicallcontext
+        String sRequestedVerb
+        Get HttpRequestHeader "Access-Control-Request-Method" to sRequestedVerb
+
+        If (sRequestedVerb <> "") Begin
+            Send AddHttpResponseHeader "Access-Control-Allow-Methods" "GET, OPTIONS"
+            Send AddHttpResponseHeader "Access-Control-Allow-Headers" "*"
+        End
+        Else Begin
+            Send AddHttpResponseHeader "Allow" "GET, OPTIONS"
+        End
+
+        Move C_WEBAPI_NOCONTENT to webapicallcontext.iStatusCode
+        Move "No Content" to webapicallcontext.sShortStatusMessage
+    End_Procedure
+
+End_Class

@@ -1,0 +1,550 @@
+Use WebApi\DDP\Backends\IBackend.pkg
+Use DataDict.pkg
+
+// Cached topology snapshot for one exposed DD: the flat-file handle used as a
+// binary-search key, plus arrays of its direct parent (server-file, 1-to-1)
+// and child (client-file, 1-to-N) relationships. Populated once at expose time
+// so relationship lookups during request handling are O(log n) without touching
+// the live DataFlex DD graph.
+Struct tDDPClassicFileInfo
+    Handle hFile
+    tDDPFileDD[] aParents
+    tDDPFileDD[] aChilds
+End_Struct
+
+Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
+    Procedure Define_DDP_Backend_Mixin
+        // Sorted by hFile; BinarySearchArray is used for all lookups.
+        Property tDDPClassicFileInfo[] paFileInfo
+    End_Procedure
+
+    Procedure End_Define_DDP_Backend_Mixin
+    End_Procedure
+
+    { Visibility = Private }
+    // Returns True when every character in sNumber is a digit or a leading minus sign.
+    // Used to validate integer constraint values before embedding them in SQL WHERE clauses.
+    Function IsNumeric String sNumber Returns Boolean
+        String sCompare
+        Integer iLength iPosition
+        Integer iDecimalSeparator iThousandSeparator
+
+        Move "-0123456789" to sCompare
+
+        Move (Length(sNumber)) to iLength
+        For iPosition from 1 to iLength
+            If (not(sCompare contains Mid(sNumber, 1, iPosition))) Function_Return False
+        Loop
+        Function_Return True
+    End_Function
+
+    { Visibility = Private }
+    // Accepts integers, decimals, and thousands-separated numbers.
+    // Used for BCD field values that may carry a decimal point or comma
+    // separator before they are embedded in a SQL predicate.
+    Function IsOptDottedNumeric String sNumber Returns Boolean
+        String sCompare
+        Integer iLength iPosition
+        Integer iDecimalSeparator iThousandSeparator
+
+        Move "-0123456789.," to sCompare
+
+        Move (Length(sNumber)) to iLength
+        For iPosition from 1 to iLength
+            If (not(sCompare contains Mid(sNumber, 1, iPosition))) Function_Return False
+        Loop
+        Function_Return True
+    End_Function
+
+    // Verifies that hoDD is a DataDictionary subclass and that its underlying
+    // table is open. Called at expose time so misconfiguration errors surface before
+    // any request is served rather than during one.
+    Function IsObjectValidDataDictionary Handle hoDD Returns Boolean
+        If (IsObjectOfClass(hoDD, (RefClass(DataDictionary))) = False) Begin
+            Function_Return False
+        End
+
+        Boolean bOk
+        Integer iFile
+        Get Main_File of hoDD to iFile
+
+        Get_Attribute DF_FILE_OPENED of iFile to bOk
+        If (not(bOk)) Begin
+            Error DFERR_PROGRAM "Underlying table is not open."
+            Function_Return False
+        End
+
+        Function_Return True
+    End_Function
+
+    // Returns the DataFlex logical file name for the table behind hoDD.
+    Function NameOfDD Handle hoDD Returns String
+        String sName
+        Integer iFile
+        Get Main_File of hoDD to iFile
+        Get_Attribute DF_FILE_LOGICAL_NAME of iFile to sName
+        Function_Return sName
+    End_Function
+
+    // Lower-cased variant used for case-insensitive matching against table names
+    // that arrive in the request body (client may use any casing).
+    Function LoweredNameOfDD Handle hoDD Returns String
+        String sName
+        Integer iFile
+        Get Main_File of hoDD to iFile
+        Get_Attribute DF_FILE_LOGICAL_NAME of iFile to sName
+        Function_Return (Lowercase(sName))
+    End_Function
+
+    // Returns True when iIndex falls within the range of indexes defined on hoDD's table.
+    Function IsValidIndexForDD Handle hoDD Integer iIndex Returns Boolean
+        Handle hFile
+        Integer iLastIndex
+        Get Main_File of hoDD to hFile
+        Get_Attribute DF_FILE_LAST_INDEX_NUMBER of hFile to iLastIndex
+        Function_Return (iIndex <= iLastIndex)
+    End_Function
+
+    // Returns True when hoTest is a direct parent or child of hoDD in the pre-cached
+    // topology. The optional third argument bOptParent is set to True if hoTest is a
+    // server-file (parent) or False if it is a client-file (child).
+    // Rejects queries that try to join unrelated tables by returning False.
+    Function IsDDRelated Handle hoDD Handle hoTest Boolean ByRef bOptParent Returns Boolean
+        Integer iInfoIndex iIndex
+        Handle[] aHandles
+        tDDPClassicFileInfo oInfo
+        tDDPClassicFileInfo[] aInfo
+        Get paFileInfo to aInfo
+
+        // Locate the base DD entry in the sorted topology cache.
+        Get Main_File of hoDD to oInfo.hFile
+        Move (BinarySearchArray(oInfo, aInfo, False)) to iInfoIndex
+        If (iInfoIndex = -1) Begin
+            Error DFERR_PROGRAM "Non-exposed DD"
+            Function_Return False
+        End
+
+        // Check server-files (parents, 1-to-1).
+        Get Main_File of hoTest to oInfo.hFile
+        For iIndex from 0 to (SizeOfArray(aInfo[iInfoIndex].aParents) - 1)
+            If (aInfo[iInfoIndex].aParents[iIndex].hFile = oInfo.hFile) Begin
+                If (num_arguments > 2) Move True to bOptParent
+                Function_Return True
+            End
+        Loop
+        // Check client-files (children, 1-to-N).
+        For iIndex from 0 to (SizeOfArray(aInfo[iInfoIndex].aChilds) - 1)
+            If (aInfo[iInfoIndex].aChilds[iIndex].hFile = oInfo.hFile) Begin
+                If (num_arguments > 2) Move False to bOptParent
+                Function_Return True
+            End
+        Loop
+
+        Function_Return False
+    End_Function
+
+    // Searches hoDD's field list for a field whose DF_FIELD_RELATED_FILE equals
+    // hoParentDD's main file and whose DF_FIELD_RELATED_FIELD equals iField.
+    // Returns the 1-based local field number, or 0 if no such FK column exists.
+    // Used during flat/flatlinked serialisation to locate the FK column that
+    // links a child record back to its parent.
+    Function IsParentFieldRelated Handle hoParentDD Integer iField Handle hoDD Returns Integer
+        Integer iIndex iFieldCount iTestField
+        Handle hParentFile hFile hTestFile
+
+        // A DD cannot be a parent of itself.
+        If (hoParentDD = hoDD) Function_Return 0
+
+        Get Main_File of hoDD to hFile
+        Get Main_File of hoParentDD to hParentFile
+        Get_Attribute DF_FILE_NUMBER_FIELDS of hFile to iFieldCount
+        For iIndex from 1 to iFieldCount
+            Get_Attribute DF_FIELD_RELATED_FILE of hFile iIndex to hTestFile
+            If (hTestFile = hParentFile) Begin
+                Get_Attribute DF_FIELD_RELATED_FIELD of hFile iIndex to iTestField
+                If (iTestField = iField) Begin
+                    Function_Return iIndex
+                End
+            End
+        Loop
+        Function_Return 0
+    End_Function
+
+    // Event hook raised after a DD is successfully validated and exposed.
+    { MethodType=Event }
+    Procedure OnExposeDD tDDPDataDictPair Def
+    End_Procedure
+
+    // Maps a DataFlex field type/precision pair to the JSON primitive type used when
+    // writing that field's value:
+    //   BCD with precision > 0  →  jsonTypeDouble   (decimal number)
+    //   BCD with precision = 0  →  jsonTypeInteger  (whole number)
+    //   everything else         →  jsonTypeString   (dates, text, ASCII, …)
+    Function DFTypeToJson Integer eType Integer iPrecision Returns Integer
+        If (eType = DF_BCD) Begin
+            If (iPrecision) Begin
+                Function_Return jsonTypeDouble
+            End
+            Function_Return jsonTypeInteger
+        End
+        Function_Return jsonTypeString
+    End_Function
+
+    // Serialises a single field from the live record buffer into the JSON object hoJson.
+    // FK link fields are suppressed by default (bForceField = False) when the related
+    // parent table is already present in the query tree — the nested parent object
+    // makes the raw numeric FK redundant. Pass bForceField = True to always emit the
+    // field (flat/flatlinked styles need the FK column as the join key).
+    Procedure SerializeField Handle hoJson tDDPTableQuery query Handle iFile Integer iField Boolean bForceField
+        String sName sValue
+        Integer iRelatedFile eType iPrecision
+        tDDPTableQuery parentQuery
+
+        Get_Attribute DF_FIELD_NAME of iFile iField to sName
+        Get_Attribute DF_FIELD_RELATED_FILE of iFile iField to iRelatedFile
+        // If the field is a FK, check whether its target parent is in the query.
+        If (iRelatedFile) Begin
+            Get FindParentFileInQuery query iRelatedFile to parentQuery
+        End
+
+        // Suppress the field only when it is a FK to an already-included parent
+        // and the caller has not overridden that behaviour.
+        If (not(iRelatedFile and parentQuery.hoDD) or bForceField) Begin
+            Get_Field_Value iFile iField to sValue
+            Get_Attribute DF_FIELD_TYPE of iFile iField to eType
+            Get_Attribute DF_FIELD_PRECISION of iFile iField to iPrecision
+            Send SetMemberValue of hoJson sName (DFTypeToJson(Self, eType, iPrecision)) sValue
+        End
+    End_Procedure
+
+    // Serialises the current record buffer of query.hoDD into the JSON object hoJson.
+    // When query.aFields is non-empty only those specific field numbers are emitted
+    // (always with bForceField = True so FK columns are not silently dropped).
+    // When query.aFields is empty every field in the table is serialised and
+    // SerializeField's FK-suppression logic applies normally.
+    Procedure SerializeBufferToJson Handle hoJson tDDPTableQuery query
+        Handle iFile
+        Integer iField iFieldCount
+
+        Get Main_File of query.hoDD to iFile
+
+        Move (SizeOfArray(query.aFields)) to iFieldCount
+        If (iFieldCount) Begin
+            // Honour the explicit field selection; force-emit so FK columns are included.
+            For iField from 0 to (iFieldCount - 1)
+                Send SerializeField hoJson query iFile query.aFields[iField] True
+            Loop
+        End
+        Else Begin
+            // No field filter — emit all fields; FK suppression applies per-field.
+            Get_Attribute DF_FILE_NUMBER_FIELDS of iFile to iFieldCount
+            For iField from 1 to iFieldCount
+                Send SerializeField hoJson query iFile iField False
+            Loop
+        End
+    End_Procedure
+
+    // Snapshots the parent/child relationship topology of hoDD into paFileInfo when the
+    // DD is first exposed. The array is kept sorted by hFile so BinarySearchArray can
+    // answer O(log n) lookups at request time without re-traversing the live DD graph.
+    // Calling this procedure a second time for the same DD is safe and does nothing.
+    Procedure StoreDDFileLayout Handle hoDD
+        Integer iInfoIndex
+        Handle hMainFile
+        tDDPFileDD oComb
+        tDDPClassicFileInfo oInfo
+        tDDPClassicFileInfo[] aInfo
+        Get paFileInfo to aInfo
+
+        Get Main_File of hoDD to oInfo.hFile
+        // BinarySearchArray returns -1 when the key is absent; that is when we insert.
+        Move (BinarySearchArray(oInfo, aInfo, False)) to iInfoIndex
+        If (iInfoIndex <> -1) Begin
+            Procedure_Return
+        End
+
+        // Collect client-files (children, 1-to-N) along with their companion DD handles.
+        Integer iIndex
+        For iIndex from 0 to (Client_File_Count(hoDD) - 1)
+            Get Client_File of hoDD iIndex to oComb.hFile
+            Get DDByFile oComb.hFile to oComb.hoDD
+            Move oComb to oInfo.aChilds[-1]
+        Loop
+        // Collect server-files (parents, 1-to-1) along with their companion DD handles.
+        For iIndex from 0 to (Server_File_Count(hoDD) - 1)
+            Get Server_File of hoDD iIndex to oComb.hFile
+            Get DDByFile oComb.hFile to oComb.hoDD
+            Move oComb to oInfo.aParents[-1]
+        Loop
+
+        // InsertInArray uses the position returned by BinarySearchArray to insert at
+        // the correct slot and keep the array sorted.
+        Move (InsertInArray(aInfo, iInfoIndex, oInfo)) to aInfo
+
+        Set paFileInfo to aInfo
+    End_Procedure
+
+    // Returns an array of DD handles for all server-file (parent) tables of hoDD.
+    Function DDParents Handle hoDD Returns Handle[]
+        Integer iIndex iInfoIndex
+        Handle[] aHandles
+        tDDPClassicFileInfo oInfo
+        tDDPClassicFileInfo[] aInfo
+        Get paFileInfo to aInfo
+
+        Get Main_File of hoDD to oInfo.hFile
+        Move (BinarySearchArray(oInfo, aInfo, False)) to iInfoIndex
+        If (iInfoIndex <> -1) Begin
+            For iIndex from 0 to (SizeOfArray(aInfo[iInfoIndex].aParents) - 1)
+                Move aInfo[iInfoIndex].aParents[iIndex].hoDD to aHandles[-1]
+            Loop
+        End
+
+        Function_Return aHandles
+    End_Function
+
+    // Returns an array of DD handles for all client-file (child) tables of hoDD.
+    Function DDChilds Handle hoDD Returns Handle[]
+        Integer iIndex iInfoIndex
+        Handle[] aHandles
+        tDDPClassicFileInfo oInfo
+        tDDPClassicFileInfo[] aInfo
+        Get paFileInfo to aInfo
+
+        Get Main_File of hoDD to oInfo.hFile
+        Move (BinarySearchArray(oInfo, aInfo, False)) to iInfoIndex
+        If (iInfoIndex <> -1) Begin
+            For iIndex from 0 to (SizeOfArray(aInfo[iInfoIndex].aChilds) - 1)
+                Move aInfo[iInfoIndex].aChilds[iIndex].hoDD to aHandles[-1]
+            Loop
+        End
+
+        Function_Return aHandles
+    End_Function
+
+    // Linear scan over the DataFlex driver table to resolve a driver name to its numeric
+    // index. The index is needed to query DF_DRIVER_CONFORMANCE and determine whether
+    // the backend supports SQL-style filters (conformance >= 1).
+    Function DriverIndex String sDriver Returns Integer
+        String sCurrentDriver
+        Integer iNumberOfDrivers iDriver iCount
+        Get_Attribute DF_NUMBER_DRIVERS to iNumberOfDrivers
+        For iCount from 1 to iNumberOfDrivers
+            Get_Attribute DF_DRIVER_NAME of iCount to sCurrentDriver
+            If (Lowercase(sCurrentDriver) = Lowercase(sDriver)) ;
+                Move iCount to iDriver
+        Loop
+        Function_Return iDriver
+    End_Function // DriverIndex
+
+    // Returns the primary index number for hoDD. For drivers with conformance >= 1 the
+    // primary index is read directly from DF_FILE_PRIMARY_INDEX. For flat-file drivers
+    // (conformance < 1) that do not declare one, we iterate the file's indexes and
+    // return the first one found, or 0 if none exist.
+    Function PrimaryDDIndex Handle hoDD Returns Integer
+        Handle hFile
+        String sDriver
+        Integer iDriver iConformance iPrimaryIndex iIndexCount
+        Get Main_File of hoDD to hFile
+        Get_Attribute DF_FILE_DRIVER of hFile to sDriver
+        Get DriverIndex sDriver to iDriver
+        Get_Attribute DF_DRIVER_CONFORMANCE of iDriver to iConformance
+        If (iConformance >= 1) Begin
+            Get_Attribute DF_FILE_PRIMARY_INDEX of hFile to iPrimaryIndex
+            Function_Return iPrimaryIndex
+        End
+        Get_Attribute DF_FILE_LAST_INDEX_NUMBER of hFile to iIndexCount
+        Move 0 to iPrimaryIndex
+        If (iIndexCount >= 1) ;
+            Move 1 to iPrimaryIndex
+        Function_Return iPrimaryIndex
+    End_Function
+
+    // Returns the total number of fields in hoDD's underlying table.
+    Function FieldCount Handle hoDD Returns Integer
+        Handle hFile
+        Integer iFieldCount
+        Get Main_File of hoDD to hFile
+        Get_Attribute DF_FILE_NUMBER_FIELDS of hFile to iFieldCount
+        Function_Return iFieldCount
+    End_Function
+
+    // Returns the field name for 1-based field number iField, or "" when out of range.
+    Function FieldName Handle hoDD Integer iField Returns String
+        Handle hFile
+        Integer iFieldCount
+        String sFieldName
+        Get Main_File of hoDD to hFile
+        Get_Attribute DF_FILE_NUMBER_FIELDS of hFile to iFieldCount
+        If (iField >= iFieldCount) Begin
+            Function_Return ""
+        End
+        Get_Attribute DF_FIELD_NAME of hFile iField to sFieldName
+        Function_Return sFieldName
+    End_Function
+
+    // Case-sensitive linear scan for a field by name. Sets iOptField (optional third
+    // argument) to the 1-based field number when found. Used during query parsing to
+    // validate field names supplied in __fields, constraint keys, and ordering directives.
+    Function IsField Handle hoDD String sFieldName Integer ByRef iOptField  Returns Boolean
+        Handle hFile
+        Integer iField iFieldCount
+        String sField
+        Get Main_File of hoDD to hFile
+        Get_Attribute DF_FILE_NUMBER_FIELDS of hFile to iFieldCount
+        For iField from 1 to iFieldCount
+            Get_Attribute DF_FIELD_NAME of hFile iField to sField
+            If (Lowercase(sField) = Lowercase(sFieldName)) Begin
+                If (num_arguments > 2) Move iField to iOptField
+                Function_Return True
+            End
+        Loop
+        Function_Return False
+    End_Function
+
+    // Creates a temporary DataFlex index on the underlying table driven by aOrder.
+    // Each entry in aOrder becomes one index segment; ASCII/Text segments honour the
+    // bNoCase flag for case-insensitive sorting. Returns the index number so the caller
+    // can use it for finds and hand it back to DeleteIndex when the traversal ends.
+    Function CreateIndex Handle hoDD tDDPOrder[] aOrder Returns Handle
+        Handle hFile
+        Integer iIndex iSegment eType
+        Get Main_File of hoDD to hFile
+
+        Create_Index hFile at iIndex
+        Set_Attribute DF_INDEX_NUMBER_SEGMENTS of hFile iIndex to (SizeOfArray(aOrder))
+        For iSegment from 1 to (SizeOfArray(aOrder))
+            Set_Attribute DF_INDEX_SEGMENT_FIELD of hFile iIndex iSegment to aOrder[iSegment - 1].hField
+            Set_Attribute DF_INDEX_SEGMENT_DIRECTION of hFile iIndex iSegment to aOrder[iSegment - 1].eMode
+            Get_Attribute DF_FIELD_TYPE of hFile (iSegment - 1) to eType
+            // Case flag is only meaningful for string segment types.
+            If (eType = DF_ASCII or eType = DF_TEXT) ;
+                Set_Attribute DF_INDEX_SEGMENT_CASE of hFile iIndex iSegment to (not(aOrder[iSegment - 1].bNoCase))
+        Loop
+        Function_Return iIndex
+    End_Function
+
+    // Deletes a temporary index created by CreateIndex.
+    // Permanent (non-temporary) indexes are left untouched.
+    Procedure DeleteIndex Handle hoDD Integer iIndex
+        Handle hFile
+        Integer eType
+        Get Main_File of hoDD to hFile
+        Get_Attribute DF_INDEX_TYPE of hFile iIndex to eType
+        If (eType = DF_INDEX_TEMPORARY) Begin
+            Delete_Index hFile iIndex
+        End
+    End_Procedure
+
+    // Seeds field buffers of query.hoDD before a find sequence:
+    //   Order fields     — filled with DF_LOW (ASC) or DF_HIGH (DESC) so the first
+    //                      GE/LE find lands at the correct boundary of the sorted range.
+    //   Constrain fields — set to the user-supplied value so the Vconstrain/SQL filter
+    //                      has the right value to compare against.
+    // Recurses into aParents so parent DD buffers are also seeded, which Constrain_File
+    // needs to scope child finds to the current parent record.
+    Procedure Set_Constrains_To_Buffers tDDPTableQuery query
+        Handle hFile
+        Integer iIndex
+        Get Main_File of query.hoDD to hFile
+        For iIndex from 0 to (SizeOfArray(query.aOrder) - 1)
+            If (query.aOrder[iIndex].eMode = DDPOrder_ASC) ;
+                Fill_Field hFile query.aOrder[iIndex].hField with DF_LOW
+            Else If (query.aOrder[iIndex].eMode = DDPOrder_DESC) ;
+                Fill_Field hFile query.aOrder[iIndex].hField with DF_HIGH
+        Loop
+        For iIndex from 0 to (SizeOfArray(query.aConstrains) - 1)
+            Set_Field_Value hFile query.aConstrains[iIndex].hField to query.aConstrains[iIndex].aParams[0]
+        Loop
+        // Parent buffers must be seeded too; Constrain_File reads from them to scope finds.
+        For iIndex from 0 to (SizeOfArray(query.aParents) - 1)
+            Send Set_Constrains_To_Buffers query.aParents[iIndex]
+        Loop
+    End_Procedure
+
+    // Applies one constraint for field hField on table hoDD against the literal value sFilter.
+    //
+    // SQL path (hoMainDD == hoDD and the driver supports SQL filters):
+    //   String values are SQL-escaped and quoted before embedding.
+    //   Numeric values are validated with IsOptDottedNumeric to prevent injection.
+    //   The operator is appended to psSQLFilter via SQLStrAppend.
+    //
+    // Vconstrain path (all other cases — flat-file or related-table fields):
+    //   Uses DataFlex Vconstrain statements that operate on native index traversal.
+    Function AddConstrain Handle hoMainDD Handle hoDD Handle hField Integer eConstrain String sFilter Returns tDDPBuilderResult
+        Handle hFile
+        String sQuery
+        tDDPBuilderResult oResult
+        Get Main_File of hoDD to hFile
+
+        If (hoMainDD = hoDD and SupportsSQLFilters(hoDD)) Begin
+            Integer eType
+            Get_Attribute DF_FIELD_TYPE of hFile hField to eType
+            If (eType = DF_ASCII or eType = DF_TEXT) Begin
+                // Escape and quote string values before embedding in the SQL fragment.
+                Get SQLEscapedStr of hoMainDD sFilter to sFilter
+                Move ("'" + sFilter + "'") to sFilter
+            End
+            Else If (not(IsOptDottedNumeric(Self, sFilter))) Begin
+                // Reject non-numeric values for numeric fields before they touch SQL.
+                Move DDPERR_INVALID_CONSTRAIN to oResult.iErr
+                Move "Invalid constrain should be numeric." to oResult.sError
+                Function_Return oResult
+            End
+
+            Set pbUseDDSQLFilters of hoMainDD to True
+            Get psSQLFilter of hoMainDD to sQuery
+            If (eConstrain = DDPFind_EQ) Begin
+                Get SQLStrAppend of hoMainDD sQuery (SQLStrFileFieldName(hoDD, hField) + " = " + sFilter) to sQuery
+            End
+            Else If (eConstrain = DDPFind_GE) Begin
+                Get SQLStrAppend of hoMainDD sQuery (SQLStrFileFieldName(hoDD, hField) + " >= " + sFilter) to sQuery
+            End
+            Else If (eConstrain = DDPFind_GT) Begin
+                Get SQLStrAppend of hoMainDD sQuery (SQLStrFileFieldName(hoDD, hField) + " > " + sFilter) to sQuery
+            End
+            Else If (eConstrain = DDPFind_LE) Begin
+                Get SQLStrAppend of hoMainDD sQuery (SQLStrFileFieldName(hoDD, hField) + " <= " + sFilter) to sQuery
+            End
+            Else If (eConstrain = DDPFind_LT) Begin
+                Get SQLStrAppend of hoMainDD sQuery (SQLStrFileFieldName(hoDD, hField) + " < " + sFilter) to sQuery
+            End
+            Else If (eConstrain = DDPFind_NE) Begin
+                Get SQLStrAppend of hoMainDD sQuery (SQLStrFileFieldName(hoDD, hField) + " != " + sFilter) to sQuery
+            End
+            Else Begin
+                Move DDPERR_INVALID_CONSTRAIN to oResult.iErr
+                Move "Invalid contrain." to oResult.sError
+                Function_Return oResult
+            End
+            Set psSQLFilter of hoMainDD to sQuery
+        End
+        Else Begin
+            // Flat-file (or related-table) path: Vconstrain operates on index traversal.
+            If (eConstrain = DDPFind_EQ) Begin
+                Vconstrain hFile hField EQ sFilter
+            End
+            Else If (eConstrain = DDPFind_GE) Begin
+                Vconstrain hFile hField GE sFilter
+            End
+            Else If (eConstrain = DDPFind_GT) Begin
+                Vconstrain hFile hField GT sFilter
+            End
+            Else If (eConstrain = DDPFind_LE) Begin
+                Vconstrain hFile hField LE sFilter
+            End
+            Else If (eConstrain = DDPFind_LT) Begin
+                Vconstrain hFile hField LT sFilter
+            End
+            Else If (eConstrain = DDPFind_NE) Begin
+                Vconstrain hFile hField NE sFilter
+            End
+            Else Begin
+                Move DDPERR_INVALID_CONSTRAIN to oResult.iErr
+                Move "Invalid contrain." to oResult.sError
+                Function_Return oResult
+            End
+        End
+        Function_Return oResult
+    End_Function
+End_Class

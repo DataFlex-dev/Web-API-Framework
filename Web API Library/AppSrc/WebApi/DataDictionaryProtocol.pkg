@@ -1,0 +1,133 @@
+Use WebApi\cWebApiModifier.pkg
+Use WebApi\cWebApiRouter.pkg
+
+Use WebApi\DDP\Backends\IBackend.pkg
+#IFDEF IS$TECHSTACK
+Use WebApi\DDP\Backends\Main.pkg
+#ELSE
+Use WebApi\DDP\Backends\Classic.pkg
+#ENDIF
+
+Use WebApi\DDP\cDDPIterator.pkg
+Use WebApi\DDP\cDDPRouter.pkg
+Use WebApi\DDP\cDDPBuilder.pkg
+
+Use WebApi\DDP\v1\cDDPV1Router.pkg
+Use WebApi\DDP\v1\cDDPQueryEndpoint.pkg
+Use WebApi\DDP\v1\cDDPDeleteEndpoint.pkg
+Use WebApi\DDP\v1\cDDPStoreEndpoint.pkg
+Use WebApi\DDP\v1\cDDPUpdateEndpoint.pkg
+Use WebApi\DDP\v1\cDDPSchemaEndpoint.pkg
+
+// Root handler for the Data Dictionary Protocol. Mount this at /ddp inside a cWebApi.
+//
+// URL layout:
+//   GET  /ddp/v1             — protocol version + list of exposed tables
+//   POST /ddp/v1/query       — execute a DDP query (nested, flat, or flatlinked)
+//   POST /ddp/v1/delete      — delete a record identified by the request body (stub)
+//   POST /ddp/v1/store       — create a new record (stub)
+//   PUT|PATCH /ddp/v1/update — update an existing record identified by the request body (stub)
+//
+// Expose data dictionaries with Send Expose (RefClass(cMyDataDictionary)).
+// Only exposed tables can be queried.
+Class cWebAPIDataDictionaryProtocol is a cWebApiRouter
+
+    Import_Class_Protocol cWebApiModifier_Mixin
+    Import_Class_Protocol cDDP_Backend_Mixin
+    Import_Class_Protocol cDDPDataSet_Mixin
+    Import_Class_Protocol cDDPBuilder_Mixin
+
+    Procedure Construct_Object
+        Forward Send Construct_Object
+
+        Send Define_cWebApiModifier_Mixin
+        Send Define_DDP_Backend_Mixin
+        Send Define_cDDPDataSet_Mixin
+        Send Define_cDDPBuilder_Mixin
+
+        // Iterator that serialises DDP responses as JSON using the application/ddp
+        // content type. Stored as a property so OnPreRequest can attach it per-request.
+        Object phoIterator is a cDDPIterator
+        End_Object
+
+        // v1 versioned sub-router. Its RouteRequest tries children (query/find/delete/save)
+        // first and falls back to handling GET /ddp/v1 itself. Sub-endpoints reach back
+        // up to this object via Delegate Send/Get to call builder and backend methods.
+        Object oV1Router is a cDDPV1Router
+            Set psPath to "v1"
+
+            Object oQueryEndpoint is a cDDPQueryEndpoint
+                Set psPath to "query"
+            End_Object
+
+            Object oDeleteEndpoint is a cDDPDeleteEndpoint
+                Set psPath to "delete"
+            End_Object
+
+            Object oStoreEndpoint is a cDDPStoreEndpoint
+                Set psPath to "store"
+            End_Object
+
+            Object oUpdateEndpoint is a cDDPUpdateEndpoint
+                Set psPath to "update"
+            End_Object
+
+            Object oSchemaEndpoint is a cDDPSchemaEndpoint
+                Set psPath to "schema"
+            End_Object
+        End_Object
+    End_Procedure
+
+    Procedure End_Construct_Object
+        Forward Send End_Construct_Object
+        Send End_Define_Define_cWebApiModifier_Mixin_To_Self
+        Send End_Define_cDDPDataSet_Mixin
+        Send End_Define_cDDPBuilder_Mixin
+    End_Procedure
+
+    { Visibility = Private }
+    // Try versioned sub-routers first (e.g. path contains "v1"). When no child path
+    // segment matches — meaning the request is for /ddp itself — fall back to handling
+    // the request at this level via OnHttpRequest (currently OPTIONS-only).
+    Procedure RouteRequest tWebApiCallContext ByRef webapicallcontext
+        Integer iIndex
+        Handle[] hoRoutables
+
+        Move Self to webapicallcontext.hoRouter[-1]
+        Send AddModifiersToCallContext (&webapicallcontext)
+
+        Get RoutableIndex webapicallcontext.sPath to iIndex
+        If (iIndex <> -1) Begin
+            Get phoRoutables to hoRoutables
+            Send RouteRequest of hoRoutables[iIndex] (&webapicallcontext)
+        End
+        Else Begin
+            // No versioned sub-path matched — handle at the protocol root (OPTIONS etc.).
+            Move Self to webapicallcontext.hoDataset
+        End
+    End_Procedure
+
+    { MethodType = Event }
+    Procedure OnPreRequest tWebApiCallContext ByRef webapicallcontext
+        If (webapicallcontext.sContentType <> C_WebAPIDDP_Content_Type) Begin
+            Move True to webapicallcontext.bErr
+            Move C_WEBAPI_NOTFOUND to webapicallcontext.iStatusCode
+            Move "Not Found" to webapicallcontext.sShortStatusMessage
+            Move (SFormat("Resource with path '%1' does not exist on the server", webapicallcontext.sPath)) to webapicallcontext.sErrorMessage
+            Procedure_Return
+        End
+
+        If (webapicallcontext.sAcceptType <> "" and ;
+            webapicallcontext.sAcceptType <> "*/*" and ;
+            webapicallcontext.sAcceptType <> C_WebAPIDDP_Content_Type) Begin
+            Move True to webapicallcontext.bErr
+            Move C_WEBAPI_BADREQUEST to webapicallcontext.iStatusCode
+            Move "Invalid Accept Type" to webapicallcontext.sShortStatusMessage
+            Move (SFormat("Resource with path '%1' only accepts '%2'", webapicallcontext.sPath, C_WebAPIDDP_Content_Type)) to webapicallcontext.sErrorMessage
+            Procedure_Return
+        End
+
+        Move phoIterator to webapicallcontext.hoIterator
+    End_Procedure
+
+End_Class

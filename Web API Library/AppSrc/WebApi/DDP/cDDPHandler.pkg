@@ -1,0 +1,5 @@
+﻿Use cWebComponent.pkg
+
+Object oCDDPHandler is a cWebComponent
+   
+End_Object

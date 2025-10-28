@@ -1,0 +1,72 @@
+Use WebApi\cBaseRestDataset.pkg
+Use WebApi\DDP\Backends\IBackend.pkg
+
+// Handles GET /ddp/v1/schema — returns the full field schema for all exposed tables.
+// The response is a JSON object keyed by (lowercase) table name; each value is an
+// object mapping field names to their type as a lowercase string.
+// Use Delegate Get paDataDicts to reach the exposed-table list on the parent protocol.
+Class cDDPSchemaEndpoint is a cBaseRestDataset
+
+    Procedure Construct_Object
+        Forward Send Construct_Object
+
+        // Schema is GET-only; block all mutating verbs.
+        Set pbAllowCreate to False
+        Set pbAllowEdit to False
+        Set pbAllowDelete to False
+    End_Procedure
+
+    { Visibility = Private }
+    // Maps a DataFlex field type + precision to a lowercase schema type string.
+    Function DDPTypeString Integer eType Integer iPrecision Returns String
+        If (eType = DF_BCD) Begin
+            If (iPrecision) Function_Return "decimal"
+            Function_Return "integer"
+        End
+        If (eType = DF_DATE) Function_Return "date"
+        Function_Return "string"
+    End_Function
+
+    { MethodType = Event }
+    // GET /ddp/v1/schema
+    //
+    // Response:
+    // {
+    //   "customer":    { "Customer_Number": "integer", "Name": "string", ... },
+    //   "orderheader": { "Order_Number": "integer", "Order_Date": "date",  ... }
+    // }
+    Procedure OnHttpGet tWebApiCallContext ByRef webapicallcontext
+        tDDPDataDictPair[] aDataDicts
+        Handle hoTable hFile hoDD
+        Integer iIndex iField iFieldCount eType iPrecision
+        String sFieldName sTypeStr
+
+        Get Create (RefClass(cJsonObject)) to webapicallcontext.hoResponseBody
+        Send InitializeJsonType of webapicallcontext.hoResponseBody jsonTypeObject
+
+        Delegate Get paDataDicts to aDataDicts
+
+        For iIndex from 0 to (SizeOfArray(aDataDicts) - 1)
+            Move aDataDicts[iIndex].hoDD to hoDD
+            Get Main_File of hoDD to hFile
+
+            Get Create (RefClass(cJsonObject)) to hoTable
+            Send InitializeJsonType of hoTable jsonTypeObject
+
+            Get_Attribute DF_FILE_NUMBER_FIELDS of hFile to iFieldCount
+            For iField from 1 to iFieldCount
+                Get_Attribute DF_FIELD_NAME      of hFile iField to sFieldName
+                Get_Attribute DF_FIELD_TYPE      of hFile iField to eType
+                Get_Attribute DF_FIELD_PRECISION of hFile iField to iPrecision
+                Get DDPTypeString eType iPrecision to sTypeStr
+                Send SetMemberValue of hoTable sFieldName jsonTypeString sTypeStr
+            Loop
+
+            Send SetMember of webapicallcontext.hoResponseBody aDataDicts[iIndex].sDisplayName hoTable
+            Send Destroy of hoTable
+        Loop
+
+        Move C_WEBAPI_OK to webapicallcontext.iStatusCode
+    End_Procedure
+
+End_Class
