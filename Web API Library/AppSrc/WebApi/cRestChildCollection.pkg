@@ -71,24 +71,7 @@ Class cRestChildCollection is a cObject
     End_Procedure
     
     Function SchemaName Returns String
-        Integer iFile
-        String sTableName
-        Handle hoServer
-        
-        Get psNodeName to sTableName
-        
-        //If the node name was not manually set default to the name of the table
-        If (sTableName <> "") Begin
-            Function_Return sTableName
-        End
-        
-        Get Server to hoServer
-        
-        Get Main_File of hoServer to iFile
-        
-        Get_Attribute DF_FILE_LOGICAL_NAME of iFile to sTableName
-        
-        Function_Return sTableName
+        Function_Return (psNodeName(Self))
     End_Function
     
     Function FieldName Returns String
@@ -103,4 +86,21 @@ Class cRestChildCollection is a cObject
     Function IsRequired Returns Boolean
         Function_Return False
     End_Function
+    
+    Procedure AfterAttachDDO
+        Integer iFile
+        Handle hoServer
+        String sTableName
+        
+        Get Server to hoServer        
+        Get Main_File of hoServer to iFile
+        
+        If (hoServer = 0 and iFile = 0) ;
+            Procedure_Return
+            
+        If (psNodeName(Self) = "") Begin
+            Get_Attribute DF_FILE_LOGICAL_NAME of iFile to sTableName
+            Set psNodeName to sTableName   
+        End
+    End_Procedure
 End_Class

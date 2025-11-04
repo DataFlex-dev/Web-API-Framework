@@ -171,8 +171,6 @@ Class cRestField is a cObject
     This will either be psFieldName if it is set or it will get the DF_FIELD_Name.    
     */
     Function FieldName Returns String
-        Handle hoDD
-        Integer iField iFile
         String sFieldName
         
         Get psFieldName to sFieldName
@@ -181,37 +179,14 @@ Class cRestField is a cObject
             Function_Return sFieldName
         End
         
-        Get Main_DD to hoDD
-        
-        Get Data_File to iFile
-        Get Data_Field to iField
-        
-        If (hoDD <> 0 and iFile <> 0) Begin
-            Get File_Field_Label of hoDD iFile iField DD_LABEL_TAG to sFieldName
-            Function_Return sFieldName    
-        End
-        
         Error DFERR_PROGRAM "Non data aware cRestfields must have a psFieldName"
         
         Function_Return ""
     End_Function
     
     //Returns the DF_FIELD_TYPE of the current item.
-    Function FieldType Returns Integer
-        Integer iFile iField eFieldType
-        
-        Get Data_File to iFile
-        Get Data_Field to iField
-        
-        //If the field has data binding get the field type from the database.
-        If (iFile <> 0) Begin
-            Get_Attribute DF_FIELD_TYPE of iFile iField to eFieldType    
-        End
-        Else Begin
-            Get peFieldType to eFieldType
-        End        
-        
-        Function_Return eFieldType
+    Function FieldType Returns Integer        
+        Function_Return (peFieldType(Self))
     End_Function
     
     //Returns the Status help field of the data dictionary
@@ -315,4 +290,32 @@ Class cRestField is a cObject
         
         Function_Return bRequired
     End_Function
+    
+    // Fired by the cBaseDeo interface. Sets default values.
+    // This way we only need to query database APIs once instead of for every single find.
+    Procedure AfterAttachDDO
+        String sFieldName
+        Integer iFile iField
+        Integer eFieldType
+        Handle hoDD
+        
+        Get Server to hoDD
+        Get Data_File to iFile
+        Get Data_Field to iField
+        
+        // If we have no data binding no need to determine defaults here
+        If (iFile = 0 and iField = 0) ;
+            Procedure_Return
+            
+        // If the field name isnt
+        If (psFieldName(Self) = "") Begin
+            Get Field_Label of hoDD iField DD_LABEL_TAG to sFieldName
+            Set psFieldName to sFieldName    
+        End
+        
+        Get_Attribute DF_FIELD_TYPE of iFile iField to eFieldType
+        Set peFieldType to eFieldType
+        
+        
+    End_Procedure
 End_Class

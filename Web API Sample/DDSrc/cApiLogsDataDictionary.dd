@@ -33,7 +33,7 @@ Class cApiLogsDataDictionary is a DataDictionary
         Move (Cast(ApiLogs.TimeResponse, DateTime)) to dtResponseTime
         
         Move (dtResponseTime - dtIncomingTime) to tsTimeBetween
-        Move (SpanMilliseconds(tsTimeBetween)) to iTimeInMiliseconds
+        Move (SpanTotalMilliseconds(tsTimeBetween)) to iTimeInMiliseconds
           
         Move iTimeInMiliseconds to ApiLogs.TimeTakenInMiliseconds
     End_Procedure
