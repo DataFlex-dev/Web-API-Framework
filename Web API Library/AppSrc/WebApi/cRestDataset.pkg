@@ -17,7 +17,7 @@ Class cRestDataset is a cBaseRestDataset
         Property Integer piLimitResults 0
         
         //Determines what index will be used to perform finds in the dataset
-        Property Integer piFindIndex 1        
+        Property Integer piFindIndex 1    
     End_Procedure
 
     
@@ -556,7 +556,8 @@ Class cRestDataset is a cBaseRestDataset
         
         //Only clear the Main_DD if there is one.
         If (hoDD <> 0) Begin
-            Send Clear of hoDD    
+            Send Clear of hoDD
+            Set psSQLFilter of hoDD to ""    
         End
         
     End_Procedure
