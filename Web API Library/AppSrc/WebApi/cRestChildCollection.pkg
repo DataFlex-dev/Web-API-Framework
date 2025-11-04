@@ -17,6 +17,7 @@ Class cRestChildCollection is a cObject
         
         Property Boolean pbReadOnly True
         Property Integer piLimitResult 0
+        Property Integer piFindIndex 1
 
     End_Procedure
     
@@ -35,19 +36,20 @@ Class cRestChildCollection is a cObject
     */
     Procedure AppendToBody Handle hoResponseBody Handle hoIterator
         Handle hoNestedArray hoNestedObject hoChild hoServer
-        Integer iChildCount iIndex iLimit iRecordsRetrieved
+        Integer iChildCount iIndex iLimit iRecordsRetrieved iFindIndex
         String sNodeName
         
         Get Server to hoServer
         Get SchemaName to sNodeName
         Get Child_Count to iChildCount
         Get piLimitResult to iLimit
+        Get piFindIndex to iFindIndex
         
         //Create nested object
         Get CreateResponseBodyArray of hoIterator sNodeName to hoNestedArray
         
         //Start finding the child records
-        Send Find of hoServer FIRST_RECORD 1
+        Send Find of hoServer FIRST_RECORD iFindIndex
         
         While ( (Found) and not(Err) and ((iLimit = 0) or (iLimit > 0 and iRecordsRetrieved < iLimit)) )
             //When we find a record create a new nested object
@@ -64,7 +66,7 @@ Class cRestChildCollection is a cObject
             
             Increment iRecordsRetrieved
             //Keep finding child records
-            Send Find of hoServer NEXT_RECORD 1
+            Send Find of hoServer NEXT_RECORD iFindIndex 
         Loop
         
         Send AppendNestedObject of hoIterator hoNestedArray hoResponseBody sNodeName
