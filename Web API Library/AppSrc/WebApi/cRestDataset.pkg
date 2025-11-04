@@ -1,5 +1,10 @@
 ﻿Use WebApi\cBaseRestDataset.pkg
 
+Struct tWebQueryParams
+    String sKey
+    String sValue
+End_Struct
+
 //This class exposes a resource in a endpoint
 //This should make use of the resource's data dictionary object
 Class cRestDataset is a cBaseRestDataset
@@ -492,20 +497,57 @@ Class cRestDataset is a cBaseRestDataset
 
     End_Procedure
     
+    // Helper function that returns all query parameters based on psRequestQueryString
+    Function QueryParams Returns tWebQueryParams[]
+        String[] aParams aParam
+        String sQueryString
+        WString wsUnescape
+        Integer i iVoid
+        tWebQueryParams[] requestParams
+        
+        Get psRequestQueryString to sQueryString
+        
+        Get StrSplitToArray sQueryString "&" to aParams
+        For i from 0 to (SizeOfArray(aParams) - 1)
+            Get StrSplitToArray aParams[i] "=" to aParam
+            
+            If (SizeOfArray(aParam) > 1) Begin
+                Move aParam[0] to wsUnescape
+                If (SizeOfWString(wsUnescape) > 0) Begin
+                    Move (UrlUnescapeW(AddressOf(wsUnescape), 0, 0, URL_UNESCAPE_INPLACE ior URL_UNESCAPE_AS_UTF8)) to iVoid
+                End
+                
+                // Key will be lowercased for case insensitive finds
+                Move (Lowercase(aParam[0])) to requestParams[i].sKey
+                Move aParam[1] to requestParams[i].sValue
+                
+            End
+        Loop
+        
+        // Sort it based on the key value
+        Move (SortArray(requestParams, False)) to requestParams
+        Function_Return requestParams
+    End_Function
+    
     //This procedure should be responsible for applying filters
     Procedure HandleQueryParams Handle[] hoExposedDataObjects
         Handle hoDD
-        String sQueryParam sFieldName sFilterType
-        Integer iIndex iFile iLimit iAmountOfDataObjects iPos
+        String sQueryParam sFilterType
+        Integer iIndex iFile iLimit iAmountOfDataObjects iPos iFoundIndex
         Boolean bFilterable
+        tWebQueryParams[] requestParams
+        tWebQueryParams dummySearch
         
         Get Main_DD to hoDD
         
         //Below are query params that can be applied regardless of what table it is. This includes params such as limit.
-        Get UrlParameter "Limit" to iLimit
+        Get QueryParams to requestParams
         
-        If (IsNumeric(Self, iLimit)) Begin
-            Set piLimitResults to iLimit
+        // Apply limit if there is one
+        Move "limit" to dummySearch.sKey
+        Move (SearchArray(dummySearch, requestParams)) to iFoundIndex
+        If (iFoundIndex <> -1) Begin
+            Set piLimitResults to requestParams[iFoundIndex].sValue
         End
         
         Move (SizeOfArray(hoExposedDataObjects)-1) to iAmountOfDataObjects
@@ -515,13 +557,21 @@ Class cRestDataset is a cBaseRestDataset
         
         For iIndex from 0 to iAmountOfDataObjects
             Get IsFilterable of hoExposedDataObjects[iIndex] to bFilterable
+            // Reset this for each field we're walking through
+            Move 0 to iFoundIndex
             
             If bFilterable Begin
-                Get FieldName of hoExposedDataObjects[iIndex] to sFieldName
-                Get UrlParameter sFieldName to sQueryParam
-            
-                //If there is a query param apply the constrain
-                If (sQueryParam <> "") Begin
+                Get FieldName of hoExposedDataObjects[iIndex] to dummySearch.sKey
+                Move (Lowercase(dummySearch.sKey)) to dummySearch.sKey
+                
+                While (iFoundIndex <> -1)
+                    Move (SearchArray(dummySearch, requestParams, iFoundIndex)) to iFoundIndex
+                    
+                    If (iFoundIndex = -1) ;
+                        Break
+                    
+                    Move requestParams[iFoundIndex].sValue to sQueryParam
+                    
                     //Check what type of constrain we're dealing with. If nothing is specified we default to EQ
                     If (Pos("(GE)", sQueryParam, 0) <> 0) Begin
                         Move "GE" to sFilterType
@@ -542,9 +592,9 @@ Class cRestDataset is a cBaseRestDataset
                     
                     //Add the constrain
                     Send AddConstrain of hoExposedDataObjects[iIndex] sQueryParam sFilterType
-                End
-            End
-            
+                    Move (iFoundIndex + 1) to iFoundIndex
+                Loop
+            End            
         Loop
         
     End_Procedure
