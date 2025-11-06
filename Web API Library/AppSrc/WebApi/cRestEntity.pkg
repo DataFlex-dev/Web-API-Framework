@@ -30,7 +30,7 @@ Class cRestEntity is a cObject
         Get SchemaName to sNodeName
         
         //Create nested object
-        Get CreateResponseBodyObject of hoIterator sNodeName to hoNestedObject
+        Send CreateResponseBodyObject of hoIterator sNodeName (&hoNestedObject)
         
         //Get the child count.
         Get Child_Count to iChildCount

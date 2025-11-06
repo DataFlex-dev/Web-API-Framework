@@ -33,27 +33,25 @@ Class cXMLIterator is a cBaseWebApiIterator
     End_Procedure
     
     // Creates and returns an XML document with a root element named "Array"
-    Function CreateResponseBodyArray String sTableName Returns Handle
-        Handle hoXml hoElement
+    Procedure CreateResponseBodyArray String sTableName Handle ByRef hoBody
+        Handle hoXml
         
         Get phoXmlDocument to hoXml
         
         If (hoXml = 0) Begin
             Get Create (RefClass(cXMLDOMDocument)) to hoXml
             Set phoXmlDocument to hoXml
-            Get CreateDocumentElement of hoXml sTableName to hoElement
+            Get CreateDocumentElement of hoXml sTableName to hoBody
         End
         Else Begin
-            Get CreateElementNode of hoXml sTableName '' to hoElement
+            Get CreateElementNode of hoXml sTableName '' to hoBody
         End
         
-        Send AddAttribute of hoElement "type" "array"
-        
-        Function_Return hoElement
-    End_Function
+        Send AddAttribute of hoBody "type" "array"
+    End_Procedure
     
     // Creates and returns an XML document with a root element named "Object"
-    Function CreateResponseBodyObject String sTableName Returns Handle
+    Procedure CreateResponseBodyObject String sTableName Handle ByRef hoBody
         Handle hoXml hoElement
         
         Get phoXmlDocument to hoXml
@@ -61,14 +59,16 @@ Class cXMLIterator is a cBaseWebApiIterator
         If (hoXml = 0) Begin
             Get Create (RefClass(cXMLDOMDocument)) to hoXml
             Set phoXmlDocument to hoXml
-            Get CreateDocumentElement of hoXml sTableName to hoElement
+            Get CreateDocumentElement of hoXml sTableName to hoBody
         End
         Else Begin
-            Get CreateElementNode of hoXml sTableName '' to hoElement
-        End
-       
-        Function_Return hoElement    
-    End_Function
+            Get CreateElementNode of hoXml sTableName '' to hoBody
+        End  
+    End_Procedure
+    
+    // Empty override
+    Procedure CleanupHandle Handle hoObject
+    End_Procedure
     
     // Adds an element to the XML response with specified data type and value
     Procedure ModifyResponseBody Handle hoResponseBody Variant vValue String sFieldName Integer eDataType

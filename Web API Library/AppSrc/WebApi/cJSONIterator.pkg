@@ -23,27 +23,34 @@ Class cJSONIterator is a cBaseWebApiIterator
         Send OutputString sStringifiedJson
     End_Procedure
     
-    //This should create and return a JSON array
-    Function CreateResponseBodyArray String sTableName Returns Handle
-        Handle hoJsonArray
+    //This should create a JSON array
+    Procedure CreateResponseBodyArray String sTableName Handle ByRef hoBody
         
-        //Create the JSON array and initialize it
-        Get Create (RefClass(cJsonObject)) to hoJsonArray
-        Send InitializeJsonType of hoJsonArray jsonTypeArray
+        If (hoBody = 0) Begin
+            //Create the JSON array
+            Get Create (RefClass(cJsonObject)) to hoBody    
+        End
         
-        Function_Return hoJsonArray
-    End_Function
+        // Initialize the array
+        Send InitializeJsonType of hoBody jsonTypeArray
+    End_Procedure
     
-    //This should create and return a JSON Object
-    Function CreateResponseBodyObject String sTableName Returns Handle
-        Handle hoJsonObject
+    //This should create a JSON Object
+    Procedure CreateResponseBodyObject String sTableName Handle ByRef hoBody
         
-        //Create the JSON Object and initialize it
-        Get Create (RefClass(cJsonObject)) to hoJsonObject        
-        Send InitializeJsonType of hoJsonObject jsonTypeObject
-        
-        Function_Return hoJsonObject
-    End_Function
+        // If the handle is 0 create a json object. If its not 0 its already created we can just reinitialize it
+        If (hoBody = 0) Begin
+            //Create the JSON Object
+            Get Create (RefClass(cJsonObject)) to hoBody    
+        End
+              
+        Send InitializeJsonType of hoBody jsonTypeObject
+    End_Procedure
+    
+    Procedure CleanupHandle Handle hoObject
+        // Destroy the object
+        Send Destroy of hoObject
+    End_Procedure
     
     //This should append to a response body
     Procedure ModifyResponseBody Handle hoResponseBody Variant vValue String sFieldName Integer eDataType
@@ -66,12 +73,10 @@ Class cJSONIterator is a cBaseWebApiIterator
     //This should append a JSON object to a JSON array.
     Procedure AppendToResponseArray Handle hoNestedObject Handle hoResponseArray
         Send AddMember of hoResponseArray hoNestedObject
-        Send Destroy of hoNestedObject
     End_Procedure
     
     Procedure AppendNestedObject Handle hoNestedObject Handle hoResponseBody String sNestedObjectName
         Send SetMember of hoResponseBody sNestedObjectName hoNestedObject
-        Send Destroy of hoNestedObject
     End_Procedure
     
     //This should parse the request body into a data type understandable by DataFlex.

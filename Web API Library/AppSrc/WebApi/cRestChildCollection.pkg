@@ -46,14 +46,14 @@ Class cRestChildCollection is a cObject
         Get piFindIndex to iFindIndex
         
         //Create nested object
-        Get CreateResponseBodyArray of hoIterator sNodeName to hoNestedArray
+        Send CreateResponseBodyArray of hoIterator sNodeName (&hoNestedArray)
         
         //Start finding the child records
         Send Find of hoServer FIRST_RECORD iFindIndex
         
         While ( (Found) and not(Err) and ((iLimit = 0) or (iLimit > 0 and iRecordsRetrieved < iLimit)) )
             //When we find a record create a new nested object
-            Get CreateResponseBodyObject of hoIterator sNodeName to hoNestedObject
+            Send CreateResponseBodyObject of hoIterator sNodeName (&hoNestedObject)
             
             //Loop through this objects children and append their values to the nested object
             For iIndex from 0 to (iChildCount - 1)

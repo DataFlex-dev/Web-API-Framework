@@ -47,7 +47,7 @@ Class cRestDataset is a cBaseRestDataset
         Get RetrieveExposedDataFields to hoExposedDataObjects
         
         //Create the responsebody array
-        Get CreateResponseBodyArray of webapicallcontext.hoIterator webapicallcontext.sMainTableName to webapicallcontext.hoResponseBody
+        Send CreateResponseBodyArray of webapicallcontext.hoIterator webapicallcontext.sMainTableName (&webapicallcontext.hoResponseBody)
         
         Send Clear of hoDD
         
@@ -66,7 +66,7 @@ Class cRestDataset is a cBaseRestDataset
         //Keep finding records untill there are no more records to be found
         While ( (Found) and not(Err) and ((iLimit = 0) or (iLimit > 0 and iRecordsRetrieved < iLimit)) )  
             //Each record is a seperate object
-            Get CreateResponseBodyObject of webapicallcontext.hoIterator webapicallcontext.sMainTableName to hoResponseObject
+            Send CreateResponseBodyObject of webapicallcontext.hoIterator webapicallcontext.sMainTableName (&hoResponseObject)
             
             Send CurrentRecordToResponseBody hoResponseObject webapicallcontext.hoIterator
             
@@ -77,6 +77,8 @@ Class cRestDataset is a cBaseRestDataset
             //Keep finding next records
             Send Find of hoDD NEXT_RECORD iFindIndex
         Loop
+        
+        Send CleanupHandle of webapicallcontext.hoIterator hoResponseObject
         
         //Set the status code
         Move C_WEBAPI_OK to webapicallcontext.iStatusCode
@@ -123,7 +125,7 @@ Class cRestDataset is a cBaseRestDataset
         //If the record is found return it. If it is not found return a not found
         If (Found and not(Err)) Begin
             //Create the response body
-            Get CreateResponseBodyObject of webapicallcontext.hoIterator webapicallcontext.sMainTableName to webapicallcontext.hoResponseBody
+            Send CreateResponseBodyObject of webapicallcontext.hoIterator webapicallcontext.sMainTableName (&webapicallcontext.hoResponseBody)
             Send CurrentRecordToResponseBody webapicallcontext.hoResponseBody webapicallcontext.hoIterator
             Move C_WEBAPI_OK to webapicallcontext.iStatusCode
             Move "OK" to webapicallcontext.sShortStatusMessage
@@ -206,7 +208,7 @@ Class cRestDataset is a cBaseRestDataset
         
         //If either the validation or the save fails we return a status code 400 bad request
         If (not(bErr)) Begin
-            Get CreateResponseBodyObject of webapicallcontext.hoIterator webapicallcontext.sMainTableName to webapicallcontext.hoResponseBody
+            Send CreateResponseBodyObject of webapicallcontext.hoIterator webapicallcontext.sMainTableName (&webapicallcontext.hoResponseBody)
             Move C_WEBAPI_CREATED to webapicallcontext.iStatusCode
             Move "Created" to webapicallcontext.sShortStatusMessage
             Send CurrentRecordToResponseBody webapicallcontext.hoResponseBody webapicallcontext.hoIterator
@@ -321,7 +323,7 @@ Class cRestDataset is a cBaseRestDataset
         Move "OK" to webapicallcontext.sShortStatusMessage
         
         //Formulate the response
-        Get CreateResponseBodyObject of webapicallcontext.hoIterator webapicallcontext.sMainTableName to webapicallcontext.hoResponseBody
+        Send CreateResponseBodyObject of webapicallcontext.hoIterator webapicallcontext.sMainTableName (&webapicallcontext.hoResponseBody)
         Send CurrentRecordToResponseBody webapicallcontext.hoResponseBody webapicallcontext.hoIterator
         
     End_Procedure
@@ -429,7 +431,7 @@ Class cRestDataset is a cBaseRestDataset
         Move "OK" to webapicallcontext.sShortStatusMessage
         
         //Formulate the response
-        Get CreateResponseBodyObject of webapicallcontext.hoIterator webapicallcontext.sMainTableName to webapicallcontext.hoResponseBody
+        Send CreateResponseBodyObject of webapicallcontext.hoIterator webapicallcontext.sMainTableName (&webapicallcontext.hoResponseBody)
         Send CurrentRecordToResponseBody webapicallcontext.hoResponseBody webapicallcontext.hoIterator
         
     End_Procedure
@@ -473,7 +475,7 @@ Class cRestDataset is a cBaseRestDataset
                 //Get all the exposed fields
                 Get RetrieveExposedDataFields to hoExposedDataObjects
                 //Create a response object
-                Get CreateResponseBodyObject of webapicallcontext.hoIterator webapicallcontext.sMainTableName to webapicallcontext.hoResponseBody
+                Send CreateResponseBodyObject of webapicallcontext.hoIterator webapicallcontext.sMainTableName (&webapicallcontext.hoResponseBody)
                 //Populate the response
                 Send CurrentRecordToResponseBody webapicallcontext.hoResponseBody webapicallcontext.hoIterator
                 //Finally actually delete the resource

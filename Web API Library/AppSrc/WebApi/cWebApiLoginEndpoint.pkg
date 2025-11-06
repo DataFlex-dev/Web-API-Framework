@@ -47,7 +47,7 @@ Class cWebApiLoginEndpoint is a cBaseRestDataset
             //Set status codes and create the body
             Move C_WEBAPI_OK to webapicallcontext.iStatusCode
             Move "OK" to webapicallcontext.sShortStatusMessage       
-            Get CreateResponseBodyObject of webapicallcontext.hoIterator webapicallcontext.sMainTableName to webapicallcontext.hoResponseBody
+            Send CreateResponseBodyObject of webapicallcontext.hoIterator webapicallcontext.sMainTableName (&webapicallcontext.hoResponseBody)
             Send CurrentRecordToResponseBody webapicallcontext.hoResponseBody webapicallcontext.hoIterator
         End
         Else Begin

@@ -31,16 +31,21 @@ Class cBaseWebApiIterator is a cObject
     End_Procedure
     
     //This should create a array
-    Function CreateResponseBodyArray String sTableName Returns Handle
+    Procedure CreateResponseBodyArray String sTableName Handle ByRef hoBody
         //Should be augmented in iterators
-        Error DFERR_PROGRAM "Override this Function" 
-    End_Function
+        Error DFERR_PROGRAM "Override this Procedure"
+    End_Procedure
     
     //This should create a object
-    Function CreateResponseBodyObject String sTableName Returns Handle
+    Procedure CreateResponseBodyObject String sTableName Handle ByRef hoBody
         //Should be augmented in iterators
-        Error DFERR_PROGRAM "Override this Function"
-    End_Function
+        Error DFERR_PROGRAM "Override this Procedure"
+    End_Procedure
+    
+    Procedure CleanupHandle Handle hoObject
+        // Destroy the object
+        Error DFERR_PROGRAM "Override this Procedure"
+    End_Procedure
     
     //Adds values to the response body
     Procedure ModifyResponseBody Handle hoResponseBody Variant vValue String sFieldName Integer eDataType
