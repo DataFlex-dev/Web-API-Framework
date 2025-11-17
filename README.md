@@ -40,5 +40,9 @@ To use the WebApi Framework in your workspace perform the following actions:
 <link rel="stylesheet" type="text/css" href="WebApi/swagger-ui.css">
 ```
 
+### Note
+>The example workspace makes use of the [JsonWebToken library](https://github.com/DataFlex-dev/JsonWebToken). If you intend to use the JWT authentication in your own application, make sure to copy the l8w8jwt DLLs from the [example Programs folder](https://github.com/DataFlex-dev/Web-API-Framework/tree/production/stable/Web%20API%20Sample/Programs) to the Programs folder of your own workspace. 
+>Also, make sure you never use the private/public keys provided by this library in your production environment.
+
 Now the WebApi Framework can be used within your web application.
 
