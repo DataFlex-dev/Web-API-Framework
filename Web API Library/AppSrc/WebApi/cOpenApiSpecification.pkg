@@ -239,7 +239,7 @@ Class cOpenApiSpecification is a cObject
     
     { Visibility = Private }
     Procedure ParseVerb String sCurrentVerb Handle hoEndpoint Handle hoPathsJson
-        Handle hoVerbJson hoResponsesJson hostatusCodeJson hoContentJson hoContentTypeJson hoSchemaJson hoTagsJson hoRequestBody hoEndpointJson
+        Handle hoVerbJson hoResponsesJson hostatusCodeJson hoContentJson hoContentTypeJson hoSchemaJson hoTagsJson hoRequestBody hoEndpointJson hoItemsJson
         String[] asIteratorTypes
         String sEndpointName sEndpointTableName sEndpointFullPath sTagName
         Integer iIteratorIndex
@@ -324,7 +324,24 @@ Class cOpenApiSpecification is a cObject
         Send ParseErrorResponse sCurrentVerb hoResponsesJson
         
         Send SetMemberValue of hoStatusCodeJson "description" jsonTypeString (SFormat("A %1", sEndpointName))
-        Send SetMemberValue of hoSchemaJson "$ref" jsonTypeString (SFormat("#/components/schemas/%1", sEndpointTableName))
+        
+        // GET requests should return an array.
+        If (sCurrentVerb = C_WEBAPI_GET) Begin
+            Get Create (RefClass(cJsonObject)) to hoItemsJson
+            Send InitializeJsonType of hoItemsJson jsonTypeObject
+            
+            // schema should become type array
+            Send SetMemberValue of hoSchemaJson "type" jsonTypeString "array"
+            // $ref should be appended to the items object
+            Send SetMemberValue of hoItemsJson "$ref" jsonTypeString (SFormat("#/components/schemas/%1", sEndpointTableName))
+            Send SetMember of hoSchemaJson "items" hoItemsJson
+            
+            Send Destroy of hoItemsJson
+        End
+        Else Begin
+            Send SetMemberValue of hoSchemaJson "$ref" jsonTypeString (SFormat("#/components/schemas/%1", sEndpointTableName))    
+        End
+        
         Send AddMemberValue of hoTagsJson jsonTypeString sTagName
         
         Send SetMember of hoEndpointJson (Lowercase(sCurrentVerb)) hoVerbJson
