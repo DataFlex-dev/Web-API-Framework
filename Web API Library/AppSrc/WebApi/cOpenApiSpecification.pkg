@@ -66,8 +66,9 @@ Class cOpenApiSpecification is a cObject
     { Visibility = Private }
     Procedure GenerateServersInfo Handle hoOpenApiSpecJson
         Handle hoServersJson hoServerJson hoHttpApi
-        String sApiPath sRouterPath sDescription sApiRoot sServerName sSecureString
+        String sApiPath sRouterPath sDescription sApiRoot sServerName sSecureString sForwardedProto
         Boolean bSecure
+        Integer iServerPort
         
         Get GetWebApiObject to hoHttpApi
         Get psPath of hoHttpApi to sApiPath
@@ -77,15 +78,25 @@ Class cOpenApiSpecification is a cObject
         If (sApiRoot = "") Begin
             Get ServerVariable of ghoWebServiceDispatcher "SERVER_NAME" to sServerName
             Get ServerVariable of ghoWebServiceDispatcher "URL" to sApiRoot
-            Get ServerVariable of ghoWebServiceDispatcher "SERVER_PORT_SECURE" to bSecure
+            Get ServerVariable of ghoWebServiceDispatcher "HTTP_X_FORWARDED_PROTO" to sForwardedProto
             
-            //Add http or https based on the SERVER_PORT_SECURE setting
-            If bSecure Begin
-                Move "https://" to sSecureString
+            // Check for reverse proxy
+            If (sForwardedProto <> "") Begin
+                Move (sForwardedProto + "://") to sSecureString    
             End
             Else Begin
-                Move "http://" to sSecureString
+                Get ServerVariable of ghoWebServiceDispatcher "SERVER_PORT" to iServerPort
+                // 443 is the default secure port
+                Move (iServerPort = 443) to bSecure
+                //Add http or https based on the SERVER_PORT setting
+                If bSecure Begin
+                    Move "https://" to sSecureString
+                End
+                Else Begin
+                    Move "http://" to sSecureString
+                End    
             End
+            
             //The url contains /OpenApi since its part of the requesting url, we can take it out of the url.
             Move (Replace("/OpenApi", sApiRoot, "")) to sApiRoot
             Move (sSecureString + sServerName + sApiRoot) to sApiRoot
