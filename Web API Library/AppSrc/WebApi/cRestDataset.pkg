@@ -18,11 +18,17 @@ Class cRestDataset is a cBaseRestDataset
         // This setting determines if it should use the path as table name
         Property Boolean pbUsePathAsTableName False
         
-        //This determines how many records we return during a get all
+        // This determines how many records we return during a get all
         Property Integer piLimitResults 0
+        // This determines how many records to skip during a GET request.
+        Property Integer piOffset 0
         
         //Determines what index will be used to perform finds in the dataset
-        Property Integer piFindIndex 1    
+        Property Integer piFindIndex 1  
+        
+        // Grabs the old psSQLFilter and restores it
+        { Visibility=Private }
+        Property String psOldSQLfilter ""  
     End_Procedure
 
     
@@ -38,7 +44,7 @@ Class cRestDataset is a cBaseRestDataset
         String sFieldValue sFieldName
         Handle hoDD hoChild hoResponseObject
         Handle[] hoExposedDataObjects
-        Integer iIndex iLimit iRecordsRetrieved iFindIndex
+        Integer iIndex iLimit iRecordsRetrieved iFindIndex iOffset
         
         //Get the Main_DD
         Get Main_DD to hoDD 
@@ -54,8 +60,9 @@ Class cRestDataset is a cBaseRestDataset
         //Map the query params and set the constrains
         Send HandleQueryParams hoExposedDataObjects
         
-        //Should always be called after HandleQueryParams. Because the property is set there based on the query params.
+        //Should always be called after HandleQueryParams. Because these property are set there based on the query params.
         Get piLimitResults to iLimit
+        Get piOffset to iOffset
         
         //Get the index we need to find the record
         Get piFindIndex to iFindIndex
@@ -64,7 +71,13 @@ Class cRestDataset is a cBaseRestDataset
         Send Find of hoDD FIRST_RECORD iFindIndex
         
         //Keep finding records untill there are no more records to be found
-        While ( (Found) and not(Err) and ((iLimit = 0) or (iLimit > 0 and iRecordsRetrieved < iLimit)) )  
+        While ( (Found) and not(Err) and ((iLimit = 0) or (iLimit > 0 and iRecordsRetrieved < iLimit)) )
+            
+            // Since data dictionaries don't really support an offset, we still need to find the records, just don't process them.
+            While (iOffset <> 0)
+                Send Find of hoDD NEXT_RECORD iFindIndex
+                Decrement iOffset   
+            Loop
             //Each record is a seperate object
             Send CreateResponseBodyObject of webapicallcontext.hoIterator webapicallcontext.sMainTableName (&hoResponseObject)
             
@@ -78,7 +91,9 @@ Class cRestDataset is a cBaseRestDataset
             Send Find of hoDD NEXT_RECORD iFindIndex
         Loop
         
-        Send CleanupHandle of webapicallcontext.hoIterator hoResponseObject
+        If (hoResponseObject <> 0) Begin
+            Send CleanupHandle of webapicallcontext.hoIterator hoResponseObject    
+        End
         
         //Set the status code
         Move C_WEBAPI_OK to webapicallcontext.iStatusCode
@@ -534,8 +549,8 @@ Class cRestDataset is a cBaseRestDataset
     //This procedure should be responsible for applying filters
     Procedure HandleQueryParams Handle[] hoExposedDataObjects
         Handle hoDD
-        String sQueryParam sFilterType
-        Integer iIndex iFile iLimit iAmountOfDataObjects iPos iFoundIndex
+        String sQueryParam sFilterType sOldFilter
+        Integer iIndex iFile iLimit iAmountOfDataObjects iPos iFoundIndex iOffset
         Boolean bFilterable
         tWebQueryParams[] requestParams
         tWebQueryParams dummySearch
@@ -552,7 +567,19 @@ Class cRestDataset is a cBaseRestDataset
             Set piLimitResults to requestParams[iFoundIndex].sValue
         End
         
+        Move "offset" to dummySearch.sKey
+        Move (SearchArray(dummySearch, requestParams)) to iFoundIndex
+        If (iFoundIndex <> -1) Begin
+            Set piOffset to requestParams[iFoundIndex].sValue
+        End
+        
         Move (SizeOfArray(hoExposedDataObjects)-1) to iAmountOfDataObjects
+        
+        // Remember the old sql filter
+        If (SupportsSQLFilters(hoDD)) Begin
+            Get psSQLFilter of hoDD to sOldFilter
+            Set psOldSQLfilter to sOldFilter    
+        End
         
         //Reset all the current constrains to make room for the new ones
         Send Rebuild_Constraints of hoDD
@@ -603,13 +630,18 @@ Class cRestDataset is a cBaseRestDataset
     
     Procedure ResetState
         Handle hoDD
+        String sOldFilter
         
         Get Main_DD to hoDD
+        Set piLimitResults to 0
+        Set piOffset to 0
         
         //Only clear the Main_DD if there is one.
         If (hoDD <> 0) Begin
             Send Clear of hoDD
-            Set psSQLFilter of hoDD to ""    
+            Get psOldSQLfilter to sOldFilter
+            // Return the old filter
+            Set psSQLFilter of hoDD to sOldFilter   
         End
         
     End_Procedure
