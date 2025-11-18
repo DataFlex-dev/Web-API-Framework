@@ -23,6 +23,8 @@ Class cRestField is a cObject
         
         //Needed for non data aware fields
         Property Integer peFieldType DF_ASCII
+        //Precision for numeric fields
+        Property Integer piPrecision 0
         //Only used for fields with no data binding
         Property String psExampleValue ""
 
@@ -337,7 +339,7 @@ Class cRestField is a cObject
     // This way we only need to query database APIs once instead of for every single find.
     Procedure AfterAttachDDO
         String sFieldName
-        Integer iFile iField
+        Integer iFile iField iPrecision
         Integer eFieldType
         Handle hoDD
         
@@ -357,6 +359,12 @@ Class cRestField is a cObject
         
         Get_Attribute DF_FIELD_TYPE of iFile iField to eFieldType
         Set peFieldType to eFieldType
+        
+        // If we're dealing with a numeric type check the precision to check if it should show as integer or number.
+        If (eFieldType = DF_BCD) Begin
+            Get_Attribute DF_FIELD_PRECISION of iFile iField to iPrecision
+            Set piPrecision to iPrecision      
+        End
         
         
     End_Procedure
