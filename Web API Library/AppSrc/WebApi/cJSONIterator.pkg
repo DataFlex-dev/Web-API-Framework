@@ -176,10 +176,4 @@ Class cJSONIterator is a cBaseWebApiIterator
         // Destroy the JSON handle at the end
         Send Destroy of hoJson
     End_Procedure
-
-
-    Procedure End_Construct_Object
-        Forward Send End_Construct_Object
-    End_Procedure
-
 End_Class

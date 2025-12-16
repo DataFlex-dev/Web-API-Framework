@@ -23,10 +23,4 @@ Class cOpenApiEndpoint is a cBaseRestDataset
         Move C_WEBAPI_OK to webapicallcontext.iStatusCode
         Move "OK" to webapicallcontext.sShortStatusMessage
     End_Procedure
-
-    Procedure End_Construct_Object
-        Forward Send End_Construct_Object
-
-    End_Procedure
-
 End_Class

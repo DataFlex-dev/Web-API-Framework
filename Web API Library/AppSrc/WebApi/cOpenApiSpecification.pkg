@@ -1,6 +1,8 @@
 ﻿Use WebApi\cWebApiAuthModifier.pkg
 Use WebApi\cRestField.pkg
 Use WebApi\cWebApiCustomEndpoint.pkg
+Use WebApi\cWebApi.pkg
+Use WebApi\cRestDataset.pkg
 
 Struct oneOf
     String title
@@ -19,7 +21,7 @@ Class cOpenApiSpecification is a cObject
         String sTitle sDescription sVersion sStringifiedJson sPath
         Handle hoOpenApiSpec hoInfo hoHttpApi
         
-        Get Parent to hoHttpApi
+        Get GetWebApiObject to hoHttpApi
         
         Get psApiTitle of hoHttpApi to sTitle
         Get psApiDescription of hoHttpApi to sDescription
@@ -67,7 +69,7 @@ Class cOpenApiSpecification is a cObject
         String sApiPath sRouterPath sDescription sApiRoot sServerName sSecureString
         Boolean bSecure
         
-        Get Parent to hoHttpApi
+        Get GetWebApiObject to hoHttpApi
         Get psPath of hoHttpApi to sApiPath
         Get psApiRoot of hoHttpApi to sApiRoot
         
@@ -84,8 +86,8 @@ Class cOpenApiSpecification is a cObject
             Else Begin
                 Move "http://" to sSecureString
             End
-            
-            Move (Replace(("/" + sApiPath), sApiRoot, "")) to sApiRoot
+            //The url contains /OpenApi since its part of the requesting url, we can take it out of the url.
+            Move (Replace("/OpenApi", sApiRoot, "")) to sApiRoot
             Move (sSecureString + sServerName + sApiRoot) to sApiRoot
         End
         //Create the JSON objects
@@ -114,7 +116,7 @@ Class cOpenApiSpecification is a cObject
         Handle hoPathsJson hoHttpApi hoSchemasJson hoComponentsJson
         Integer iRoutableIndex iAmountOfRoutables
         
-        Get Parent to hoHttpApi
+        Get GetWebApiObject to hoHttpApi
         Get phoRoutables of hoHttpApi to hoRoutables
         
         Move (SizeOfArray(hoRoutables)-1) to iAmountOfRoutables
@@ -714,10 +716,10 @@ Class cOpenApiSpecification is a cObject
         Integer iSizeOfRouterArray iSizeOfDatasetArray iAmountOfAuthModifiers iRouterIndex iDatasetIndex iAuthModifierIndex iAmountOfSecuredEndpoints iEndpointIndex iVariantType
         String sSecuredEndpointName sSecuritySchemaName sSecurityType sSecurityScheme sAuthModifierName sEndpointPath
         tSecuredDataset[] currentSecuredDatasets
-        Boolean bHasComponentsJson bVerbExists bEndpointExists
+        Boolean bHasComponentsJson bVerbExists bEndpointExists bIsNotCustom
         Variant vSecurityInfo
         
-        Get Parent to hoHttpApi
+        Get GetWebApiObject to hoHttpApi
         Get GetAuthModifiers of hoHttpApi to hoAuthModifiers
         
         //Get all the authentication objects present in the API
@@ -787,6 +789,7 @@ Class cOpenApiSpecification is a cObject
             If (iAmountOfSecuredEndpoints >= 0) Begin
                 
                 For iDatasetIndex from 0 to iAmountOfSecuredEndpoints
+                    Move (IsObjectOfClass(currentSecuredDatasets[iDatasetIndex].hoDataset, RefClass(cRestDataset))) to bIsNotCustom
                     
                     //Append to the get path
                     If (currentSecuredDatasets[iDatasetIndex].bSecureRead = True) Begin
@@ -835,7 +838,7 @@ Class cOpenApiSpecification is a cObject
                     //Append to the edit path
                     If (currentSecuredDatasets[iDatasetIndex].bSecureEdit = True) Begin
                         
-                        Get EndpointToPath currentSecuredDatasets[iDatasetIndex].hoDataset True to sEndpointPath                        
+                        Get EndpointToPath currentSecuredDatasets[iDatasetIndex].hoDataset bIsNotCustom to sEndpointPath                        
                         Get HasMember of hoPathsJson sEndpointPath to bEndpointExists
                         
                         If bEndpointExists Begin                          
@@ -865,7 +868,7 @@ Class cOpenApiSpecification is a cObject
                     //Append to the delete path
                     If (currentSecuredDatasets[iDatasetIndex].bSecureDelete = True) Begin
                         
-                        Get EndpointToPath currentSecuredDatasets[iDatasetIndex].hoDataset True to sEndpointPath                        
+                        Get EndpointToPath currentSecuredDatasets[iDatasetIndex].hoDataset bIsNotCustom to sEndpointPath                        
                         Get HasMember of hoPathsJson sEndpointPath to bEndpointExists
                         
                         If bEndpointExists Begin
@@ -912,7 +915,7 @@ Class cOpenApiSpecification is a cObject
         
         Move (Uppercase(sVerb)) to sVerb
         
-        Get Parent to hoParent
+        Get GetWebApiObject to hoParent
         
         Get pasIteratorTypes of hoParent to asIteratorTypes
         
@@ -1100,6 +1103,7 @@ Class cOpenApiSpecification is a cObject
             Move (IsObjectOfClass(hoField, RefClass(cRestChildCollection))) to bIsChildCollection
             
             Get SchemaName of hoField to sNestedSchemaName
+            Get pbReadOnly of hoField to bReadOnly
             
             //Initialize the nested schema
             Get Create (RefClass(cJsonObject)) to hoNestedSchema
@@ -1135,6 +1139,10 @@ Class cOpenApiSpecification is a cObject
                 //For the entity its sufficient to mark it as type object and append the list of properties (fields)
                 Send SetMemberValue of hoNestedSchema "type" jsonTypeString "object"
                 Send SetMember of hoNestedSchema "properties" hoNestedSchemaProperties    
+            End
+            
+            If bReadOnly Begin
+                Send SetMemberValue of hoNestedSchema "readOnly" jsonTypeBoolean True
             End
             //Append the nested schema to the actual schema
             Send SetMember of hoPropertiesJson sNestedSchemaName hoNestedSchema
@@ -1313,8 +1321,18 @@ Class cOpenApiSpecification is a cObject
         Function_Return sPath
     End_Function
     
-    Procedure End_Construct_Object
-        Forward Send End_Construct_Object
-    End_Procedure
-
+    //Helper function that returns the cWebApi object tied to this object
+    { Visibility = Private }
+    Function GetWebApiObject Returns Handle
+        Handle hoParent
+        
+        Get Parent to hoParent
+        
+        While ((hoParent <> 0) and (not(IsObjectOfClass(hoParent, RefClass(cWebHttpHandler)))))
+            Get Parent of hoParent to hoParent
+        Loop
+        
+        //If we get here hoParent should be the cWebApi object
+        Function_Return hoParent
+    End_Function
 End_Class

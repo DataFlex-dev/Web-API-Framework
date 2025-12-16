@@ -121,10 +121,4 @@ Class cWebApiLoginEndpoint is a cBaseRestDataset
     {MethodType=Event}
     Procedure OnSuccessfulLogin tWebApiCallContext ByRef webapicallcontext
     End_Procedure
-
-    Procedure End_Construct_Object
-        Forward Send End_Construct_Object
-
-    End_Procedure
-
 End_Class

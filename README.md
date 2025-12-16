@@ -23,22 +23,26 @@ Swagger UI is capable of describing the following aspects of your REST api:
 ![Example Responses](./Example%20response.png)
 
 ## Overview
-- The [Sample](Web API Sample) folder contains a sample workspace which contains a REST api built with the library.
-- The [Library](Web API Library) folder contains the actual library that should be attached to your workspace.
-- The WebApi folder contains the javascript files needed to render the Swagger UI component in the browser. This should be copied to your application's AppHtml folder.
-- The Help folder contains a markdown file that serves as documentation for the WebApi framework.
+- The [Sample](Web%20API%20Sample) folder contains a sample workspace which contains a REST api built with the library.
+- The [Library](Web%20API%20Library) folder contains the actual library that should be attached to your workspace.
+- The [WebApi](Web%20API%20Library\AppHtml\WebApi) folder contains the javascript files needed to render the Swagger UI component in the browser. This should be copied to your application's AppHtml folder.
+- The [Help](Web%20API%20Library\Help) folder contains a markdown file that serves as documentation for the WebApi framework.
 
 ## Usage
 To use the WebApi Framework in your workspace perform the following actions:
 - Attach the library to your workspace
-- If you wish to use the Swagger UI web control in your application move the [WebApi](Web API Library\AppHtml\WebApi) folder to the AppHtml folder of your application.
+- If you wish to use the Swagger UI web control in your application move the [WebApi](Web%20API%20Library\AppHtml\WebApi) folder to the AppHtml folder of your application.
 - Add the lines below to your index.html
 ```
-<script src="WebApi/swagger-ui-bundle"></script>
+<script src="WebApi/swagger-ui-bundle.js"></script>
 <script src="WebApi/swagger-ui-standalone-preset.js"></script>
 <script src="WebApi/SwaggerDocumentation.js"></script>
 <link rel="stylesheet" type="text/css" href="WebApi/swagger-ui.css">
 ```
+
+### Note
+>The example workspace makes use of the [JsonWebToken library](https://github.com/DataFlex-dev/JsonWebToken). If you intend to use the JWT authentication in your own application, make sure to copy the l8w8jwt DLLs from the [example Programs folder](https://github.com/DataFlex-dev/Web-API-Framework/tree/production/stable/Web%20API%20Sample/Programs) to the Programs folder of your own workspace. 
+>Also, make sure you never use the private/public keys provided by this library in your production environment.
 
 Now the WebApi Framework can be used within your web application.
 

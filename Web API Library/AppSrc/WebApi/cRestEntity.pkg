@@ -132,7 +132,7 @@ Class cRestEntity is a cObject
         
         Get Main_File of hoServer to iFile
         
-        Get_Attribute DF_FILE_ROOT_NAME of iFile to sTableName
+        Get_Attribute DF_FILE_LOGICAL_NAME of iFile to sTableName
         
         Function_Return sTableName
     End_Function

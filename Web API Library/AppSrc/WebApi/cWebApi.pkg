@@ -2,7 +2,6 @@
 Use WebApi\cJSONIterator.pkg
 Use cWebHttpHandler.pkg
 Use WebApi\cXMLIterator.pkg
-Use WebApi\cOpenApiSpecification.pkg
 Use WebApi\cWebApiRoutableHost_Mixin.pkg
 Use WebApi\cOpenApiEndpoint.pkg
 Use WebApi\cWebApiErrorHandler_Mixin.pkg
