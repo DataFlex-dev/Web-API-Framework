@@ -20,12 +20,11 @@ Class cWebApiErrorHandler_Mixin is a Mixin
         Get pbDebugMode to bDebugMode
         
         //If a error is reported we should remember that it happened.
-        Set pbUnexpectedError to True
+        Set pbUnexpectedError to True        
+        Send Error_Report of ghoErrorHandler ErrNum Err_Line sErrMsg
         
         // If we are running in the debugger forward it.
         If (IsDebuggerPresent() or bDebugMode) Begin
-            Send Error_Report of ghoErrorHandler ErrNum Err_Line sErrMsg
-            
             Get pasErrorCallstack to asCallstack
             
             CallStackDump sCallstack
