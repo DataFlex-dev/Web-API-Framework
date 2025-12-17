@@ -64,9 +64,4 @@ Class cBaseWebApiIterator is a cObject
         //Should be augmented in iterators
         Error DFERR_PROGRAM "Override this Procedure"
     End_Procedure
-
-    Procedure End_Construct_Object
-        Forward Send End_Construct_Object
-    End_Procedure
-
 End_Class

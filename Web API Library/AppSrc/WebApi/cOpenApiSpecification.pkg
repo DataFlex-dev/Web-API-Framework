@@ -2,6 +2,7 @@
 Use WebApi\cRestField.pkg
 Use WebApi\cWebApiCustomEndpoint.pkg
 Use WebApi\cWebApi.pkg
+Use WebApi\cRestDataset.pkg
 
 Struct oneOf
     String title
@@ -715,7 +716,7 @@ Class cOpenApiSpecification is a cObject
         Integer iSizeOfRouterArray iSizeOfDatasetArray iAmountOfAuthModifiers iRouterIndex iDatasetIndex iAuthModifierIndex iAmountOfSecuredEndpoints iEndpointIndex iVariantType
         String sSecuredEndpointName sSecuritySchemaName sSecurityType sSecurityScheme sAuthModifierName sEndpointPath
         tSecuredDataset[] currentSecuredDatasets
-        Boolean bHasComponentsJson bVerbExists bEndpointExists
+        Boolean bHasComponentsJson bVerbExists bEndpointExists bIsNotCustom
         Variant vSecurityInfo
         
         Get GetWebApiObject to hoHttpApi
@@ -788,6 +789,7 @@ Class cOpenApiSpecification is a cObject
             If (iAmountOfSecuredEndpoints >= 0) Begin
                 
                 For iDatasetIndex from 0 to iAmountOfSecuredEndpoints
+                    Move (IsObjectOfClass(currentSecuredDatasets[iDatasetIndex].hoDataset, RefClass(cRestDataset))) to bIsNotCustom
                     
                     //Append to the get path
                     If (currentSecuredDatasets[iDatasetIndex].bSecureRead = True) Begin
@@ -836,7 +838,7 @@ Class cOpenApiSpecification is a cObject
                     //Append to the edit path
                     If (currentSecuredDatasets[iDatasetIndex].bSecureEdit = True) Begin
                         
-                        Get EndpointToPath currentSecuredDatasets[iDatasetIndex].hoDataset True to sEndpointPath                        
+                        Get EndpointToPath currentSecuredDatasets[iDatasetIndex].hoDataset bIsNotCustom to sEndpointPath                        
                         Get HasMember of hoPathsJson sEndpointPath to bEndpointExists
                         
                         If bEndpointExists Begin                          
@@ -866,7 +868,7 @@ Class cOpenApiSpecification is a cObject
                     //Append to the delete path
                     If (currentSecuredDatasets[iDatasetIndex].bSecureDelete = True) Begin
                         
-                        Get EndpointToPath currentSecuredDatasets[iDatasetIndex].hoDataset True to sEndpointPath                        
+                        Get EndpointToPath currentSecuredDatasets[iDatasetIndex].hoDataset bIsNotCustom to sEndpointPath                        
                         Get HasMember of hoPathsJson sEndpointPath to bEndpointExists
                         
                         If bEndpointExists Begin
@@ -1101,6 +1103,7 @@ Class cOpenApiSpecification is a cObject
             Move (IsObjectOfClass(hoField, RefClass(cRestChildCollection))) to bIsChildCollection
             
             Get SchemaName of hoField to sNestedSchemaName
+            Get pbReadOnly of hoField to bReadOnly
             
             //Initialize the nested schema
             Get Create (RefClass(cJsonObject)) to hoNestedSchema
@@ -1136,6 +1139,10 @@ Class cOpenApiSpecification is a cObject
                 //For the entity its sufficient to mark it as type object and append the list of properties (fields)
                 Send SetMemberValue of hoNestedSchema "type" jsonTypeString "object"
                 Send SetMember of hoNestedSchema "properties" hoNestedSchemaProperties    
+            End
+            
+            If bReadOnly Begin
+                Send SetMemberValue of hoNestedSchema "readOnly" jsonTypeBoolean True
             End
             //Append the nested schema to the actual schema
             Send SetMember of hoPropertiesJson sNestedSchemaName hoNestedSchema
@@ -1328,9 +1335,4 @@ Class cOpenApiSpecification is a cObject
         //If we get here hoParent should be the cWebApi object
         Function_Return hoParent
     End_Function
-    
-    Procedure End_Construct_Object
-        Forward Send End_Construct_Object
-    End_Procedure
-
 End_Class

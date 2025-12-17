@@ -180,9 +180,4 @@ Class cXMLIterator is a cBaseWebApiIterator
         Loop
         
     End_Procedure
-
-    Procedure End_Construct_Object
-        Forward Send End_Construct_Object
-    End_Procedure
-
 End_Class

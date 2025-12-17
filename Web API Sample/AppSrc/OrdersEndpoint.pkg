@@ -6,8 +6,7 @@ Use WebApi\cRestField.pkg
 
 Object oOrdersEndpoint is a cRestDataset
     Set psPath to "Orders"
-    
-    Set pbReadOnly to True
+    Set pbReadOnly to False
     
     Object oSalesPerson_DD is a cSalesPersonDataDictionary
     End_Object
@@ -23,24 +22,57 @@ Object oOrdersEndpoint is a cRestDataset
     Set Main_DD to oOrderHeader_DD
     Set Server to oOrderHeader_DD
 
+    Object oOrderHeader_Order_Number is a cRestField
+        Entry_Item OrderHeader.Order_Number
+        Set pbReadOnly to True
+    End_Object
+    
     Object oOrderHeader_Order_Date is a cRestField
         Entry_Item OrderHeader.Order_Date
     End_Object
 
-    Object oOrderHeader_Terms is a cRestField
-        Entry_Item OrderHeader.Terms
+    Object oOrderHeader_Customer_Number is a cRestField
+        Entry_Item OrderHeader.Customer_Number
+        Set pbWriteOnly to True
+        Set psFieldName to "Customer_Number"
     End_Object
 
-    Object oOrderHeader_Ship_Via is a cRestField
-        Entry_Item OrderHeader.Ship_Via
+    Object oOrderHeader_SalesPerson_ID is a cRestField
+        Entry_Item OrderHeader.SalesPerson_ID
+        Set pbWriteOnly to True
+        Set psFieldName to "SalesPerson_ID"
+    End_Object    
+    
+    Object oCustomerEntity is a cRestEntity
+        Set Server to oCustomer_DD
+        Set pbReadOnly to True
+
+        Object oCustomer_Name is a cRestField
+            Entry_Item Customer.Name
+        End_Object
+
+        Object oCustomer_Address is a cRestField
+            Entry_Item Customer.Address
+        End_Object
+
+        Object oCustomer_City is a cRestField
+            Entry_Item Customer.City
+        End_Object        
+        
+    End_Object
+    
+    Object oSalesPersonEntity is a cRestEntity
+        Set Server to oSalesPerson_DD
+        Set pbReadOnly to True
+        
+        Object oSalesPerson_Name is a cRestField
+            Entry_Item SalesPerson.Name
+        End_Object       
+        
     End_Object
 
     Object oOrderHeader_Order_Total is a cRestField
         Entry_Item OrderHeader.Order_Total
-    End_Object
-    
-    
-    
-    
-    
+        Set pbReadOnly to True
+    End_Object  
 End_Object
