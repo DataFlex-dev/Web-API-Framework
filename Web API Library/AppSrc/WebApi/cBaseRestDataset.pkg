@@ -16,6 +16,9 @@ Class cBaseRestDataset is a cWebComponent
     Procedure Construct_Object
         Forward Send Construct_Object
         
+        //When this property is set to true all GET requests will be routed to OnHttpGet instead of OnHttpGetByID.
+        Property Boolean pbIgnoreID False
+        
         //When this property is set to true only GET operations will be available for this endpoint
         Property Boolean pbReadOnly False
         
@@ -192,6 +195,14 @@ Class cBaseRestDataset is a cWebComponent
     { Visibility = Private }
     Function UrlContainsID String sPotentialID Returns Boolean
         String sPath
+        Boolean bIgnoreID
+        
+        Get pbIgnoreID to bIgnoreID
+        
+        // If pbIgnoreID is set to true never route to OnHttpGetByID
+        If (bIgnoreID) Begin
+            Function_Return False
+        End
         
         Get psPath to sPath
         
