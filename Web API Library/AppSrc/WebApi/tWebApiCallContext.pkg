@@ -38,6 +38,9 @@ Struct tWebApiCallContext
     
     //Useful information in the current request
     String sMainTableName
+    Integer iLimit
+    Integer iOffset
+    String sOldSQLFilter
     
     //Status codes and potential error messages
     Integer iStatusCode

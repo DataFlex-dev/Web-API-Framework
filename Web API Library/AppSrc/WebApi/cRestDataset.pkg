@@ -20,15 +20,9 @@ Class cRestDataset is a cBaseRestDataset
         
         // This determines how many records we return during a get all
         Property Integer piLimitResults 0
-        // This determines how many records to skip during a GET request.
-        Property Integer piOffset 0
         
         //Determines what index will be used to perform finds in the dataset
         Property Integer piFindIndex 1  
-        
-        // Grabs the old psSQLFilter and restores it
-        { Visibility=Private }
-        Property String psOldSQLfilter ""  
     End_Procedure
 
     
@@ -36,7 +30,7 @@ Class cRestDataset is a cBaseRestDataset
     { Visibility = Private }
     Procedure OnHttpRequest tWebApiCallContext ByRef webapicallcontext
         Forward Send OnHttpRequest (&webapicallcontext)
-        Send ResetState
+        Send ResetState (&webapicallcontext)
     End_Procedure
     
     { MethodType=Event }
@@ -56,13 +50,14 @@ Class cRestDataset is a cBaseRestDataset
         Send CreateResponseBodyArray of webapicallcontext.hoIterator webapicallcontext.sMainTableName (&webapicallcontext.hoResponseBody)
         
         Send Clear of hoDD
+        Get piLimitResults to webapicallcontext.iLimit
         
         //Map the query params and set the constrains
-        Send HandleQueryParams hoExposedDataObjects
+        Send HandleQueryParams (&webapicallcontext) hoExposedDataObjects
         
         //Should always be called after HandleQueryParams. Because these property are set there based on the query params.
-        Get piLimitResults to iLimit
-        Get piOffset to iOffset
+        Move webapicallcontext.iLimit to iLimit
+        Move webapicallcontext.iOffset to iOffset
         
         //Get the index we need to find the record
         Get piFindIndex to iFindIndex
@@ -547,9 +542,9 @@ Class cRestDataset is a cBaseRestDataset
     End_Function
     
     //This procedure should be responsible for applying filters
-    Procedure HandleQueryParams Handle[] hoExposedDataObjects
+    Procedure HandleQueryParams tWebApiCallContext ByRef webapicallcontext Handle[] hoExposedDataObjects
         Handle hoDD
-        String sQueryParam sFilterType sOldFilter
+        String sQueryParam sFilterType
         Integer iIndex iFile iLimit iAmountOfDataObjects iPos iFoundIndex iOffset
         Boolean bFilterable
         tWebQueryParams[] requestParams
@@ -564,21 +559,20 @@ Class cRestDataset is a cBaseRestDataset
         Move "limit" to dummySearch.sKey
         Move (SearchArray(dummySearch, requestParams)) to iFoundIndex
         If (iFoundIndex <> -1) Begin
-            Set piLimitResults to requestParams[iFoundIndex].sValue
+            Move requestParams[iFoundIndex].sValue to webapicallcontext.iLimit
         End
         
         Move "offset" to dummySearch.sKey
         Move (SearchArray(dummySearch, requestParams)) to iFoundIndex
         If (iFoundIndex <> -1) Begin
-            Set piOffset to requestParams[iFoundIndex].sValue
+            Move requestParams[iFoundIndex].sValue to webapicallcontext.iOffset
         End
         
         Move (SizeOfArray(hoExposedDataObjects)-1) to iAmountOfDataObjects
         
         // Remember the old sql filter
         If (SupportsSQLFilters(hoDD)) Begin
-            Get psSQLFilter of hoDD to sOldFilter
-            Set psOldSQLfilter to sOldFilter    
+            Get psSQLFilter of hoDD to webapicallcontext.sOldSQLFilter
         End
         
         //Reset all the current constrains to make room for the new ones
@@ -628,20 +622,18 @@ Class cRestDataset is a cBaseRestDataset
         
     End_Procedure
     
-    Procedure ResetState
+    Procedure ResetState tWebApiCallContext ByRef webapicallcontext
         Handle hoDD
-        String sOldFilter
         
         Get Main_DD to hoDD
-        Set piLimitResults to 0
-        Set piOffset to 0
         
         //Only clear the Main_DD if there is one.
         If (hoDD <> 0) Begin
             Send Clear of hoDD
-            Get psOldSQLfilter to sOldFilter
-            // Return the old filter
-            Set psSQLFilter of hoDD to sOldFilter   
+            If (SupportsSQLFilters(hoDD)) Begin
+                // Return the old filter
+                Set psSQLFilter of hoDD to webapicallcontext.sOldSQLFilter
+            End
         End
         
     End_Procedure
