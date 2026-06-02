@@ -1,4 +1,5 @@
 ﻿Use WebApi\cWebApiAuthModifier.pkg
+Use cWebAppUserDataDictionary.dd
 
 Struct basicAuth
     String type
@@ -18,14 +19,17 @@ Class cBasicAuth is a cWebApiAuthModifier
         Property Integer piEditRights 1
         Property Integer piDeleteRights 1
         
-    End_Procedure   
+        Object oWebAppUserDD is a cWebAppUserDataDictionary
+        End_Object
+        
+    End_Procedure
     
     Procedure OnAuth tWebApiCallContext ByRef webapicallcontext
-        String sBase64EncodedAuth sDecodedString
+        String sBase64EncodedAuth sDecodedString sUserPassword
         String[] asAuthorizationParts asDecodedUsernamePassword
         Integer iLength iVoid iArraySize
         Pointer pBaseDecodedString
-        Boolean bOk bSessionOk
+        Boolean bOk bSessionOk bUpgrade
         
         If (ghoWebSessionManager = 0) Begin
             Error DFERR_PROGRAM "No session manager found. BasicAuth implementation uses the session manager to validate users."
@@ -54,10 +58,21 @@ Class cBasicAuth is a cWebApiAuthModifier
         //First element will be the username and the second element will be the password
         Get StrSplitToArray sDecodedString ":" to asDecodedUsernamePassword
         
-        //Create a new session for the user that is trying to login
-        Get RecreateSession of ghoWebSessionManager to bSessionOk
-        //Attempt to log in the user     
-        Get UserLogin of ghoWebSessionManager asDecodedUsernamePassword[0] asDecodedUsernamePassword[1] to bOk
+        // Ensure we start with an empty state
+        Send Clear of oWebAppUserDD
+        Move asDecodedUsernamePassword[0] to WebAppUser.LoginName
+        Send Find of oWebAppUserDD EQ 1
+        
+        If (Found) Begin
+            Get Field_Current_Value of oWebAppUserDD Field WebAppUser.Password to sUserPassword
+            Get VerifyPasswordHash of ghoWebSessionManager (Trim(sUserPassword)) (Trim(asDecodedUsernamePassword[1])) (&bUpgrade) to bOk        
+        End
+        Else Begin
+            Move False to bOk
+        End
+        
+        // Always clear when we're done.
+        Send Clear of oWebAppUserDD
         
         If (not(bOk)) Begin
             Move True to webapicallcontext.bErr
