@@ -25,6 +25,7 @@ Swagger UI is capable of describing the following aspects of your REST api:
 ## Overview
 - The [Sample](Web%20API%20Sample) folder contains a sample workspace which contains a REST api built with the library.
 - The [Library](Web%20API%20Library) folder contains the actual library that should be attached to your workspace.
+- The [AppSrc\config](Web%20API%20Library\AppSrc\config) folder contains DataFlex Studio Create New templates for common Web API Framework objects.
 - The [WebApi](Web%20API%20Library\AppHtml\WebApi) folder contains the javascript files needed to render the Swagger UI component in the browser. This should be copied to your application's AppHtml folder.
 - The [Help](Web%20API%20Library\Help) folder contains a markdown file that serves as documentation for the WebApi framework.
 

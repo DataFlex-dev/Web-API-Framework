@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<classList xmlns="http://www.dataaccess.com/VisualDataFlex/2006/classlist/">
+    <VDFLibraryTimeStamp>2026-06-03T00:00:00</VDFLibraryTimeStamp>
+    <DFLibraryVersion>2</DFLibraryVersion>
+    <libraries/>
+    <classes>
+        <class>
+            <className>cWebApi</className>
+            <image></image>
+            <package>WebApi\cWebApi.pkg</package>
+            <groupName>Web API</groupName>
+            <libraryID></libraryID>
+        </class>
+        <class>
+            <className>cWebApiRouter</className>
+            <image></image>
+            <package>WebApi\cWebApiRouter.pkg</package>
+            <groupName>Web API</groupName>
+            <libraryID></libraryID>
+        </class>
+        <class>
+            <className>cRestDataset</className>
+            <image></image>
+            <package>WebApi\cRestDataset.pkg</package>
+            <groupName>Web API</groupName>
+            <libraryID></libraryID>
+        </class>
+        <class>
+            <className>cRestField</className>
+            <image>cWebForm.ico</image>
+            <package>WebApi\cRestField.pkg</package>
+            <groupName>Web API</groupName>
+            <libraryID></libraryID>
+        </class>
+        <class>
+            <className>cRestEntity</className>
+            <image></image>
+            <package>WebApi\cRestEntity.pkg</package>
+            <groupName>Web API</groupName>
+            <libraryID></libraryID>
+        </class>
+        <class>
+            <className>cRestChildCollection</className>
+            <image></image>
+            <package>WebApi\cRestChildCollection.pkg</package>
+            <groupName>Web API</groupName>
+            <libraryID></libraryID>
+        </class>
+        <class>
+            <className>cWebApiModifier</className>
+            <image></image>
+            <package>WebApi\cWebApiModifier.pkg</package>
+            <groupName>Web API</groupName>
+            <libraryID></libraryID>
+        </class>
+        <class>
+            <className>cWebApiAuthModifier</className>
+            <image></image>
+            <package>WebApi\cWebApiAuthModifier.pkg</package>
+            <groupName>Web API</groupName>
+            <libraryID></libraryID>
+        </class>
+    </classes>
+</classList>
