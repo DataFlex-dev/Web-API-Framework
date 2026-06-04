@@ -1,5 +1,10 @@
 ﻿Use WebApi\cBaseRestDataset.pkg
 
+Struct tWebQueryParams
+    String sKey
+    String sValue
+End_Struct
+
 //This class exposes a resource in a endpoint
 //This should make use of the resource's data dictionary object
 Class cRestDataset is a cBaseRestDataset
@@ -13,11 +18,11 @@ Class cRestDataset is a cBaseRestDataset
         // This setting determines if it should use the path as table name
         Property Boolean pbUsePathAsTableName False
         
-        //This determines how many records we return during a get all
+        // This determines how many records we return during a get all
         Property Integer piLimitResults 0
         
         //Determines what index will be used to perform finds in the dataset
-        Property Integer piFindIndex 1        
+        Property Integer piFindIndex 1  
     End_Procedure
 
     
@@ -25,7 +30,7 @@ Class cRestDataset is a cBaseRestDataset
     { Visibility = Private }
     Procedure OnHttpRequest tWebApiCallContext ByRef webapicallcontext
         Forward Send OnHttpRequest (&webapicallcontext)
-        Send ResetState
+        Send ResetState (&webapicallcontext)
     End_Procedure
     
     { MethodType=Event }
@@ -33,7 +38,7 @@ Class cRestDataset is a cBaseRestDataset
         String sFieldValue sFieldName
         Handle hoDD hoChild hoResponseObject
         Handle[] hoExposedDataObjects
-        Integer iIndex iLimit iRecordsRetrieved iFindIndex
+        Integer iIndex iLimit iRecordsRetrieved iFindIndex iOffset
         
         //Get the Main_DD
         Get Main_DD to hoDD 
@@ -42,15 +47,17 @@ Class cRestDataset is a cBaseRestDataset
         Get RetrieveExposedDataFields to hoExposedDataObjects
         
         //Create the responsebody array
-        Get CreateResponseBodyArray of webapicallcontext.hoIterator webapicallcontext.sMainTableName to webapicallcontext.hoResponseBody
+        Send CreateResponseBodyArray of webapicallcontext.hoIterator webapicallcontext.sMainTableName (&webapicallcontext.hoResponseBody)
         
         Send Clear of hoDD
+        Get piLimitResults to webapicallcontext.iLimit
         
         //Map the query params and set the constrains
-        Send HandleQueryParams hoExposedDataObjects
+        Send HandleQueryParams (&webapicallcontext) hoExposedDataObjects
         
-        //Should always be called after HandleQueryParams. Because the property is set there based on the query params.
-        Get piLimitResults to iLimit
+        //Should always be called after HandleQueryParams. Because these property are set there based on the query params.
+        Move webapicallcontext.iLimit to iLimit
+        Move webapicallcontext.iOffset to iOffset
         
         //Get the index we need to find the record
         Get piFindIndex to iFindIndex
@@ -59,9 +66,15 @@ Class cRestDataset is a cBaseRestDataset
         Send Find of hoDD FIRST_RECORD iFindIndex
         
         //Keep finding records untill there are no more records to be found
-        While ( (Found) and not(Err) and ((iLimit = 0) or (iLimit > 0 and iRecordsRetrieved < iLimit)) )  
+        While ( (Found) and not(Err) and ((iLimit = 0) or (iLimit > 0 and iRecordsRetrieved < iLimit)) )
+            
+            // Since data dictionaries don't really support an offset, we still need to find the records, just don't process them.
+            While (iOffset <> 0)
+                Send Find of hoDD NEXT_RECORD iFindIndex
+                Decrement iOffset   
+            Loop
             //Each record is a seperate object
-            Get CreateResponseBodyObject of webapicallcontext.hoIterator webapicallcontext.sMainTableName to hoResponseObject
+            Send CreateResponseBodyObject of webapicallcontext.hoIterator webapicallcontext.sMainTableName (&hoResponseObject)
             
             Send CurrentRecordToResponseBody hoResponseObject webapicallcontext.hoIterator
             
@@ -72,6 +85,10 @@ Class cRestDataset is a cBaseRestDataset
             //Keep finding next records
             Send Find of hoDD NEXT_RECORD iFindIndex
         Loop
+        
+        If (hoResponseObject <> 0) Begin
+            Send CleanupHandle of webapicallcontext.hoIterator hoResponseObject    
+        End
         
         //Set the status code
         Move C_WEBAPI_OK to webapicallcontext.iStatusCode
@@ -118,7 +135,7 @@ Class cRestDataset is a cBaseRestDataset
         //If the record is found return it. If it is not found return a not found
         If (Found and not(Err)) Begin
             //Create the response body
-            Get CreateResponseBodyObject of webapicallcontext.hoIterator webapicallcontext.sMainTableName to webapicallcontext.hoResponseBody
+            Send CreateResponseBodyObject of webapicallcontext.hoIterator webapicallcontext.sMainTableName (&webapicallcontext.hoResponseBody)
             Send CurrentRecordToResponseBody webapicallcontext.hoResponseBody webapicallcontext.hoIterator
             Move C_WEBAPI_OK to webapicallcontext.iStatusCode
             Move "OK" to webapicallcontext.sShortStatusMessage
@@ -201,7 +218,7 @@ Class cRestDataset is a cBaseRestDataset
         
         //If either the validation or the save fails we return a status code 400 bad request
         If (not(bErr)) Begin
-            Get CreateResponseBodyObject of webapicallcontext.hoIterator webapicallcontext.sMainTableName to webapicallcontext.hoResponseBody
+            Send CreateResponseBodyObject of webapicallcontext.hoIterator webapicallcontext.sMainTableName (&webapicallcontext.hoResponseBody)
             Move C_WEBAPI_CREATED to webapicallcontext.iStatusCode
             Move "Created" to webapicallcontext.sShortStatusMessage
             Send CurrentRecordToResponseBody webapicallcontext.hoResponseBody webapicallcontext.hoIterator
@@ -316,7 +333,7 @@ Class cRestDataset is a cBaseRestDataset
         Move "OK" to webapicallcontext.sShortStatusMessage
         
         //Formulate the response
-        Get CreateResponseBodyObject of webapicallcontext.hoIterator webapicallcontext.sMainTableName to webapicallcontext.hoResponseBody
+        Send CreateResponseBodyObject of webapicallcontext.hoIterator webapicallcontext.sMainTableName (&webapicallcontext.hoResponseBody)
         Send CurrentRecordToResponseBody webapicallcontext.hoResponseBody webapicallcontext.hoIterator
         
     End_Procedure
@@ -424,7 +441,7 @@ Class cRestDataset is a cBaseRestDataset
         Move "OK" to webapicallcontext.sShortStatusMessage
         
         //Formulate the response
-        Get CreateResponseBodyObject of webapicallcontext.hoIterator webapicallcontext.sMainTableName to webapicallcontext.hoResponseBody
+        Send CreateResponseBodyObject of webapicallcontext.hoIterator webapicallcontext.sMainTableName (&webapicallcontext.hoResponseBody)
         Send CurrentRecordToResponseBody webapicallcontext.hoResponseBody webapicallcontext.hoIterator
         
     End_Procedure
@@ -468,7 +485,7 @@ Class cRestDataset is a cBaseRestDataset
                 //Get all the exposed fields
                 Get RetrieveExposedDataFields to hoExposedDataObjects
                 //Create a response object
-                Get CreateResponseBodyObject of webapicallcontext.hoIterator webapicallcontext.sMainTableName to webapicallcontext.hoResponseBody
+                Send CreateResponseBodyObject of webapicallcontext.hoIterator webapicallcontext.sMainTableName (&webapicallcontext.hoResponseBody)
                 //Populate the response
                 Send CurrentRecordToResponseBody webapicallcontext.hoResponseBody webapicallcontext.hoIterator
                 //Finally actually delete the resource
@@ -492,36 +509,92 @@ Class cRestDataset is a cBaseRestDataset
 
     End_Procedure
     
+    // Helper function that returns all query parameters based on psRequestQueryString
+    Function QueryParams Returns tWebQueryParams[]
+        String[] aParams aParam
+        String sQueryString
+        WString wsUnescape
+        Integer i iVoid
+        tWebQueryParams[] requestParams
+        
+        Get psRequestQueryString to sQueryString
+        
+        Get StrSplitToArray sQueryString "&" to aParams
+        For i from 0 to (SizeOfArray(aParams) - 1)
+            Get StrSplitToArray aParams[i] "=" to aParam
+            
+            If (SizeOfArray(aParam) > 1) Begin
+                Move aParam[0] to wsUnescape
+                If (SizeOfWString(wsUnescape) > 0) Begin
+                    Move (UrlUnescapeW(AddressOf(wsUnescape), 0, 0, URL_UNESCAPE_INPLACE ior URL_UNESCAPE_AS_UTF8)) to iVoid
+                End
+                
+                // Key will be lowercased for case insensitive finds
+                Move (Lowercase(aParam[0])) to requestParams[i].sKey
+                Move aParam[1] to requestParams[i].sValue
+                
+            End
+        Loop
+        
+        // Sort it based on the key value
+        Move (SortArray(requestParams, False)) to requestParams
+        Function_Return requestParams
+    End_Function
+    
     //This procedure should be responsible for applying filters
-    Procedure HandleQueryParams Handle[] hoExposedDataObjects
+    Procedure HandleQueryParams tWebApiCallContext ByRef webapicallcontext Handle[] hoExposedDataObjects
         Handle hoDD
-        String sQueryParam sFieldName sFilterType
-        Integer iIndex iFile iLimit iAmountOfDataObjects iPos
+        String sQueryParam sFilterType
+        Integer iIndex iFile iLimit iAmountOfDataObjects iPos iFoundIndex iOffset
         Boolean bFilterable
+        tWebQueryParams[] requestParams
+        tWebQueryParams dummySearch
         
         Get Main_DD to hoDD
         
         //Below are query params that can be applied regardless of what table it is. This includes params such as limit.
-        Get UrlParameter "Limit" to iLimit
+        Get QueryParams to requestParams
         
-        If (IsNumeric(Self, iLimit)) Begin
-            Set piLimitResults to iLimit
+        // Apply limit if there is one
+        Move "limit" to dummySearch.sKey
+        Move (SearchArray(dummySearch, requestParams)) to iFoundIndex
+        If (iFoundIndex <> -1) Begin
+            Move requestParams[iFoundIndex].sValue to webapicallcontext.iLimit
+        End
+        
+        Move "offset" to dummySearch.sKey
+        Move (SearchArray(dummySearch, requestParams)) to iFoundIndex
+        If (iFoundIndex <> -1) Begin
+            Move requestParams[iFoundIndex].sValue to webapicallcontext.iOffset
         End
         
         Move (SizeOfArray(hoExposedDataObjects)-1) to iAmountOfDataObjects
+        
+        // Remember the old sql filter
+        If (SupportsSQLFilters(hoDD)) Begin
+            Get psSQLFilter of hoDD to webapicallcontext.sOldSQLFilter
+        End
         
         //Reset all the current constrains to make room for the new ones
         Send Rebuild_Constraints of hoDD
         
         For iIndex from 0 to iAmountOfDataObjects
             Get IsFilterable of hoExposedDataObjects[iIndex] to bFilterable
+            // Reset this for each field we're walking through
+            Move 0 to iFoundIndex
             
             If bFilterable Begin
-                Get FieldName of hoExposedDataObjects[iIndex] to sFieldName
-                Get UrlParameter sFieldName to sQueryParam
-            
-                //If there is a query param apply the constrain
-                If (sQueryParam <> "") Begin
+                Get FieldName of hoExposedDataObjects[iIndex] to dummySearch.sKey
+                Move (Lowercase(dummySearch.sKey)) to dummySearch.sKey
+                
+                While (iFoundIndex <> -1)
+                    Move (SearchArray(dummySearch, requestParams, iFoundIndex)) to iFoundIndex
+                    
+                    If (iFoundIndex = -1) ;
+                        Break
+                    
+                    Move requestParams[iFoundIndex].sValue to sQueryParam
+                    
                     //Check what type of constrain we're dealing with. If nothing is specified we default to EQ
                     If (Pos("(GE)", sQueryParam, 0) <> 0) Begin
                         Move "GE" to sFilterType
@@ -542,21 +615,25 @@ Class cRestDataset is a cBaseRestDataset
                     
                     //Add the constrain
                     Send AddConstrain of hoExposedDataObjects[iIndex] sQueryParam sFilterType
-                End
-            End
-            
+                    Move (iFoundIndex + 1) to iFoundIndex
+                Loop
+            End            
         Loop
         
     End_Procedure
     
-    Procedure ResetState
+    Procedure ResetState tWebApiCallContext ByRef webapicallcontext
         Handle hoDD
         
         Get Main_DD to hoDD
         
         //Only clear the Main_DD if there is one.
         If (hoDD <> 0) Begin
-            Send Clear of hoDD    
+            Send Clear of hoDD
+            If (SupportsSQLFilters(hoDD)) Begin
+                // Return the old filter
+                Set psSQLFilter of hoDD to webapicallcontext.sOldSQLFilter
+            End
         End
         
     End_Procedure

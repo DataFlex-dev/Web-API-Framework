@@ -17,6 +17,7 @@ Class cRestChildCollection is a cObject
         
         Property Boolean pbReadOnly True
         Property Integer piLimitResult 0
+        Property Integer piFindIndex 1
 
     End_Procedure
     
@@ -35,23 +36,24 @@ Class cRestChildCollection is a cObject
     */
     Procedure AppendToBody Handle hoResponseBody Handle hoIterator
         Handle hoNestedArray hoNestedObject hoChild hoServer
-        Integer iChildCount iIndex iLimit iRecordsRetrieved
+        Integer iChildCount iIndex iLimit iRecordsRetrieved iFindIndex
         String sNodeName
         
         Get Server to hoServer
         Get SchemaName to sNodeName
         Get Child_Count to iChildCount
         Get piLimitResult to iLimit
+        Get piFindIndex to iFindIndex
         
         //Create nested object
-        Get CreateResponseBodyArray of hoIterator sNodeName to hoNestedArray
+        Send CreateResponseBodyArray of hoIterator sNodeName (&hoNestedArray)
         
         //Start finding the child records
-        Send Find of hoServer FIRST_RECORD 1
+        Send Find of hoServer FIRST_RECORD iFindIndex
         
         While ( (Found) and not(Err) and ((iLimit = 0) or (iLimit > 0 and iRecordsRetrieved < iLimit)) )
             //When we find a record create a new nested object
-            Get CreateResponseBodyObject of hoIterator sNodeName to hoNestedObject
+            Send CreateResponseBodyObject of hoIterator sNodeName (&hoNestedObject)
             
             //Loop through this objects children and append their values to the nested object
             For iIndex from 0 to (iChildCount - 1)
@@ -64,31 +66,14 @@ Class cRestChildCollection is a cObject
             
             Increment iRecordsRetrieved
             //Keep finding child records
-            Send Find of hoServer NEXT_RECORD 1
+            Send Find of hoServer NEXT_RECORD iFindIndex 
         Loop
         
         Send AppendNestedObject of hoIterator hoNestedArray hoResponseBody sNodeName
     End_Procedure
     
     Function SchemaName Returns String
-        Integer iFile
-        String sTableName
-        Handle hoServer
-        
-        Get psNodeName to sTableName
-        
-        //If the node name was not manually set default to the name of the table
-        If (sTableName <> "") Begin
-            Function_Return sTableName
-        End
-        
-        Get Server to hoServer
-        
-        Get Main_File of hoServer to iFile
-        
-        Get_Attribute DF_FILE_LOGICAL_NAME of iFile to sTableName
-        
-        Function_Return sTableName
+        Function_Return (psNodeName(Self))
     End_Function
     
     Function FieldName Returns String
@@ -103,4 +88,21 @@ Class cRestChildCollection is a cObject
     Function IsRequired Returns Boolean
         Function_Return False
     End_Function
+    
+    Procedure AfterAttachDDO
+        Integer iFile
+        Handle hoServer
+        String sTableName
+        
+        Get Server to hoServer        
+        Get Main_File of hoServer to iFile
+        
+        If (hoServer = 0 and iFile = 0) ;
+            Procedure_Return
+            
+        If (psNodeName(Self) = "") Begin
+            Get_Attribute DF_FILE_LOGICAL_NAME of iFile to sTableName
+            Set psNodeName to sTableName   
+        End
+    End_Procedure
 End_Class

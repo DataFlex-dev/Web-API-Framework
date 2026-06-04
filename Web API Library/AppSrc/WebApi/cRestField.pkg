@@ -23,6 +23,8 @@ Class cRestField is a cObject
         
         //Needed for non data aware fields
         Property Integer peFieldType DF_ASCII
+        //Precision for numeric fields
+        Property Integer piPrecision 0
         //Only used for fields with no data binding
         Property String psExampleValue ""
 
@@ -100,7 +102,12 @@ Class cRestField is a cObject
     
     Procedure AddConstrain String sConstrain String sFilterType
         Integer iFile iField
+        Integer eFieldType
+        Handle hoMainDD hoServer
+        String sSqlFilter
         
+        Get Main_DD to hoMainDD
+        Get Server to hoServer
         Get Data_File to iFile
         Get Data_Field to iField
         
@@ -109,22 +116,59 @@ Class cRestField is a cObject
             Procedure_Return
         End
         
-        //Check what type of constrain we need to use
-        If (sFilterType = "GE") Begin
-            Vconstrain iFile iField GE sConstrain
-        End
-        Else If (sFilterType = "GT") Begin
-            Vconstrain iFile iField GT sConstrain
-        End
-        Else If (sFilterType = "LT") Begin
-            Vconstrain iFile iField LT sConstrain
-        End
-        Else If (sFilterType = "LE") Begin
-            Vconstrain iFile iField LE sConstrain
+        // Check if we can use sql filters. Only apply them to the main dd.
+        If (hoMainDD = hoServer and SupportsSQLFilters(hoMainDD)) Begin
+            Set pbUseDDSQLFilters of hoMainDD to True
+            Get psSQLFilter of hoMainDD to sSqlFilter
+            Get peFieldType to eFieldType
+            
+            If (eFieldType = DF_ASCII or eFieldType = DF_TEXT) Begin
+                Get SQLEscapedStr of hoMainDD sConstrain to sConstrain
+                Move ("'" + sConstrain + "'") to sConstrain    
+            End
+            
+            //Check what type of constrain we need to use
+            If (sFilterType = "GE") Begin
+                Get SQLStrAppend of hoMainDD sSqlFilter (SQLStrFileFieldName(hoMainDD, iField) + " >= " + sConstrain) to sSqlFilter
+            End
+            Else If (sFilterType = "GT") Begin
+                Get SQLStrAppend of hoMainDD sSqlFilter (SQLStrFileFieldName(hoMainDD, iField) + " > " + sConstrain) to sSqlFilter
+            End
+            Else If (sFilterType = "LE") Begin
+                Get SQLStrAppend of hoMainDD sSqlFilter (SQLStrFileFieldName(hoMainDD, iField) + " <= " + sConstrain) to sSqlFilter
+            End
+            Else If (sFilterType = "LT") Begin
+                Get SQLStrAppend of hoMainDD sSqlFilter (SQLStrFileFieldName(hoMainDD, iField) + " < " + sConstrain) to sSqlFilter
+            End
+            Else If (sFilterType = "NE") Begin
+                Get SQLStrAppend of hoMainDD sSqlFilter (SQLStrFileFieldName(hoMainDD, iField) + " != " + sConstrain) to sSqlFilter
+            End
+            Else Begin
+                Get SQLStrAppend of hoMainDD sSqlFilter (SQLStrFileFieldName(hoMainDD, iField) + " = " + sConstrain) to sSqlFilter    
+            End
+            
+            Set psSQLFilter of hoMainDD to sSqlFilter
         End
         Else Begin
-            Vconstrain iFile iField EQ sConstrain
+            // Apply constrain using vconstrain command
+            If (sFilterType = "GE") Begin
+                Vconstrain iFile iField GE sConstrain
+            End
+            Else If (sFilterType = "GT") Begin
+                Vconstrain iFile iField GT sConstrain
+            End
+            Else If (sFilterType = "LT") Begin
+                Vconstrain iFile iField LT sConstrain
+            End
+            Else If (sFilterType = "LE") Begin
+                Vconstrain iFile iField LE sConstrain
+            End
+            Else Begin
+                Vconstrain iFile iField EQ sConstrain
+            End    
         End
+        
+        
        
     End_Procedure
     
@@ -171,8 +215,6 @@ Class cRestField is a cObject
     This will either be psFieldName if it is set or it will get the DF_FIELD_Name.    
     */
     Function FieldName Returns String
-        Handle hoDD
-        Integer iField iFile
         String sFieldName
         
         Get psFieldName to sFieldName
@@ -181,37 +223,14 @@ Class cRestField is a cObject
             Function_Return sFieldName
         End
         
-        Get Main_DD to hoDD
-        
-        Get Data_File to iFile
-        Get Data_Field to iField
-        
-        If (hoDD <> 0 and iFile <> 0) Begin
-            Get File_Field_Label of hoDD iFile iField DD_LABEL_TAG to sFieldName
-            Function_Return sFieldName    
-        End
-        
         Error DFERR_PROGRAM "Non data aware cRestfields must have a psFieldName"
         
         Function_Return ""
     End_Function
     
     //Returns the DF_FIELD_TYPE of the current item.
-    Function FieldType Returns Integer
-        Integer iFile iField eFieldType
-        
-        Get Data_File to iFile
-        Get Data_Field to iField
-        
-        //If the field has data binding get the field type from the database.
-        If (iFile <> 0) Begin
-            Get_Attribute DF_FIELD_TYPE of iFile iField to eFieldType    
-        End
-        Else Begin
-            Get peFieldType to eFieldType
-        End        
-        
-        Function_Return eFieldType
+    Function FieldType Returns Integer        
+        Function_Return (peFieldType(Self))
     End_Function
     
     //Returns the Status help field of the data dictionary
@@ -315,4 +334,38 @@ Class cRestField is a cObject
         
         Function_Return bRequired
     End_Function
+    
+    // Fired by the cBaseDeo interface. Sets default values.
+    // This way we only need to query database APIs once instead of for every single find.
+    Procedure AfterAttachDDO
+        String sFieldName
+        Integer iFile iField iPrecision
+        Integer eFieldType
+        Handle hoDD
+        
+        Get Server to hoDD
+        Get Data_File to iFile
+        Get Data_Field to iField
+        
+        // If we have no data binding no need to determine defaults here
+        If (iFile = 0 and iField = 0) ;
+            Procedure_Return
+            
+        // If the field name isnt
+        If (psFieldName(Self) = "") Begin
+            Get Field_Label of hoDD iField DD_LABEL_TAG to sFieldName
+            Set psFieldName to sFieldName    
+        End
+        
+        Get_Attribute DF_FIELD_TYPE of iFile iField to eFieldType
+        Set peFieldType to eFieldType
+        
+        // If we're dealing with a numeric type check the precision to check if it should show as integer or number.
+        If (eFieldType = DF_BCD) Begin
+            Get_Attribute DF_FIELD_PRECISION of iFile iField to iPrecision
+            Set piPrecision to iPrecision      
+        End
+        
+        
+    End_Procedure
 End_Class

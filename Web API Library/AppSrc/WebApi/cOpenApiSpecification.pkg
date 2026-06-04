@@ -66,8 +66,9 @@ Class cOpenApiSpecification is a cObject
     { Visibility = Private }
     Procedure GenerateServersInfo Handle hoOpenApiSpecJson
         Handle hoServersJson hoServerJson hoHttpApi
-        String sApiPath sRouterPath sDescription sApiRoot sServerName sSecureString
+        String sApiPath sRouterPath sDescription sApiRoot sServerName sSecureString sForwardedProto
         Boolean bSecure
+        Integer iServerPort
         
         Get GetWebApiObject to hoHttpApi
         Get psPath of hoHttpApi to sApiPath
@@ -77,15 +78,25 @@ Class cOpenApiSpecification is a cObject
         If (sApiRoot = "") Begin
             Get ServerVariable of ghoWebServiceDispatcher "SERVER_NAME" to sServerName
             Get ServerVariable of ghoWebServiceDispatcher "URL" to sApiRoot
-            Get ServerVariable of ghoWebServiceDispatcher "SERVER_PORT_SECURE" to bSecure
+            Get ServerVariable of ghoWebServiceDispatcher "HTTP_X_FORWARDED_PROTO" to sForwardedProto
             
-            //Add http or https based on the SERVER_PORT_SECURE setting
-            If bSecure Begin
-                Move "https://" to sSecureString
+            // Check for reverse proxy
+            If (sForwardedProto <> "") Begin
+                Move (sForwardedProto + "://") to sSecureString    
             End
             Else Begin
-                Move "http://" to sSecureString
+                Get ServerVariable of ghoWebServiceDispatcher "SERVER_PORT" to iServerPort
+                // 443 is the default secure port
+                Move (iServerPort = 443) to bSecure
+                //Add http or https based on the SERVER_PORT setting
+                If bSecure Begin
+                    Move "https://" to sSecureString
+                End
+                Else Begin
+                    Move "http://" to sSecureString
+                End    
             End
+            
             //The url contains /OpenApi since its part of the requesting url, we can take it out of the url.
             Move (Replace("/OpenApi", sApiRoot, "")) to sApiRoot
             Move (sSecureString + sServerName + sApiRoot) to sApiRoot
@@ -228,7 +239,7 @@ Class cOpenApiSpecification is a cObject
     
     { Visibility = Private }
     Procedure ParseVerb String sCurrentVerb Handle hoEndpoint Handle hoPathsJson
-        Handle hoVerbJson hoResponsesJson hostatusCodeJson hoContentJson hoContentTypeJson hoSchemaJson hoTagsJson hoRequestBody hoEndpointJson
+        Handle hoVerbJson hoResponsesJson hostatusCodeJson hoContentJson hoContentTypeJson hoSchemaJson hoTagsJson hoRequestBody hoEndpointJson hoItemsJson
         String[] asIteratorTypes
         String sEndpointName sEndpointTableName sEndpointFullPath sTagName
         Integer iIteratorIndex
@@ -313,7 +324,24 @@ Class cOpenApiSpecification is a cObject
         Send ParseErrorResponse sCurrentVerb hoResponsesJson
         
         Send SetMemberValue of hoStatusCodeJson "description" jsonTypeString (SFormat("A %1", sEndpointName))
-        Send SetMemberValue of hoSchemaJson "$ref" jsonTypeString (SFormat("#/components/schemas/%1", sEndpointTableName))
+        
+        // GET requests should return an array.
+        If (sCurrentVerb = C_WEBAPI_GET) Begin
+            Get Create (RefClass(cJsonObject)) to hoItemsJson
+            Send InitializeJsonType of hoItemsJson jsonTypeObject
+            
+            // schema should become type array
+            Send SetMemberValue of hoSchemaJson "type" jsonTypeString "array"
+            // $ref should be appended to the items object
+            Send SetMemberValue of hoItemsJson "$ref" jsonTypeString (SFormat("#/components/schemas/%1", sEndpointTableName))
+            Send SetMember of hoSchemaJson "items" hoItemsJson
+            
+            Send Destroy of hoItemsJson
+        End
+        Else Begin
+            Send SetMemberValue of hoSchemaJson "$ref" jsonTypeString (SFormat("#/components/schemas/%1", sEndpointTableName))    
+        End
+        
         Send AddMemberValue of hoTagsJson jsonTypeString sTagName
         
         Send SetMember of hoEndpointJson (Lowercase(sCurrentVerb)) hoVerbJson
@@ -963,7 +991,7 @@ Class cOpenApiSpecification is a cObject
     //This should add query parameters to the GET endpoint
     { Visibility = Private }
     Procedure ApplyQueryParams Handle hoVerbJson Handle hoEndpoint
-        Integer iIndex iEnumIndex eFieldType
+        Integer iIndex iEnumIndex eFieldType iPrecision
         Boolean bFilterable
         Handle hoParametersArrayJson hoParameterJson hoSchemaJson hoEnumsJson
         Handle hoKeyField
@@ -993,6 +1021,7 @@ Class cOpenApiSpecification is a cObject
                 //Get all needed info from the field
                 Get FieldName of hoExposedDataObjects[iIndex] to sFieldName
                 Get FieldType of hoExposedDataObjects[iIndex] to eFieldType
+                Get piPrecision of hoExposedDataObjects[iIndex] to iPrecision
                 Get FieldValidationTable of hoExposedDataObjects[iIndex] to avValidationTable
                 
                 //Set the json members
@@ -1005,7 +1034,7 @@ Class cOpenApiSpecification is a cObject
                 Move "" to sFieldFormat
                 
                 //Determine the field type and formatting
-                Send FieldTypeToOpenApiType eFieldType (&sFieldType) (&sFieldFormat)
+                Send FieldTypeToOpenApiType eFieldType (&sFieldType) (&sFieldFormat) iPrecision
                 
                 Send SetMemberValue of hoSchemaJson "type" jsonTypeString sFieldType
                 
@@ -1046,6 +1075,7 @@ Class cOpenApiSpecification is a cObject
         Handle hoKeyfield
         String sFieldName sFieldType sFieldFormat
         Integer eFieldType
+        Integer iPrecision
         
         Get RetrieveKeyField of hoEndpoint to hoKeyField
         //Just return if there is no keyfield
@@ -1065,13 +1095,14 @@ Class cOpenApiSpecification is a cObject
         
         //Get the field name of the unique key
         Get FieldType of hoKeyField to eFieldType
+        Get piPrecision of hoKeyfield to iPrecision
         
         //Set the path parameter values
         Send SetMemberValue of hoParameterJson "in" jsonTypeString "path"
         Send SetMemberValue of hoParameterJson "name" jsonTypeString "Id"
         Send SetMemberValue of hoParameterJson "required" jsonTypeBoolean True
         
-        Send FieldTypeToOpenApiType eFieldType (&sFieldType) (&sFieldFormat)
+        Send FieldTypeToOpenApiType eFieldType (&sFieldType) (&sFieldFormat) iPrecision
         
         Send SetMemberValue of hoSchemaJson "type" jsonTypeString sFieldType
         
@@ -1088,7 +1119,7 @@ Class cOpenApiSpecification is a cObject
     //This will parse the fields defined inside of a dataset
     { Visibility = Private }
     Procedure FieldToOpenApi Handle hoField Handle hoPropertiesJson
-        Integer eFieldType iChildCount iIndex
+        Integer eFieldType iChildCount iIndex iPrecision
         String sFieldName sFieldType sFieldHelp sNestedSchemaName sFieldFormat
         Handle hoNestedPropertiesObject hoNestedSchema hoNestedSchemaProperties hoForeignSchemaChild hoItems
         Handle[] hoNestedFields
@@ -1157,6 +1188,7 @@ Class cOpenApiSpecification is a cObject
         Get FieldName of hoField to sFieldName
         Get FieldType of hoField to eFieldType
         Get FieldHelp of hoField to sFieldHelp
+        Get piPrecision of hoField to iPrecision
         Get pbReadOnly of hoField to bReadOnly
         Get pbWriteOnly of hoField to bWriteOnly
         Get FieldValidationTable of hoField to avValidationTable
@@ -1165,7 +1197,7 @@ Class cOpenApiSpecification is a cObject
         Send InitializeJsonType of hoNestedPropertiesObject jsonTypeObject
         
         //Determine the type for the OpenApi spec
-        Send FieldTypeToOpenApiType eFieldType (&sFieldType) (&sFieldFormat)
+        Send FieldTypeToOpenApiType eFieldType (&sFieldType) (&sFieldFormat) iPrecision
         
         Send SetMemberValue of hoNestedPropertiesObject "type" jsonTypeString sFieldType
         
@@ -1282,7 +1314,7 @@ Class cOpenApiSpecification is a cObject
     
     //Helper function to map df field types to the ones used in the OpenApi specification
     { Visibility = Private }
-    Procedure FieldTypeToOpenApiType Integer eDataflexFieldType String ByRef sFieldType String ByRef sFieldFormat
+    Procedure FieldTypeToOpenApiType Integer eDataflexFieldType String ByRef sFieldType String ByRef sFieldFormat Integer iPrecision
         
         If (eDataflexFieldType = DF_ASCII or eDataflexFieldType = DF_TEXT) Begin
             Move "string" to sFieldType
@@ -1299,10 +1331,12 @@ Class cOpenApiSpecification is a cObject
             Move "string" to sFieldType
             Move "binary" to sFieldFormat
         End
-        Else If (eDataflexFieldType = DF_BCD) Begin
+        Else If (eDataflexFieldType = DF_BCD and iPrecision = 0) Begin
             Move "integer" to sFieldType
         End
-             
+        Else If (eDataflexFieldType = DF_BCD) Begin
+            Move "number" to sFieldType
+        End             
     End_Procedure
     
     { Visibility = Private }

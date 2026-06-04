@@ -1,0 +1,34 @@
+<Templates>
+    <Template>
+        <ComponentType>58</ComponentType>
+        <Name>REST Dataset</Name>
+        <FileName>RestDataset.tpl</FileName>
+        <ImageLarge/>
+        <BriefDescription>Creates a cRestDataset object</BriefDescription>
+        <LongDescription>Creates a minimal cRestDataset object with only a psPath.</LongDescription>
+    </Template>
+    <Template>
+        <ComponentType>51</ComponentType>
+        <Name>Web API</Name>
+        <FileName>WebApi.tpl</FileName>
+        <ImageLarge/>
+        <BriefDescription>Creates a cWebApi object</BriefDescription>
+        <LongDescription>Creates a minimal cWebApi object with a psPath and a default cJSONIterator.</LongDescription>
+    </Template>
+    <Template>
+        <ComponentType>58</ComponentType>
+        <Name>Web API Modifier</Name>
+        <FileName>WebApiModifier.tpl</FileName>
+        <ImageLarge/>
+        <BriefDescription>Creates a cWebApiModifier object</BriefDescription>
+        <LongDescription>Creates a cWebApiModifier object with empty OnPreRequest and OnPostRequest events.</LongDescription>
+    </Template>
+    <Template>
+        <ComponentType>58</ComponentType>
+        <Name>Web API Auth Modifier</Name>
+        <FileName>WebApiAuthModifier.tpl</FileName>
+        <ImageLarge/>
+        <BriefDescription>Creates a cWebApiAuthModifier object</BriefDescription>
+        <LongDescription>Creates a cWebApiAuthModifier object with empty OnAuth and OnDefineAuthRules procedures.</LongDescription>
+    </Template>
+</Templates>

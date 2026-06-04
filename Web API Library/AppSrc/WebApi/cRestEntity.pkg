@@ -30,7 +30,7 @@ Class cRestEntity is a cObject
         Get SchemaName to sNodeName
         
         //Create nested object
-        Get CreateResponseBodyObject of hoIterator sNodeName to hoNestedObject
+        Send CreateResponseBodyObject of hoIterator sNodeName (&hoNestedObject)
         
         //Get the child count.
         Get Child_Count to iChildCount
@@ -96,45 +96,9 @@ Class cRestEntity is a cObject
         Loop
     End_Procedure
     
-    //Retrieves the field name that manages the connection between the main table and the parent.
-    Function FieldName Returns String
-        Handle hoDD
-        Integer iFile iField
-        String sFieldName
-        
-        // Get the main Data Dictionaries
-        Get Main_DD to hoDD
-        Get Data_File to iFile
-        Get Data_Field to iField
-        
-        If (iField > 0) Begin
-            Get_Attribute DF_FIELD_NAME of iFile iField to sFieldName
-            Function_Return sFieldName
-        End
-        
-        Function_Return ""
-    End_Function
-    
     //Returns the name of the table
-    Function SchemaName Returns String
-        Integer iFile
-        String sTableName
-        Handle hoServer
-        
-        Get psNodeName to sTableName
-        
-        //If the node name was not manually set default to the name of the table
-        If (sTableName <> "") Begin
-            Function_Return sTableName
-        End
-        
-        Get Server to hoServer
-        
-        Get Main_File of hoServer to iFile
-        
-        Get_Attribute DF_FILE_LOGICAL_NAME of iFile to sTableName
-        
-        Function_Return sTableName
+    Function SchemaName Returns String        
+        Function_Return (psNodeName(Self))
     End_Function
     
     //Checks if the field is fiterable
@@ -159,6 +123,23 @@ Class cRestEntity is a cObject
         
         Function_Return iRelField
     End_Function
+    
+    Procedure AfterAttachDDO
+        Integer iFile
+        Handle hoServer
+        String sTableName
+        
+        Get Server to hoServer        
+        Get Main_File of hoServer to iFile
+        
+        If (hoServer = 0 and iFile = 0) ;
+            Procedure_Return
+            
+        If (psNodeName(Self) = "") Begin
+            Get_Attribute DF_FILE_LOGICAL_NAME of iFile to sTableName
+            Set psNodeName to sTableName   
+        End
+    End_Procedure
 
     Procedure End_Construct_Object
         Forward Send End_Construct_Object

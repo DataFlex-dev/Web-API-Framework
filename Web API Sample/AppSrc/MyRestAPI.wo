@@ -18,7 +18,7 @@ Object oRestFramework is a cWebApi
     
     Use ApiCallLogger.pkg
     
-    Object oVersion1Router is a cWebApiRouter
+    Object oApiKeyRouter is a cWebApiRouter
         Set psPath to "ApiKey"
         Use LoginEndpoint.pkg
         
@@ -31,7 +31,7 @@ Object oRestFramework is a cWebApi
         
     End_Object
     
-    Object oVersion2Router is a cWebApiRouter
+    Object oJWTRouter is a cWebApiRouter
         Set psPath to "JWT"
         
         Object oJwtLogin is a cJWTLoginEndpoint
@@ -52,7 +52,7 @@ Object oRestFramework is a cWebApi
         
     End_Object
     
-    Object oVersion2Router is a cWebApiRouter
+    Object oBasicAuthRouter is a cWebApiRouter
         Set psPath to "BasicAuth"
         
         Object oBasicAuth is a cBasicAuth

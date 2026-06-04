@@ -2,6 +2,9 @@
 
 # AppHtml
 **/apphtml/global.asa
+**/apphtml/web.config
+**/apphtml/cssthemes/
+**/apphtml/dfengine/
 
 # AppSrc
 **/appsrc/**/*.prn
@@ -14,6 +17,7 @@
 **/appsrc/**/*.pkd
 **/appsrc/**/*.prn
 **/appsrc/**/*.prp
+**/appsrc/**/*.cfg
 **/AppSrc/config/classlist.xml
 
 
@@ -23,6 +27,10 @@
 **/data/**/*.bad
 **/data/**/*.hdr
 **/data/**/*.cch
+**/data/**/*.dat
+**/data/**/*.k1
+**/data/**/*.k2
+**/data/**/*.k3
 
 # DDSrc
 **/ddsrc/**/*.def
