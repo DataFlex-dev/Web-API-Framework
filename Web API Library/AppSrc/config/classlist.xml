@@ -1,64 +1,773 @@
-<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0"?>
 <classList xmlns="http://www.dataaccess.com/VisualDataFlex/2006/classlist/">
-    <VDFLibraryTimeStamp>2026-06-03T00:00:00</VDFLibraryTimeStamp>
-    <DFLibraryVersion>2</DFLibraryVersion>
-    <libraries/>
-    <classes>
-        <class>
-            <className>cWebApi</className>
-            <image></image>
-            <package>WebApi\cWebApi.pkg</package>
-            <groupName>Web API</groupName>
-            <libraryID></libraryID>
-        </class>
-        <class>
-            <className>cWebApiRouter</className>
-            <image></image>
-            <package>WebApi\cWebApiRouter.pkg</package>
-            <groupName>Web API</groupName>
-            <libraryID></libraryID>
-        </class>
-        <class>
-            <className>cRestDataset</className>
-            <image></image>
-            <package>WebApi\cRestDataset.pkg</package>
-            <groupName>Web API</groupName>
-            <libraryID></libraryID>
-        </class>
-        <class>
-            <className>cRestField</className>
-            <image>cWebForm.ico</image>
-            <package>WebApi\cRestField.pkg</package>
-            <groupName>Web API</groupName>
-            <libraryID></libraryID>
-        </class>
-        <class>
-            <className>cRestEntity</className>
-            <image></image>
-            <package>WebApi\cRestEntity.pkg</package>
-            <groupName>Web API</groupName>
-            <libraryID></libraryID>
-        </class>
-        <class>
-            <className>cRestChildCollection</className>
-            <image></image>
-            <package>WebApi\cRestChildCollection.pkg</package>
-            <groupName>Web API</groupName>
-            <libraryID></libraryID>
-        </class>
-        <class>
-            <className>cWebApiModifier</className>
-            <image></image>
-            <package>WebApi\cWebApiModifier.pkg</package>
-            <groupName>Web API</groupName>
-            <libraryID></libraryID>
-        </class>
-        <class>
-            <className>cWebApiAuthModifier</className>
-            <image></image>
-            <package>WebApi\cWebApiAuthModifier.pkg</package>
-            <groupName>Web API</groupName>
-            <libraryID></libraryID>
-        </class>
-    </classes>
+	<VDFLibraryTimeStamp>2026-04-20T21:24:26</VDFLibraryTimeStamp>
+	<DFLibraryVersion>2</DFLibraryVersion><libraries></libraries>
+	<classes>
+		<class>
+			<className>cWebApi</className><image></image>
+			<package>WebApi\cWebApi.pkg</package>
+			<groupName>Web API</groupName><libraryID></libraryID>
+			<classLibrary>WebApp</classLibrary>
+		</class>
+		<class>
+			<className>cWebApiRouter</className>
+			<image>ControlObject.ico</image>
+			<package>WebApi\cWebApiRouter.pkg</package>
+			<groupName>Web API</groupName><libraryID></libraryID>
+			<classLibrary>Common</classLibrary>
+		</class>
+		<class>
+			<className>cRestDataset</className><image></image>
+			<package>WebApi\cRestDataset.pkg</package>
+			<groupName>Web API</groupName><libraryID></libraryID>
+			<classLibrary>WebApp</classLibrary>
+		</class>
+		<class>
+			<className>cRestField</className>
+			<image>cWebForm.ico</image>
+			<package>WebApi\cRestField.pkg</package>
+			<groupName>Web API</groupName><libraryID></libraryID>
+			<classLibrary>Common</classLibrary>
+		</class>
+		<class>
+			<className>cRestEntity</className>
+			<image>ControlObject.ico</image>
+			<package>WebApi\cRestEntity.pkg</package>
+			<groupName>Web API</groupName><libraryID></libraryID>
+			<classLibrary>Common</classLibrary>
+		</class>
+		<class>
+			<className>cRestChildCollection</className>
+			<image>ControlObject.ico</image>
+			<package>WebApi\cRestChildCollection.pkg</package>
+			<groupName>Web API</groupName><libraryID></libraryID>
+			<classLibrary>Common</classLibrary>
+		</class>
+		<class>
+			<className>cWebApiModifier</className>
+			<image>ControlObject.ico</image>
+			<package>WebApi\cWebApiModifier.pkg</package>
+			<groupName>Web API</groupName><libraryID></libraryID>
+			<classLibrary>Common</classLibrary>
+		</class>
+		<class>
+			<className>cWebApiAuthModifier</className>
+			<image>ControlObject.ico</image>
+			<package>WebApi\cWebApiAuthModifier.pkg</package>
+			<groupName>Web API</groupName><libraryID></libraryID>
+			<classLibrary>Common</classLibrary>
+		</class>
+		<class>
+			<className>cWebView2Browser</className>
+			<image>cWebView2Browser.ico</image>
+			<package>cWebView2Browser.pkg</package>
+			<groupName>Base Controls</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>BitmapContainer</className>
+			<image>ControlBitmapContainer.ico</image>
+			<package>dfBitmap.pkg</package>
+			<groupName>Base Controls</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>Button</className>
+			<image>ControlButton.ico</image>
+			<package>Windows.pkg</package>
+			<groupName>Base Controls</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>cSplitButton</className>
+			<image>ControlSplitButton.ico</image>
+			<package>cSplitButton.pkg</package>
+			<groupName>Base Controls</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>cCommandLinkButton</className>
+			<image>ControlCommandLinkButton.ico</image>
+			<package>cCommandLinkButton.pkg</package>
+			<groupName>Base Controls</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>cAnimation</className>
+			<image>ControlAnimation.ico</image>
+			<package>cAnimation.pkg</package>
+			<groupName>Base Controls</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>cCJGrid</className>
+			<image>ControlGrid.ico</image>
+			<package>cCJGrid.pkg</package>
+			<groupName>Base Controls</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>cCJGridColumn</className>
+			<image>ControlGridColumn.ico</image>
+			<package>cCJGridColumn.pkg</package>
+			<groupName>Base Controls</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>cCJGridColumnRowIndicator</className>
+			<image>ControlGridColumnRowIndicator.ico</image>
+			<package>cCJGridColumnRowIndicator.pkg</package>
+			<groupName>Base Controls</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>cCJGridPromptList</className>
+			<image>ControlList.ico</image>
+			<package>cCJGridPromptList.pkg</package>
+			<groupName>Base Controls</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>cDbTagsForm</className>
+			<image>cDbTagsForm.ico</image>
+			<package>cDbTagsForm.pkg</package>
+			<groupName>Data Controls</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>Checkbox</className>
+			<image>ControlCheckbox.ico</image>
+			<package>Windows.pkg</package>
+			<groupName>Base Controls</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>cLinkLabel</className>
+			<image>ControlLinkLabel.ico</image>
+			<package>cLinkLabel.pkg</package>
+			<groupName>Base Controls</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>ComboForm</className>
+			<image>ControlComboForm.ico</image>
+			<package>Windows.pkg</package>
+			<groupName>Base Controls</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>cProgressBar</className>
+			<image>ControlProgressBar.ico</image>
+			<package>cProgressBar.pkg</package>
+			<groupName>Base Controls</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>cRichEdit</className>
+			<image>ControlRichEdit.ico</image>
+			<package>cRichEdit.pkg</package>
+			<groupName>Base Controls</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>cTagsForm</className>
+			<image>cTagsForm.ico</image>
+			<package>cTagsForm.pkg</package>
+			<groupName>Base Controls</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>cTextEdit</className>
+			<image>ControlTextEdit.ico</image>
+			<package>cTextEdit.pkg</package>
+			<groupName>Base Controls</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>Form</className>
+			<image>ControlForm.ico</image>
+			<package>Windows.pkg</package>
+			<groupName>Base Controls</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>LineControl</className>
+			<image>ControlLineControl.ico</image>
+			<package>dfLine.pkg</package>
+			<groupName>Base Controls</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>Radio</className>
+			<image>ControlRadio.ico</image>
+			<package>Windows.pkg</package>
+			<groupName>Base Controls</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>SpinForm</className>
+			<image>ControlSpinForm.ico</image>
+			<package>dfSpnFrm.pkg</package>
+			<groupName>Base Controls</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>TextBox</className>
+			<image>ControlTextBox.ico</image>
+			<package>Windows.pkg</package>
+			<groupName>Base Controls</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>Trackbar</className>
+			<image>ControlTrackbar.ico</image>
+			<package>TrckBr.pkg</package>
+			<groupName>Base Controls</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>TreeView</className>
+			<image>ControlTreeView.ico</image>
+			<package>dfTreeVw.pkg</package>
+			<groupName>Base Controls</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>Container3D</className>
+			<image>ControlContainer3D.ico</image>
+			<package>Windows.pkg</package>
+			<groupName>Base Containers</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>cScrollingContainer</className>
+			<image>ControlScrollingContainer.ico</image>
+			<package>cScrollingContainer.pkg</package>
+			<groupName>Base Containers</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>cSplitterContainer</className>
+			<image>ControlSplitterContainer.ico</image>
+			<package>cSplitterContainer.pkg</package>
+			<groupName>Base Containers</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>Group</className>
+			<image>ControlGroup.ico</image>
+			<package>Windows.pkg</package>
+			<groupName>Base Containers</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>ModalPanel</className>
+			<image>ControlModalPanel.ico</image>
+			<package>Windows.pkg</package>
+			<groupName>Base Containers</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>RadioGroup</className>
+			<image>ControlRadioGroup.ico</image>
+			<package>Windows.pkg</package>
+			<groupName>Base Containers</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>TabDialog</className>
+			<image>ControlTabDialog.ico</image>
+			<package>Windows.pkg</package>
+			<groupName>Base Containers</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>ToolPanel</className>
+			<image>ControlToolPanel.ico</image>
+			<package>Windows.pkg</package>
+			<groupName>Base Containers</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>View</className>
+			<image>ControlView.ico</image>
+			<package>Dfadlg.pkg</package>
+			<groupName>Base Containers</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>ReportView</className>
+			<image>ControlView.ico</image>
+			<package>DFRptVw.pkg</package>
+			<groupName>Base Containers</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>cDbCJGrid</className>
+			<image>ControldbGrid.ico</image>
+			<package>cDbCJGrid.pkg</package>
+			<groupName>Data Controls</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>cDbCJGridColumn</className>
+			<image>ControldbGridColumn.ico</image>
+			<package>cDbCJGridColumn.pkg</package>
+			<groupName>Data Controls</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>cDbCJGridColumnSuggestion</className>
+			<image>ControldbGridColumnSuggestion.ico</image>
+			<package>cDbCJGridColumnSuggestion.pkg</package>
+			<groupName>Data Controls</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>cDbCJGridPromptList</className>
+			<image>ControldbList.ico</image>
+			<package>cDbCJGridPromptList.pkg</package>
+			<groupName>Data Controls</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>cDbRichEdit</className>
+			<image>ControldbRichEdit.ico</image>
+			<package>cDbRichEdit.pkg</package>
+			<groupName>Data Controls</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>cDbTextEdit</className>
+			<image>ControldbTextEdit.ico</image>
+			<package>cDbTextEdit.pkg</package>
+			<groupName>Data Controls</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>dbBitmap</className>
+			<image>ControldbBitmap.ico</image>
+			<package>dbBitmap.pkg</package>
+			<groupName>Data Controls</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>dbCheckbox</className>
+			<image>ControldbCheckbox.ico</image>
+			<package>dfEnChk.pkg</package>
+			<groupName>Data Controls</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>dbComboForm</className>
+			<image>ControldbComboForm.ico</image>
+			<package>dfcentry.pkg</package>
+			<groupName>Data Controls</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>dbForm</className>
+			<image>ControldbForm.ico</image>
+			<package>dfEntry.pkg</package>
+			<groupName>Data Controls</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>dbSuggestionForm</className>
+			<image>ControlDbSuggestionForm.ico</image>
+			<package>dbSuggestionForm.pkg</package>
+			<groupName>Data Controls</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>dbParentCombo</className>
+			<image>ControldbComboForm.ico</image>
+			<package>dbParentCombo.pkg</package>
+			<groupName>Data Controls</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>dbSpinForm</className>
+			<image>ControldbSpinForm.ico</image>
+			<package>dfSpnEnt.pkg</package>
+			<groupName>Data Controls</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>dbTrackbar</className>
+			<image>ControldbTrackbar.ico</image>
+			<package>dbTrckBr.pkg</package>
+			<groupName>Data Controls</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>cDbLocalWebControlHost</className>
+			<image>cDbLocalWebControlHost.ico</image>
+			<package>cDbLocalWebControlHost.pkg</package>
+			<groupName>Data Containers</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>cDbScrollingContainer</className>
+			<image>ControlDbScrollingContainer.ico</image>
+			<package>cDbScrollingContainer.pkg</package>
+			<groupName>Data Containers</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>cDbSplitterContainer</className>
+			<image>ControlDbSplitterContainer.ico</image>
+			<package>cDbSplitterContainer.pkg</package>
+			<groupName>Data Containers</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>dbContainer3D</className>
+			<image>ControldbContainer3D.ico</image>
+			<package>dfClient.pkg</package>
+			<groupName>Data Containers</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>dbGroup</className>
+			<image>ControldbGroup.ico</image>
+			<package>dfclient.pkg</package>
+			<groupName>Data Containers</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>dbModalPanel</className>
+			<image>ControlDbModalPanel.ico</image>
+			<package>dfClient.pkg</package>
+			<groupName>Data Containers</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>dbRadioGroup</className>
+			<image>ControldbRadioGroup.ico</image>
+			<package>dfEnRad.pkg</package>
+			<groupName>Data Containers</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>dbTabDialog</className>
+			<image>ControldbTabDialog.ico</image>
+			<package>dfTabDlg.pkg</package>
+			<groupName>Data Containers</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>dbTabDialogView</className>
+			<image>ControlDbTabView.ico</image>
+			<package>dfTabDlg.pkg</package>
+			<groupName>Data Containers</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>dbView</className>
+			<image>ControlDbView.ico</image>
+			<package>DfClient.pkg</package>
+			<groupName>Data Containers</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>ColorDialog</className>
+			<image>ControlColorDialog.ico</image>
+			<package>Colr_dlg.pkg</package>
+			<groupName>Dialogs</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>FontDialog</className>
+			<image>ControlFontDialog.ico</image>
+			<package>Font_dlg.pkg</package>
+			<groupName>Dialogs</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>OpenDialog</className>
+			<image>ControlOpenDialog.ico</image>
+			<package>File_dlg.pkg</package>
+			<groupName>Dialogs</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>cSelectFolderDialog</className>
+			<image>ControlOpenDialog.ico</image>
+			<package>cSelectFolderDialog.pkg</package>
+			<groupName>Dialogs</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>SaveAsDialog</className>
+			<image>ControlSaveAsDialog.ico</image>
+			<package>File_dlg.pkg</package>
+			<groupName>Dialogs</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>cFtpTransfer</className>
+			<image>ControlFtpTransfer.ico</image>
+			<package>VdfBase.pkg</package>
+			<groupName>Internet</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Common</classLibrary>
+		</class>
+		<class>
+			<className>cHttpTransfer</className>
+			<image>ControlHttpTransfer.ico</image>
+			<package>cHttpTransfer.pkg</package>
+			<groupName>Internet</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Common</classLibrary>
+		</class>
+		<class>
+			<className>cJsonHttpTransfer</className>
+			<image>ControlHttpTransfer.ico</image>
+			<package>cJsonHttpTransfer.pkg</package>
+			<groupName>Internet</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Common</classLibrary>
+		</class>
+		<class>
+			<className>cXmlHttpTransfer</className>
+			<image>ControlXmlHttpTransfer.ico</image>
+			<package>cXmlHttpTransfer.pkg</package>
+			<groupName>Internet</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Common</classLibrary>
+		</class>
+		<class>
+			<className>Array</className>
+			<image>ControlArray.ico</image>
+			<package>VdfBase.pkg</package>
+			<groupName>Others</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Common</classLibrary>
+		</class>
+		<class>
+			<className>BusinessProcess</className>
+			<image>ControlBusinessProcess.ico</image>
+			<package>BatchDD.pkg</package>
+			<groupName>Others</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Common</classLibrary>
+		</class>
+		<class>
+			<className>cApplication</className>
+			<image>ControlApplication.ico</image>
+			<package>cApplication.pkg</package>
+			<groupName>Others</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Common</classLibrary>
+		</class>
+		<class>
+			<className>cConnection</className>
+			<image>ControlConnection.ico</image>
+			<package>cConnection.pkg</package>
+			<groupName>Others</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Common</classLibrary>
+		</class>
+		<class>
+			<className>cCharTranslate</className>
+			<image>ControlCharTranslate.ico</image>
+			<package>cCharTranslate.pkg</package>
+			<groupName>Others</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Common</classLibrary>
+		</class>
+		<class>
+			<className>cCJSkinFramework</className>
+			<image>ControlCJSkinFramework.ico</image>
+			<package>cCJSkinFramework.pkg</package>
+			<groupName>Others</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>cHtmlHelp</className>
+			<image>ControlHtmlHelp.ico</image>
+			<package>cHtmlHelp.pkg</package>
+			<groupName>Others</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>cIdleHandler</className>
+			<image>ControlIdleHandler.ico</image>
+			<package>Windows.pkg</package>
+			<groupName>Others</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>cImageList32</className>
+			<image>ControlImageList.ico</image>
+			<package>cImageList32.pkg</package>
+			<groupName>Others</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Common</classLibrary>
+		</class>
+		<class>
+			<className>cIniFile</className>
+			<image>ControlIniFile.ico</image>
+			<package>cIniFile.pkg</package>
+			<groupName>Others</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Common</classLibrary>
+		</class>
+		<class>
+			<className>cObject</className>
+			<image>ControlObject.ico</image>
+			<package>VdfBase.pkg</package>
+			<groupName>Others</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Common</classLibrary>
+		</class>
+		<class>
+			<className>cSeqFileHelper</className>
+			<image>ControlSeqFileHelper.ico</image>
+			<package>cSeqFileHelper.pkg</package>
+			<groupName>Others</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Common</classLibrary>
+		</class>
+		<class>
+			<className>cTimer</className>
+			<image>ControlDfTimer.ico</image>
+			<package>cTimer.pkg</package>
+			<groupName>Others</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>cToolTipController</className>
+			<image>ControlToolTip.ico</image>
+			<package>cToolTipController.pkg</package>
+			<groupName>Others</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>cWinReport2</className>
+			<image>ControlWinReport.ico</image>
+			<package>cWinReport2.pkg</package>
+			<groupName>Others</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>Set</className>
+			<image>ControlSet.ico</image>
+			<package>Set.pkg</package>
+			<groupName>Others</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Common</classLibrary>
+		</class>
+		<class>
+			<className>cCJContextMenu</className>
+			<image>ControlCJContextMenu.ico</image>
+			<package>cCJCommandBarSystem.pkg</package>
+			<groupName>Menus and Toolbars</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>cCJMenuBar</className>
+			<image>ControlCJMenuBar.ico</image>
+			<package>cCJCommandBarSystem.pkg</package>
+			<groupName>Menus and Toolbars</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>cCJStatusbar</className>
+			<image>ControlCJStatusbar.ico</image>
+			<package>cCJCommandBarSystem.pkg</package>
+			<groupName>Menus and Toolbars</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>cCJStatusbarPane</className>
+			<image>ControlCJStatusbarPane.ico</image>
+			<package>cCJCommandBarSystem.pkg</package>
+			<groupName>Menus and Toolbars</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+		<class>
+			<className>cCJToolbar</className>
+			<image>ControlCJToolbar.ico</image>
+			<package>cCJCommandBarSystem.pkg</package>
+			<groupName>Menus and Toolbars</groupName>
+			<libraryID>0</libraryID>
+			<classLibrary>Windows</classLibrary>
+		</class>
+	</classes>
 </classList>
