@@ -4,7 +4,8 @@
 	<DFLibraryVersion>2</DFLibraryVersion><libraries></libraries>
 	<classes>
 		<class>
-			<className>cWebApi</className><image></image>
+			<className>cWebApi</className>
+			<image>ControlObject.ico</image>
 			<package>WebApi\cWebApi.pkg</package>
 			<groupName>Web API</groupName><libraryID></libraryID>
 			<classLibrary>WebApp</classLibrary>
@@ -17,7 +18,8 @@
 			<classLibrary>Common</classLibrary>
 		</class>
 		<class>
-			<className>cRestDataset</className><image></image>
+			<className>cRestDataset</className>
+			<image>ControlObject.ico</image>
 			<package>WebApi\cRestDataset.pkg</package>
 			<groupName>Web API</groupName><libraryID></libraryID>
 			<classLibrary>WebApp</classLibrary>
