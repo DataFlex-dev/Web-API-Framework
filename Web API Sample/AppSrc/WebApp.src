@@ -1,4 +1,5 @@
-﻿Use AllWebAppClasses.pkg
+﻿Use AllWebUIServerClasses.pkg
+Use AllWebAppClasses.pkg
 Use cConnection.pkg
 Use cWebMenuItemLoadView.pkg
 
@@ -144,3 +145,4 @@ Object oWebApp is a cWebApp
 End_Object
 
 Send StartWebApp of oWebApp
+
