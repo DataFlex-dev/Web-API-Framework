@@ -10,7 +10,8 @@
         "htmlIncludes": [
             "WebApi/swagger-ui-bundle.js",
             "WebApi/swagger-ui-standalone-preset.js",
-            "WebApi/SwaggerDocumentation.js"
+            "WebApi/SwaggerDocumentation.js",
+            "WebApi/swagger-ui.css"
         ],
         "icon": "Logo.png",
         "install": [
