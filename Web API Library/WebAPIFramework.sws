@@ -1,6 +1,6 @@
 {
     "dependencies": [
-        "DataFlex-dev/Web UI Server#~1.0.0"
+        "DataFlex-dev/Web UI#~1.0.0"
     ],
     "description": "Library that allows you to easily create REST APIs in DataFlex.",
     "df": 26.0,
@@ -18,7 +18,7 @@
             "${AppHtml}/WebApi/*"
         ],
         "license": "BSD-3-Clause",
-        "version": "1.0.3"
+        "version": "1.0.4"
     },
     "paths": {
         "fileList": "DummyFilelist.cfg"
