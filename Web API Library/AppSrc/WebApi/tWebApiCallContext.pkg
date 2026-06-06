@@ -17,11 +17,14 @@ Define C_WEBAPI_NOTALLOWED for 405
 
 Define C_WEBAPI_ERROR_TYPE for "https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Status"
 
+Use WebApi\tRESTRequestBody.pkg
+
 Struct tWebApiCallContext
     //Handles to all the objects used inside of the call
     Handle hoApi
     Handle hoDataset
     Handle[] hoRouter
+    tRESTRequestBody[] requestBodyParts
     Handle hoResponseBody
     Handle hoIterator
     Handle[] hoModifiers

@@ -69,7 +69,7 @@ Class cRestDataset is a cBaseRestDataset
         While ( (Found) and not(Err) and ((iLimit = 0) or (iLimit > 0 and iRecordsRetrieved < iLimit)) )
             
             // Since data dictionaries don't really support an offset, we still need to find the records, just don't process them.
-            While (iOffset <> 0)
+            While (iOffset > 0)
                 Send Find of hoDD NEXT_RECORD iFindIndex
                 Decrement iOffset   
             Loop
@@ -163,8 +163,16 @@ Class cRestDataset is a cBaseRestDataset
         
         Get Main_DD to hoDD
         
-        //Parse the request body into key value pairs
-        Get ParseRequestBody of webapicallcontext.hoIterator to requestBodyParts
+        // Check if there is no requestbody already passed.
+        If (SizeOfArray(webapicallcontext.requestBodyParts) > 0) Begin
+            Move webapicallcontext.requestBodyParts to requestBodyParts
+        End
+        Else Begin
+            //Parse the request body into key value pairs
+            Get ParseRequestBody of webapicallcontext.hoIterator to webapicallcontext.requestBodyParts
+        End
+        
+        Move webapicallcontext.requestBodyParts to requestBodyParts
         
         //If we have no request body we should just generate a error response and stop the procedure
         If (SizeOfArray(requestBodyParts) = 0) Begin
@@ -247,8 +255,15 @@ Class cRestDataset is a cBaseRestDataset
         
         Move False to bModified
         
-        //Parse the request body into a key value pair
-        Get ParseRequestBody of webapicallcontext.hoIterator to requestBodyParts
+        // Check if there is no requestbody already passed.
+        If (SizeOfArray(webapicallcontext.requestBodyParts) > 0) Begin
+            Move webapicallcontext.requestBodyParts to requestBodyParts
+        End
+        Else Begin
+            //Parse the request body into key value pairs
+            Get ParseRequestBody of webapicallcontext.hoIterator to webapicallcontext.requestBodyParts
+        End
+        
         Move (SizeOfArray(requestBodyParts)) to iAmountOfRequestFields
         
         If (SizeOfArray(requestBodyParts) = 0) Begin
@@ -352,8 +367,15 @@ Class cRestDataset is a cBaseRestDataset
         
         Move False to bModified
         
-        //Parse the request body into a key value pair
-        Get ParseRequestBody of webapicallcontext.hoIterator to requestBodyParts
+        // Check if there is no requestbody already passed.
+        If (SizeOfArray(webapicallcontext.requestBodyParts) > 0) Begin
+            Move webapicallcontext.requestBodyParts to requestBodyParts
+        End
+        Else Begin
+            //Parse the request body into key value pairs
+            Get ParseRequestBody of webapicallcontext.hoIterator to webapicallcontext.requestBodyParts
+        End
+        
         Move (SizeOfArray(requestBodyParts)) to iAmountOfRequestFields
         
         //Only continue if we actually have a request body
