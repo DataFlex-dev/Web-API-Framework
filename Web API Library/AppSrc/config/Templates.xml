@@ -1,7 +1,7 @@
 <Templates>
     <Template>
         <ComponentType>58</ComponentType>
-        <Group>79</Group>
+        <Group>73</Group>
         <Name>Web API REST Dataset</Name>
         <FileName>RestDataset.tpl</FileName>
         <ImageLarge/>
@@ -14,14 +14,14 @@
         <Group>73</Group>
         <Name>Web API</Name>
         <FileName>WebApi.tpl</FileName>
-        <ImageLarge/>
+        <ImageLarge>ProjectWebHttpHandler.ico</ImageLarge>
         <BriefDescription>Creates a cWebApi object</BriefDescription>
         <LongDescription>Creates a minimal cWebApi object with a psPath and a default cJSONIterator.</LongDescription>
         <ProjectType>0</ProjectType>
     </Template>
     <Template>
         <ComponentType>58</ComponentType>
-        <Group>79</Group>
+        <Group>73</Group>
         <Name>Web API Modifier</Name>
         <FileName>WebApiModifier.tpl</FileName>
         <ImageLarge/>
@@ -31,7 +31,7 @@
     </Template>
     <Template>
         <ComponentType>58</ComponentType>
-        <Group>79</Group>
+        <Group>73</Group>
         <Name>Web API Auth Modifier</Name>
         <FileName>WebApiAuthModifier.tpl</FileName>
         <ImageLarge/>
