@@ -1061,6 +1061,28 @@ Class cOpenApiSpecification is a cObject
             End
             
         Loop
+
+        Send InitializeJsonType of hoParameterJson jsonTypeObject
+        Send InitializeJsonType of hoSchemaJson jsonTypeObject
+        Send SetMemberValue of hoParameterJson "name" jsonTypeString "limit"
+        Send SetMemberValue of hoParameterJson "in" jsonTypeString "query"
+        Send SetMemberValue of hoParameterJson "description" jsonTypeString "Maximum number of records to return"
+        Send SetMemberValue of hoParameterJson "required" jsonTypeBoolean False
+        Send SetMemberValue of hoSchemaJson "type" jsonTypeString "integer"
+        Send SetMemberValue of hoSchemaJson "format" jsonTypeString "int32"
+        Send SetMember of hoParameterJson "schema" hoSchemaJson
+        Send AddMember of hoParametersArrayJson hoParameterJson
+
+        Send InitializeJsonType of hoParameterJson jsonTypeObject
+        Send InitializeJsonType of hoSchemaJson jsonTypeObject
+        Send SetMemberValue of hoParameterJson "name" jsonTypeString "offset"
+        Send SetMemberValue of hoParameterJson "in" jsonTypeString "query"
+        Send SetMemberValue of hoParameterJson "description" jsonTypeString "Number of records to skip before returning results"
+        Send SetMemberValue of hoParameterJson "required" jsonTypeBoolean False
+        Send SetMemberValue of hoSchemaJson "type" jsonTypeString "integer"
+        Send SetMemberValue of hoSchemaJson "format" jsonTypeString "int32"
+        Send SetMember of hoParameterJson "schema" hoSchemaJson
+        Send AddMember of hoParametersArrayJson hoParameterJson
         
         Send SetMember of hoVerbJson "parameters" hoParametersArrayJson
         
