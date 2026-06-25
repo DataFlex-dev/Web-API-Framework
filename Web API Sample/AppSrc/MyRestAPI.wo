@@ -61,5 +61,16 @@ Object oRestFramework is a cWebApi
         Use SalesPersonEndpoint.pkg
         Use ExampleCustomEndpoint.pkg
     End_Object
+
+    Object oMcpExampleRouter is a cWebApiRouter
+        Set psPath to "McpExample"
+
+        Use McpExample\CustomerFinderEndpoint.pkg
+        Use McpExample\OrderExplorerEndpoint.pkg
+        Use McpExample\VendorCatalogEndpoint.pkg
+        Use McpExample\SalesDirectoryEndpoint.pkg
+    End_Object
+    
+    Use McpExample\McpServer.pkg
     
 End_Object

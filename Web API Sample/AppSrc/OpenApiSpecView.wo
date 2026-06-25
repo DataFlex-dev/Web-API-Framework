@@ -12,9 +12,8 @@ Object oOpenApiView is a cWebView
         Set piColumnCount to 24
         
         Object oSwaggerUI is a cSwaggerUI
-            Set piColumnSpan to 10
+            Set piColumnSpan to 0
             Set pbShowLabel to False
-            Set piColumnIndex to 5
             
             Set psOpenApiUrl to "/Api/OpenApi"
         End_Object

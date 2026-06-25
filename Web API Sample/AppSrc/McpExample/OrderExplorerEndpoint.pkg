@@ -1,0 +1,74 @@
+Use WebApi\cRestDataset.pkg
+Use cCustomerDataDictionary.dd
+Use cSalesPersonDataDictionary.dd
+Use cOrderHeaderDataDictionary.dd
+Use WebApi\cRestField.pkg
+Use WebApi\cRestEntity.pkg
+Use Mcp\cMcpRestDataset.pkg
+
+Object oOrderExplorerEndpoint is a cMcpRestDataset
+    Set psPath to "OrderExplorer"
+    Set psMcpDescription to "Explore orders by date, total, customer, and salesperson. Good for recent-order lookup and sales analysis."
+
+    Set pbReadOnly to True
+
+    Object oSalesPerson_DD is a cSalesPersonDataDictionary
+    End_Object
+
+    Object oCustomer_DD is a cCustomerDataDictionary
+    End_Object
+
+    Object oOrderHeader_DD is a cOrderHeaderDataDictionary
+        Set DDO_Server to oSalesPerson_DD
+        Set DDO_Server to oCustomer_DD
+    End_Object
+
+    Set Main_DD to oOrderHeader_DD
+    Set Server to oOrderHeader_DD
+
+    Object oOrderHeader_Order_Number is a cRestField
+        Entry_Item OrderHeader.Order_Number
+        Set pbReadOnly to True
+    End_Object
+
+    Object oOrderHeader_Order_Date is a cRestField
+        Entry_Item OrderHeader.Order_Date
+    End_Object
+
+    Object oOrderHeader_Customer_Number is a cRestField
+        Entry_Item OrderHeader.Customer_Number
+        Set psFieldName to "Customer_Number"
+    End_Object
+
+    Object oOrderHeader_SalesPerson_ID is a cRestField
+        Entry_Item OrderHeader.SalesPerson_ID
+        Set psFieldName to "SalesPerson_ID"
+    End_Object
+
+    Object oCustomerEntity is a cRestEntity
+        Set Server to oCustomer_DD
+        Set pbReadOnly to True
+
+        Object oCustomer_Name is a cRestField
+            Entry_Item Customer.Name
+        End_Object
+
+        Object oCustomer_City is a cRestField
+            Entry_Item Customer.City
+        End_Object
+    End_Object
+
+    Object oSalesPersonEntity is a cRestEntity
+        Set Server to oSalesPerson_DD
+        Set pbReadOnly to True
+
+        Object oSalesPerson_Name is a cRestField
+            Entry_Item SalesPerson.Name
+        End_Object
+    End_Object
+
+    Object oOrderHeader_Order_Total is a cRestField
+        Entry_Item OrderHeader.Order_Total
+        Set pbReadOnly to True
+    End_Object
+End_Object
