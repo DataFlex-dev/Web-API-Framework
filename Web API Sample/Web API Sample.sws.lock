@@ -1,5 +1,14 @@
 {
     "dependencies": {
+        "DataFlex-dev/JsonWebToken": {
+            "ref": "1.0.0"
+        },
+        "DataFlex-dev/MCP Server": {
+            "ref": "0.2.0"
+        },
+        "DataFlex-dev/Web API Framework": {
+            "ref": "1.0.4"
+        },
         "DataFlex-dev/Web UI": {
             "ref": "1.0.45"
         },
@@ -9,7 +18,7 @@
         "DataFlex-dev/Web UI Server": {
             "ref": "1.0.45"
         },
-        "local/JWT 25.0": {}
+        "local/WebAPIFramework": {}
     },
     "lockVersion": "1.0.0"
 }
