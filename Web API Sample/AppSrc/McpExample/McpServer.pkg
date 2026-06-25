@@ -1,0 +1,8 @@
+Use Mcp\cMcpServer.pkg
+
+// Include this object inside of your cWebApi object
+Object oMcpServer is a cMcpServer
+    
+    // The name of the mcp server
+    Set psServerInfoName to "WebApi MCP server demo"
+End_Object
