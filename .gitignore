@@ -45,3 +45,5 @@
 **/programs/*.exe
 **/programs/*.exe.manifest
 **/programs/*.log
+Web API Library/DfPkg
+Web API Sample/DfPkg
