@@ -5,8 +5,6 @@
     "description": "Library that allows you to easily create REST APIs in DataFlex.",
     "df": 26.0,
     "package": {
-        "df-max": 26.0,
-        "df-min": 26.0,
         "htmlIncludes": [
             "WebApi/swagger-ui-bundle.js",
             "WebApi/swagger-ui-standalone-preset.js",
