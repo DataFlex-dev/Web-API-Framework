@@ -2,9 +2,9 @@
     "dependencies": [
         "DataFlex-dev/Web UI Server#1.0.45",
         "DataFlex-dev/Web UI Material Theme#1.0.3",
-        "../Web API Library/WebAPIFramework.sws",
         "DataFlex-dev/JsonWebToken#1.0.0",
-        "DataFlex-dev/MCP Server#0.2.0"
+        "DataFlex-dev/MCP Server#0.2.0",
+        "DataFlex-dev/Web API Framework#~1.0.2"
     ],
     "df": 26.0,
     "projects": [
