@@ -1,4 +1,4 @@
-Use WebApi\cRestDataset.pkg
+﻿Use WebApi\cRestDataset.pkg
 Use cCustomerDataDictionary.dd
 Use WebApi\cRestField.pkg
 Use Mcp\cMcpRestDataset.pkg
@@ -9,6 +9,7 @@ Object oCustomerFinderEndpoint is a cMcpRestDataset
 
     Set pbReadOnly to True
     Set pbSecureRead to False
+    Set pbUsePathAsTableName to True
 
     Object oCustomer_DD is a cCustomerDataDictionary
     End_Object

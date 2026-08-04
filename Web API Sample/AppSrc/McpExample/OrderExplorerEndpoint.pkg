@@ -1,4 +1,4 @@
-Use WebApi\cRestDataset.pkg
+﻿Use WebApi\cRestDataset.pkg
 Use cCustomerDataDictionary.dd
 Use cSalesPersonDataDictionary.dd
 Use cOrderHeaderDataDictionary.dd
@@ -11,6 +11,7 @@ Object oOrderExplorerEndpoint is a cMcpRestDataset
     Set psMcpDescription to "Explore orders by date, total, customer, and salesperson. Good for recent-order lookup and sales analysis."
 
     Set pbReadOnly to True
+    Set pbUsePathAsTableName to True
 
     Object oSalesPerson_DD is a cSalesPersonDataDictionary
     End_Object
