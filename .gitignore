@@ -47,3 +47,6 @@
 **/programs/*.log
 Web API Library/DfPkg
 Web API Sample/DfPkg
+Web API Library/AppHtml/WebUI
+*.inc
+Web API Sample/AppHtml/WebUI
