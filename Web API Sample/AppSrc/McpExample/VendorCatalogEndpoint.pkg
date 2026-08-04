@@ -1,4 +1,4 @@
-Use WebApi\cRestDataset.pkg
+﻿Use WebApi\cRestDataset.pkg
 Use cVendorDataDictionary.dd
 Use cInventoryDataDictionary.dd
 Use WebApi\cRestField.pkg
@@ -9,6 +9,7 @@ Object oVendorCatalogEndpoint is a cMcpRestDataset
     Set psMcpDescription to "Browse vendors and their inventory items, including price and stock on hand. Useful for supplier and catalog exploration."
 
     Set pbReadOnly to True
+    Set pbUsePathAsTableName to True
 
     Object oVendor_DD is a cVendorDataDictionary
     End_Object
