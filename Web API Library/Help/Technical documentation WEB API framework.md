@@ -13,6 +13,7 @@
     - [2.6.1 Including authentication/authorization into the OpenApi specification](#261-including-authenticationauthorization-into-the-openapi-specification)
   - [2.7 Building custom endpoints](#27-building-custom-endpoints)
 - [3 Components](#3-components)
+  - [Which component should I use?](#which-component-should-i-use)
   - [Component overview](#component-overview)
   - [3.1 cWebApi](#31-cwebapi)
   - [3.2 cWebApiRouter](#32-cwebapirouter)
@@ -726,6 +727,28 @@ This chapter explains per component what its functionality is inside of the syst
 
 The `Inherited from` column identifies members inherited from library-native classes or mixins. It is blank for members declared by the current class. Members marked private in the source are intentionally excluded, as are DataFlex framework base-class members.
 
+### Which component should I use?
+
+Use this guide as a starting point when deciding which framework class to use.
+
+| I need to... | Start with... | Notes |
+| --- | --- | --- |
+| Create the root API object | [cWebApi](#31-cwebapi) | Receives HTTP requests and coordinates routing, modifiers, iterators, and responses. |
+| Group endpoints or create API versions | [cWebApiRouter](#32-cwebapirouter) | Routes requests to nested routers and endpoints. |
+| Expose database records with standard REST behavior | [cRestDataset](#34-crestdataset) | The default choice for data-dictionary-backed CRUD endpoints. |
+| Create a specialized dataset endpoint base class | [cBaseRestDataset](#33-cbaserestdataset) | Abstract base class intended for subclassing. |
+| Add behavior that the default dataset cannot handle | [cWebApiCustomEndpoint](#35-cwebapicustomendpoint) | Handles custom response logic directly and does not use JSON or XML iterators. |
+| Add login or registration | [cWebApiLoginEndpoint](#36-cwebapiloginendpoint) | Provides the standard session-manager login flow. |
+| Expose an individual field | [cRestField](#38-crestfield) | Can be nested in [cRestDataset](#34-crestdataset), [cRestEntity](#311-crestentity), and [cRestChildCollection](#310-crestchildcollection). |
+| Include related parent-table data | [cRestEntity](#311-crestentity) | Exposes related parent records as nested data. |
+| Include related child-table data | [cRestChildCollection](#310-crestchildcollection) | Exposes related child records as a nested collection. |
+| Use JSON with a dataset endpoint | [cJSONIterator](#315-cjsoniterator) | Used with [cRestDataset](#34-crestdataset); custom endpoints do not use this iterator. |
+| Use XML with a dataset endpoint | [cXMLIterator](#316-cxmliterator) | Used with [cRestDataset](#34-crestdataset); custom endpoints do not use this iterator. |
+| Add reusable request or response behavior | [cWebApiModifier](#312-cwebapimodifier) | Use [cWebApiAuthModifier](#313-cwebapiauthmodifier) when the behavior is authentication or authorization. |
+| Expose the OpenAPI specification | [cOpenApiEndpoint](#37-copenapiendpoint) | Included in [cWebApi](#31-cwebapi) by default. |
+| Render interactive API documentation | [cSwaggerUI](#322-cswaggerui) | Displays the specification served by [cOpenApiEndpoint](#37-copenapiendpoint). |
+| Customize OpenAPI generation | [cOpenApiSpecification](#321-copenapispecification) | Intended for framework-level OpenAPI customization. |
+
 ### Component overview
 
 The components below are grouped by the role they play in the framework. Start with the core API and routing classes, then choose the endpoint, field, iterator, modifier, or OpenAPI components that fit your use case.
@@ -1146,9 +1169,9 @@ This is a endpoint that only exposes the OpenApi specification. The cSwaggerUI c
 
 ### 3.8 cRestField
 
-**Purpose:** Exposes one database or calculated field in a REST response.
+**Purpose:** Exposes one database or calculated field inside a cRestDataset, cRestEntity, or cRestChildCollection.
 
-**Use when:** Selecting fields for a dataset, parent entity, or child collection.
+**Use when:** Selecting individual fields for a cRestDataset, cRestEntity, or cRestChildCollection.
 
 **Extends:** `cObject`, `cBaseDEO_Mixin`
 
@@ -1156,7 +1179,9 @@ This is a endpoint that only exposes the OpenApi specification. The cSwaggerUI c
 
 **Overview:**
 
-This class is nested inside of a cRestDataset and exposes a singular field. It is possible to define multiple cRestFields inside of a cRestDataset to expose multiple fields of a specific table.
+This class can be nested inside a cRestDataset, cRestEntity, or cRestChildCollection and exposes a single field. Multiple cRestFields can be defined inside these components to expose multiple fields of a specific table.
+
+Fields representing parent-table data do not have to be nested inside a cRestEntity. They can also be defined directly under a cRestDataset. Using a cRestEntity is optional and primarily provides a more structured response format.
 
 It is not possible to retrieve all fields of a table with a singular cRestField. This is a design choice for security reasons. This prevents businesses from adding a field to a table that is then accidentally exposed through the REST api.
 
@@ -1444,9 +1469,9 @@ This class covers the shared functionality for each iterator. It's meant as a ba
 
 ### 3.15 cJSONIterator
 
-**Purpose:** Serializes REST responses to JSON and parses JSON request bodies.
+**Purpose:** Serializes REST responses to JSON and parses JSON request bodies for [cRestDataset](#34-crestdataset) endpoints.
 
-**Use when:** JSON is the request or response format for an API.
+**Use when:** JSON is the request or response format for a [cRestDataset](#34-crestdataset). [cWebApiCustomEndpoint](#35-cwebapicustomendpoint) does not use this iterator.
 
 **Extends:** [cBaseWebApiIterator](#314-cbasewebapiiterator)
 
@@ -1454,7 +1479,7 @@ This class covers the shared functionality for each iterator. It's meant as a ba
 
 **Overview:**
 
-This class is used to retrieve and build data into a JSON format. It works in collaboration with cRestFields, cRestChildCollections and cRestEntity's to build up a response back to the client. It can also be used to parse a JSON request body to a datatype that is easily useable in DataFlex code. This is the tRESTRequestBody struct.
+This iterator is used by cRestDataset endpoints to retrieve and build data into a JSON format. It works in collaboration with cRestFields, cRestChildCollections and cRestEntity's to build up a response back to the client. It can also be used to parse a JSON request body to a datatype that is easily useable in DataFlex code. This is the tRESTRequestBody struct.
 
 When it runs into a cRestField it will create a regular JSON member. When it runs into a cRestChildCollection it will create a JSON array. When it runs into a cRestEntity it will create a nested JSON object.
 
@@ -1483,9 +1508,9 @@ When it runs into a cRestField it will create a regular JSON member. When it run
 
 ### 3.16 cXMLIterator
 
-**Purpose:** Serializes REST responses to XML and parses XML request bodies.
+**Purpose:** Serializes REST responses to XML and parses XML request bodies for [cRestDataset](#34-crestdataset) endpoints.
 
-**Use when:** XML is the request or response format for an API.
+**Use when:** XML is the request or response format for a [cRestDataset](#34-crestdataset). [cWebApiCustomEndpoint](#35-cwebapicustomendpoint) does not use this iterator.
 
 **Extends:** [cBaseWebApiIterator](#314-cbasewebapiiterator)
 
@@ -1493,7 +1518,7 @@ When it runs into a cRestField it will create a regular JSON member. When it run
 
 **Overview:**
 
-This class is used to build and retrieve data into an XML format. It works in collaboration with the cRestFields, cRestChildCollections and cRestEntity's to build up a response back to the client. Apart from building up a response to the client it is also capable of parsing the XML request body from the client to an easy to use datatype in DataFlex. This is the tRESTRequestBody struct.
+This iterator is used by cRestDataset endpoints to build and retrieve data into an XML format. It works in collaboration with the cRestFields, cRestChildCollections and cRestEntity's to build up a response back to the client. Apart from building up a response to the client it is also capable of parsing the XML request body from the client to an easy to use datatype in DataFlex. This is the tRESTRequestBody struct.
 
 When it runs into a cRestField it will create an XML node. When it runs into a cRestEntity it will createa nested XML node. When it runs into a cRestChildCollection it will create a nested XML node with multiple child nodes.
 
