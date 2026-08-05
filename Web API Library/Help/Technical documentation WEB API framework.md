@@ -40,21 +40,35 @@
   - [4.20 cWebApiErrorHandler_Mixin](#420-cwebapierrorhandler_mixin)
   - [4.21 cOpenApiSpecification](#421-copenapispecification)
   - [4.22 cSwaggerUI](#422-cswaggerui)
-- [5 Structs, constants and enums](#5-structs-constants-and-enums)
-  - [5.1 Structs](#51-structs)
-    - [5.1.1 tRESTRequestBody](#511-trestrequestbody)
-    - [5.1.2 tWebApiCallContext](#512-twebapicallcontext)
-    - [5.1.3 tSecuredDataset](#513-tsecureddataset)
-    - [5.1.4 oneOf](#514-oneof)
-    - [5.1.5 tEndpointDefinition](#515-tendpointdefinition)
-    - [5.1.6 tVerbDefinition](#516-tverbdefinition)
-    - [5.1.7 tResponseDefinition](#517-tresponsedefinition)
-    - [5.1.8 tFieldDefinition](#518-tfielddefinition)
-    - [5.1.9 tParameterDefinition](#519-tparameterdefinition)
-  - [5.2 Constants](#52-constants)
-  - [5.3 Enums](#53-enums)
-    - [5.3.1 Field types](#531-field-types)
-    - [5.3.2 Parameter types](#532-parameter-types)
+- [5 HTTP operations and endpoint behavior](#5-http-operations-and-endpoint-behavior)
+  - [5.1 cRestDataset operations](#51-crestdataset-operations)
+  - [5.2 Fields and related records](#52-fields-and-related-records)
+  - [5.3 Filtering and pagination](#53-filtering-and-pagination)
+  - [5.4 cWebApiCustomEndpoint behavior](#54-cwebapicustomendpoint-behavior)
+  - [5.5 Status codes and error responses](#55-status-codes-and-error-responses)
+- [6 Structs, constants and enums](#6-structs-constants-and-enums)
+  - [6.1 Structs](#61-structs)
+    - [6.1.1 tRESTRequestBody](#611-trestrequestbody)
+    - [6.1.2 tWebApiCallContext](#612-twebapicallcontext)
+    - [6.1.3 tSecuredDataset](#613-tsecureddataset)
+    - [6.1.4 oneOf](#614-oneof)
+    - [6.1.5 tEndpointDefinition](#615-tendpointdefinition)
+    - [6.1.6 tVerbDefinition](#616-tverbdefinition)
+    - [6.1.7 tResponseDefinition](#617-tresponsedefinition)
+    - [6.1.8 tFieldDefinition](#618-tfielddefinition)
+    - [6.1.9 tParameterDefinition](#619-tparameterdefinition)
+  - [6.2 Constants](#62-constants)
+  - [6.3 Enums](#63-enums)
+    - [6.3.1 Field types](#631-field-types)
+    - [6.3.2 Parameter types](#632-parameter-types)
+- [7 Troubleshooting and common mistakes](#7-troubleshooting-and-common-mistakes)
+  - [7.1 Endpoint and routing problems](#71-endpoint-and-routing-problems)
+  - [7.2 Empty or incomplete responses](#72-empty-or-incomplete-responses)
+  - [7.3 Request body and update failures](#73-request-body-and-update-failures)
+  - [7.4 Filtering and pagination problems](#74-filtering-and-pagination-problems)
+  - [7.5 OpenAPI and Swagger problems](#75-openapi-and-swagger-problems)
+  - [7.6 Authentication and modifier problems](#76-authentication-and-modifier-problems)
+  - [7.7 Response format and iterator problems](#77-response-format-and-iterator-problems)
 
 ## 1 Introduction
 
@@ -1955,11 +1969,93 @@ This class is responsible for rendering the OpenApi specification on the client.
 | --- | --- | --- | --- |
 | Construct_Object | Framework lifecycle procedure called during object construction. Do not call directly. |  |  |
 
-## 5 Structs, constants and enums
+## 5 HTTP operations and endpoint behavior
 
-### 5.1 Structs
+This chapter describes the default behavior of data-dictionary-backed endpoints. The rules in sections 5.1 through 5.3 apply primarily to [cRestDataset](#44-crestdataset). [cWebApiCustomEndpoint](#45-cwebapicustomendpoint) deliberately leaves more of this behavior to the developer; see [section 5.4](#54-cwebapicustomendpoint-behavior).
 
-#### 5.1.1 tRESTRequestBody
+### 5.1 cRestDataset operations
+
+A `cRestDataset` maps collection and item URLs to HTTP event procedures. Unless `pbIgnoreID` is enabled, a request without an identifier uses `OnHttpGet`, while a request with an identifier uses `OnHttpGetByID`.
+
+| Request | Event | Default behavior | Typical result |
+| --- | --- | --- | --- |
+| `GET /Api/Customers` | `OnHttpGet` | Finds records, applies filters and pagination, and returns an array of exposed fields. | `200 OK` |
+| `GET /Api/Customers/{id}` | `OnHttpGetByID` | Finds the primary-key record and returns one object. | `200 OK` or `404 Not Found` |
+| `POST /Api/Customers` | `OnHttpPost` | Parses the request body, applies writable fields, validates the data dictionary, and saves a new record. | `201 Created` or `400 Bad Request` |
+| `PUT /Api/Customers/{id}` | `OnHttpPut` | Finds the record, applies writable fields, validates it, and saves the changes. | `200 OK`, `304 Not Modified`, or `400 Bad Request` |
+| `PATCH /Api/Customers/{id}` | `OnHttpPatch` | Performs the same update pipeline as `PUT`, using only fields present in the request body. | `200 OK`, `304 Not Modified`, or `400 Bad Request` |
+| `DELETE /Api/Customers/{id}` | `OnHttpDelete` | Validates and deletes the record. | `200 OK` or `404 Not Found` |
+| `OPTIONS /Api/Customers` | `OnHttpOptions` | Returns the allowed verbs, or CORS headers for a preflight request. | `204 No Content` |
+
+`pbAllowRead`, `pbAllowCreate`, `pbAllowEdit`, and `pbAllowDelete` control which operations are exposed. `pbReadOnly` blocks every operation except `GET` and `OPTIONS`. A disabled operation returns `405 Not Allowed`. Setting `pbIgnoreID` to `True` routes identifier-based `GET` requests to `OnHttpGet` instead of `OnHttpGetByID`.
+
+### 5.2 Fields and related records
+
+Exposed components determine what a request can read or write:
+
+| Component or setting | Response behavior | Request behavior |
+| --- | --- | --- |
+| `cRestField` | Included in responses by default. | Accepted by `POST`, `PUT`, and `PATCH` by default. |
+| `pbReadOnly = True` | Included in responses. | Ignored for `POST`, `PUT`, and `PATCH`. |
+| `pbWriteOnly = True` | Omitted from responses. | Accepted in request bodies. |
+| `pbRequired = True` | No direct effect on responses. | Marked as required in the generated request schema and required-field checks. |
+| `cRestEntity` | Parent-table data is returned as a nested object. | Writes use the related parent key rather than the nested object. |
+| `cRestChildCollection` | Child-table data is returned as a nested array. | Omitted from `POST`, `PUT`, `PATCH`, and `DELETE`; child collections are read-only. |
+
+Parent-table fields do not require a `cRestEntity`. A `cRestField` can be placed directly under a `cRestDataset` when a flat response is preferred. Use `cRestEntity` when the nested object makes the response easier to understand.
+
+### 5.3 Filtering and pagination
+
+`cRestDataset` reads query parameters before executing `GET` requests. A field can be used as a filter only when its `pbFilterable` property is `True`. Without an operator, filtering uses equality. The supported comparison operators are `(GE)`, `(GT)`, `(LE)`, and `(LT)`.
+
+The `limit` and `offset` query parameters control pagination. `piLimitResults` supplies the endpoint's default limit; a `limit` query parameter overrides it.
+
+```text
+GET /Api/Inventory?limit=25&offset=50&Unit_Price=(GE)10
+```
+
+This request skips the first 50 matching records, returns at most 25 records, and filters `Unit_Price` for values greater than or equal to 10. Multiple query parameters can be supplied for the same field when multiple constraints are needed.
+
+### 5.4 cWebApiCustomEndpoint behavior
+
+Use `cWebApiCustomEndpoint` when the default `cRestDataset` behavior cannot handle the endpoint. The developer is responsible for implementing the relevant `OnHttpGet`, `OnHttpPost`, `OnHttpPut`, `OnHttpPatch`, and `OnHttpDelete` events.
+
+Custom endpoints do not automatically perform data-dictionary CRUD, field filtering, pagination, or JSON/XML iterator parsing and serialization. Build the response logic directly using the [tWebApiCallContext](#612-twebapicallcontext) passed to each event. Implement `OnDefineSchema` when the endpoint should be described in the generated OpenAPI document.
+
+### 5.5 Status codes and error responses
+
+The framework uses these status codes during standard endpoint processing:
+
+| Status | Meaning in the framework |
+| --- | --- |
+| `200 OK` | Successful read, update, or delete. |
+| `201 Created` | Record successfully created by `POST`. |
+| `204 No Content` | Successful `OPTIONS` request. |
+| `304 Not Modified` | The current `PUT`/`PATCH` implementation could not apply a modification or no writable field changed. |
+| `400 Bad Request` | Invalid request body, missing primary key, or data-dictionary validation failure. |
+| `401 Unauthorized` / `403 Forbidden` | Authentication or authorization failure supplied by an authentication modifier. |
+| `404 Not Found` | Requested route or record could not be found. |
+| `405 Not Allowed` | The HTTP verb is disabled for the endpoint. |
+
+When an iterator formats an error response, JSON responses use a problem-detail shape similar to this:
+
+```json
+{
+  "type": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Status",
+  "status": 400,
+  "title": "Bad Request",
+  "detail": "Invalid request body",
+  "instance": "/Api/Customers"
+}
+```
+
+The XML iterator formats the same error fields as XML. Custom endpoints do not use these iterators automatically, so their response and error shape depends on the endpoint implementation.
+
+## 6 Structs, constants and enums
+
+### 6.1 Structs
+
+#### 6.1.1 tRESTRequestBody
 
 This struct is used when parsing data from a request body to a useable type. For example when someone does a post request with a JSON body the cJSONIterator will parse the body into a tRESTRequestBody array. This struct can then be used to save the data to the proper fields. This struct is used as a substitution for a hash map because those do not exist in DataFlex as of the moment of creating this framework.
 
@@ -1971,7 +2067,7 @@ This struct is used when parsing data from a request body to a useable type. For
 | sFieldValue | String | The actual value of the field. |
 | nestedFields | tRESTRequestBody[] | Potentially nested fields. (only happens in for example a json object or json array.) |
 
-#### 5.1.2 tWebApiCallContext
+#### 6.1.2 tWebApiCallContext
 
 This struct contains all the information of the current http request. This struct is passed through the request pipeline ByRef and is filled as it passes through each object. This file also defines constants used throughout the framework.
 
@@ -1996,7 +2092,7 @@ This struct contains all the information of the current http request. This struc
 | sAcceptType | String | The accept-type of the current request if applicable. |
 | sMainTableName | String | The name of the main table used in the endpoint that is handling the current request. |
 
-#### 5.1.3 tSecuredDataset
+#### 6.1.3 tSecuredDataset
 
 The cWebApiAuthModifier maintains a list of this struct to determine what endpoints are secured and what verbs of that specific endpoint are secured.
 
@@ -2010,7 +2106,7 @@ The cWebApiAuthModifier maintains a list of this struct to determine what endpoi
 | bSecureEdit | Boolean | Determines if the PUT and PATCH verbs of a endpoint are secured. |
 | bSecureDelete | Boolean | Determines if the DELETE verbs of a endpoint are secured. |
 
-#### 5.1.4 oneOf
+#### 6.1.4 oneOf
 
 This struct is used to parse validation tables into the OpenApi specification.
 
@@ -2022,7 +2118,7 @@ This struct is used to parse validation tables into the OpenApi specification.
 | const | String | The short value of the validation table entry. |
 | description | String | The long value of the validation table entry. |
 
-#### 5.1.5 tEndpointDefinition
+#### 6.1.5 tEndpointDefinition
 
 This struct holds multiple tVerbDefinitions. A developer can fill the value of this struct to determine what will be shown in the OpenApi specification.
 
@@ -2032,7 +2128,7 @@ This struct holds multiple tVerbDefinitions. A developer can fill the value of t
 | --- | --- | --- |
 | verbDefinitions | tVerbDefinition[] | Information about all the verbs in the current endpoint. |
 
-#### 5.1.6 tVerbDefinition
+#### 6.1.6 tVerbDefinition
 
 This struct holds all the information relevant to a specific verb in a endpoint.
 
@@ -2047,7 +2143,7 @@ This struct holds all the information relevant to a specific verb in a endpoint.
 | requestFields | tFieldDefinition[] | Information about all the exposed request fields. |
 | Parameters | tParameterDefinition[] | All parameters used for the verb. Can be query or header parameters. |
 
-#### 5.1.7 tResponseDefinition
+#### 6.1.7 tResponseDefinition
 
 This struct has all the information related to a response.
 
@@ -2060,7 +2156,7 @@ This struct has all the information related to a response.
 | asResponseMediaTypes | String[] | The response types available. |
 | responseFields | tFieldDefinition[] | The fields that are returned to the consumer in a response. |
 
-#### 5.1.8 tFieldDefinition
+#### 6.1.8 tFieldDefinition
 
 This struct has all the information related to defining a field in the OpenApi specification.
 
@@ -2074,7 +2170,7 @@ This struct has all the information related to defining a field in the OpenApi s
 | bRequired | Boolean | Determines if this field is required. |
 | nestedFields | tFieldDefinition[] | This can be filled if there are objects or arrays nested inside of eachother. Is only used whenever the eFieldType is set to REST_ARRAY_FIELD or REST_OBJECT_FIELD. |
 
-#### 5.1.9 tParameterDefinition
+#### 6.1.9 tParameterDefinition
 
 This struct has all the information needed for additional parameters. These parameters are query or header parameters.
 
@@ -2088,7 +2184,7 @@ This struct has all the information needed for additional parameters. These para
 | eParameterType | Integer | The field type of the parameter. Can be one of the following:<br>- WEBAPI_INTEGER_FIELD<br>- WEBAPI_NUMBER_FIELD<br>- WEBAPI_STRING_FIELD<br>- WEBAPI_BOOLEAN_FIELD<br>- WEBAPI_ARRAY_FIELD<br>- WEBAPI_OBJECT_FIELD<br>- WEBAPI_BINARY_FIELD<br>- WEBAPI_DATETIME_FIELD<br>- WEBAPI_DATE_FIELD |
 | bRequired | Boolean | Determines if this parameter is required. |
 
-### 5.2 Constants
+### 6.2 Constants
 
 The table below shows a list of all the constants used. It shows the name of the constant, the value and what it represents.
 
@@ -2113,15 +2209,15 @@ The table below shows a list of all the constants used. It shows the name of the
 | C_WEBAPI_NOTALLOWED | 405 | Represents the 405 NOTALLOWED status code. |
 | C_WEBAPI_ERROR_TYPE |  | Link to the mozilla page containing the description of all status codes. |
 
-### 5.3 Enums
+### 6.3 Enums
 
 This chapter has the information related to all the enums used inside of the framework.
 
-#### 5.3.1 Field types
+#### 6.3.1 Field types
 
 This enum list represents all the available field types.
 
-#### 5.3.2 Parameter types
+#### 6.3.2 Parameter types
 
 This enum list represents all the types for query parameters.
 
@@ -2141,3 +2237,72 @@ This enum list represents all the types for query parameters.
 | --- | --- | --- |
 | WEBAPI_QUERY_PARAMETER | 0 | A query parameter. |
 | WEBAPI_HEADER_PARAMETER | 1 | A header parameter. |
+
+## 7 Troubleshooting and common mistakes
+
+When an endpoint behaves unexpectedly, check the HTTP method and complete URL first. Then walk through routing, endpoint configuration, fields and data dictionaries, modifiers, and response formatting.
+
+### 7.1 Endpoint and routing problems
+
+| Symptom | What to check |
+| --- | --- |
+| `404 Not Found` for an endpoint | Check the `psPath` values on `cWebApi`, routers, and the endpoint. Confirm the endpoint package is included with `Use` inside a reachable API object. |
+| `404 Not Found` for an item | Confirm the identifier exists and matches the primary key field exposed by the endpoint. |
+| Request reaches an unexpected endpoint | Check for duplicate paths at the same routing level and remember that nested router paths are appended to the final URL. |
+| `405 Not Allowed` | Check `pbAllowRead`, `pbAllowCreate`, `pbAllowEdit`, `pbAllowDelete`, and `pbReadOnly`. |
+| An identifier-based `GET` uses collection logic | Check `pbIgnoreID`. When it is `True`, identifier-based `GET` requests are sent to `OnHttpGet`. |
+
+### 7.2 Empty or incomplete responses
+
+| Symptom | What to check |
+| --- | --- |
+| Response contains empty objects | Confirm `Main_DD` and `Server` are set and that the endpoint contains the required `cRestField` objects. |
+| Expected field is missing | Check `pbWriteOnly`, `pbShowDuringGetAll`, the field's `psFieldName`, and whether the field is nested under the intended component. |
+| Parent-table data is missing | Confirm the parent data dictionary is connected to the main data dictionary. Use a `cRestEntity` for nested output, or place a parent `cRestField` directly under the dataset for flat output. |
+| Child collection is empty | Confirm the child data dictionary is related to the main data dictionary, the collection's `Server` is set, and matching child records exist. Child collections are returned only during `GET` requests. |
+
+### 7.3 Request body and update failures
+
+| Symptom | What to check |
+| --- | --- |
+| `400 Bad Request` with `Invalid request body` | Confirm the request contains a body and that its `Content-Type` matches an iterator registered on `cWebApi`. |
+| `POST` does not create a record | Confirm writable fields are exposed, required data is present, and data-dictionary validation rules pass. |
+| `PUT` or `PATCH` does not update a record | Confirm the URL contains an identifier, the identifier matches a primary key, the body contains writable fields, and the data dictionary accepts the changes. A request with no changed writable fields results in `304 Not Modified`. |
+| `DELETE` does not remove a record | Confirm the identifier resolves to a record and that the data dictionary allows the delete through its delete validation rules. |
+| Custom endpoint body is not parsed automatically | Custom endpoints do not use the dataset's automatic request parsing. Implement body handling in the custom endpoint. |
+
+### 7.4 Filtering and pagination problems
+
+| Symptom | What to check |
+| --- | --- |
+| Field filter is ignored | Confirm the field's `pbFilterable` property is `True` and that the query parameter uses the exposed field name. |
+| Comparison filter is ignored | Use one of the supported value prefixes: `(GE)`, `(GT)`, `(LE)`, or `(LT)`. Without a prefix, filtering uses equality. |
+| `limit` or `offset` has no effect | Automatic filtering and pagination apply to `cRestDataset` `GET` requests. Custom endpoints must implement these behaviors themselves. |
+| Collection returns fewer records than expected | Check `limit`, `offset`, and the endpoint's `piLimitResults` setting, as well as data-dictionary constraints. |
+
+### 7.5 OpenAPI and Swagger problems
+
+| Symptom | What to check |
+| --- | --- |
+| Endpoint is missing from OpenAPI | Confirm `pbGenerateDocumentation` is `True`, the endpoint is reachable from `cWebApi`, and a custom endpoint implements `OnDefineSchema` when it needs custom schema information. |
+| Fields or verbs are missing from the schema | Confirm the fields are exposed and that the endpoint's allowed-verb properties match the intended API. For custom endpoints, fill the `tEndpointDefinition` passed to `OnDefineSchema`. |
+| Swagger UI is blank or shows an error | Test the OpenAPI URL directly, then check `cSwaggerUI.psOpenApiUrl`. The URL is relative to the application URL. |
+| OpenAPI endpoint was not added manually | `cOpenApiEndpoint` is included in the `cWebApi` object by default. Check its generated route before adding another endpoint. |
+
+### 7.6 Authentication and modifier problems
+
+| Symptom | What to check |
+| --- | --- |
+| Modifier does not run | Confirm the modifier is nested in the API or router path that handles the request. Modifiers register during object construction. |
+| Authentication does not run | Check the `cWebApiAuthModifier` placement, the endpoint's `pbSecureRead`, `pbSecureCreate`, `pbSecureEdit`, and `pbSecureDelete` properties, and the relevant security-inheritance setting. |
+| Modifier affects too many endpoints | Move it to a lower router or endpoint level, or adjust modifier inheritance. |
+| Authentication failure returns success | Ensure the custom `OnAuth` event sets `bErr`, `iStatusCode`, `sShortStatusMessage`, and `sErrorMessage` in the [tWebApiCallContext](#612-twebapicallcontext). |
+
+### 7.7 Response format and iterator problems
+
+| Symptom | What to check |
+| --- | --- |
+| JSON or XML is not returned | Register the relevant iterator on `cWebApi` with `AddIterator` and verify the request's `Accept` and `Content-Type` values. |
+| Unsupported format produces an unexpected response format | The first iterator registered on `cWebApi` becomes the default iterator. |
+| Custom endpoint response is not formatted by an iterator | This is expected. `cWebApiCustomEndpoint` sets the request context as custom and handles response logic directly. |
+| Error response shape differs between endpoint types | Standard dataset errors are formatted by the selected iterator. Custom endpoint error responses depend on the endpoint implementation. |
