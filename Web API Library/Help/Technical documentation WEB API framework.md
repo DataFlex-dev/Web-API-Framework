@@ -12,46 +12,49 @@
   - [2.6 Implementing authentication/authorization](#26-implementing-authenticationauthorization)
     - [2.6.1 Including authentication/authorization into the OpenApi specification](#261-including-authenticationauthorization-into-the-openapi-specification)
   - [2.7 Building custom endpoints](#27-building-custom-endpoints)
-- [3 Components](#3-components)
+- [3 Request lifecycle](#3-request-lifecycle)
+  - [3.1 cRestDataset flow](#31-crestdataset-flow)
+  - [3.2 cWebApiCustomEndpoint flow](#32-cwebapicustomendpoint-flow)
+- [4 Components](#4-components)
   - [Which component should I use?](#which-component-should-i-use)
   - [Component overview](#component-overview)
-  - [3.1 cWebApi](#31-cwebapi)
-  - [3.2 cWebApiRouter](#32-cwebapirouter)
-  - [3.3 cBaseRestDataset](#33-cbaserestdataset)
-  - [3.4 cRestDataset](#34-crestdataset)
-  - [3.5 cWebApiCustomEndpoint](#35-cwebapicustomendpoint)
-  - [3.6 cWebApiLoginEndpoint](#36-cwebapiloginendpoint)
-  - [3.7 cOpenApiEndpoint](#37-copenapiendpoint)
-  - [3.8 cRestField](#38-crestfield)
-  - [3.9 cOpenApiRestField](#39-copenapirestfield)
-  - [3.10 cRestChildCollection](#310-crestchildcollection)
-  - [3.11 cRestEntity](#311-crestentity)
-  - [3.12 cWebApiModifier](#312-cwebapimodifier)
-  - [3.13 cWebApiAuthModifier](#313-cwebapiauthmodifier)
-  - [3.14 cBaseWebApiIterator](#314-cbasewebapiiterator)
-  - [3.15 cJSONIterator](#315-cjsoniterator)
-  - [3.16 cXMLIterator](#316-cxmliterator)
-  - [3.17 cRest_Mixin](#317-crest_mixin)
-  - [3.18 cWebApiModifierHost_Mixin](#318-cwebapimodifierhost_mixin)
-  - [3.19 cWebApiRoutableHost_Mixin](#319-cwebapiroutablehost_mixin)
-  - [3.20 cWebApiErrorHandler_Mixin](#320-cwebapierrorhandler_mixin)
-  - [3.21 cOpenApiSpecification](#321-copenapispecification)
-  - [3.22 cSwaggerUI](#322-cswaggerui)
-- [4 Structs, constants and enums](#4-structs-constants-and-enums)
-  - [4.1 Structs](#41-structs)
-    - [4.1.1 tRESTRequestBody](#411-trestrequestbody)
-    - [4.1.2 tWebApiCallContext](#412-twebapicallcontext)
-    - [4.1.3 tSecuredDataset](#413-tsecureddataset)
-    - [4.1.4 oneOf](#414-oneof)
-    - [4.1.5 tEndpointDefinition](#415-tendpointdefinition)
-    - [4.1.6 tVerbDefinition](#416-tverbdefinition)
-    - [4.1.7 tResponseDefinition](#417-tresponsedefinition)
-    - [4.1.8 tFieldDefinition](#418-tfielddefinition)
-    - [4.1.9 tParameterDefinition](#419-tparameterdefinition)
-  - [4.2 Constants](#42-constants)
-  - [4.3 Enums](#43-enums)
-    - [4.3.1 Field types](#431-field-types)
-    - [4.3.2 Parameter types](#432-parameter-types)
+  - [4.1 cWebApi](#41-cwebapi)
+  - [4.2 cWebApiRouter](#42-cwebapirouter)
+  - [4.3 cBaseRestDataset](#43-cbaserestdataset)
+  - [4.4 cRestDataset](#44-crestdataset)
+  - [4.5 cWebApiCustomEndpoint](#45-cwebapicustomendpoint)
+  - [4.6 cWebApiLoginEndpoint](#46-cwebapiloginendpoint)
+  - [4.7 cOpenApiEndpoint](#47-copenapiendpoint)
+  - [4.8 cRestField](#48-crestfield)
+  - [4.9 cOpenApiRestField](#49-copenapirestfield)
+  - [4.10 cRestChildCollection](#410-crestchildcollection)
+  - [4.11 cRestEntity](#411-crestentity)
+  - [4.12 cWebApiModifier](#412-cwebapimodifier)
+  - [4.13 cWebApiAuthModifier](#413-cwebapiauthmodifier)
+  - [4.14 cBaseWebApiIterator](#414-cbasewebapiiterator)
+  - [4.15 cJSONIterator](#415-cjsoniterator)
+  - [4.16 cXMLIterator](#416-cxmliterator)
+  - [4.17 cRest_Mixin](#417-crest_mixin)
+  - [4.18 cWebApiModifierHost_Mixin](#418-cwebapimodifierhost_mixin)
+  - [4.19 cWebApiRoutableHost_Mixin](#419-cwebapiroutablehost_mixin)
+  - [4.20 cWebApiErrorHandler_Mixin](#420-cwebapierrorhandler_mixin)
+  - [4.21 cOpenApiSpecification](#421-copenapispecification)
+  - [4.22 cSwaggerUI](#422-cswaggerui)
+- [5 Structs, constants and enums](#5-structs-constants-and-enums)
+  - [5.1 Structs](#51-structs)
+    - [5.1.1 tRESTRequestBody](#511-trestrequestbody)
+    - [5.1.2 tWebApiCallContext](#512-twebapicallcontext)
+    - [5.1.3 tSecuredDataset](#513-tsecureddataset)
+    - [5.1.4 oneOf](#514-oneof)
+    - [5.1.5 tEndpointDefinition](#515-tendpointdefinition)
+    - [5.1.6 tVerbDefinition](#516-tverbdefinition)
+    - [5.1.7 tResponseDefinition](#517-tresponsedefinition)
+    - [5.1.8 tFieldDefinition](#518-tfielddefinition)
+    - [5.1.9 tParameterDefinition](#519-tparameterdefinition)
+  - [5.2 Constants](#52-constants)
+  - [5.3 Enums](#53-enums)
+    - [5.3.1 Field types](#531-field-types)
+    - [5.3.2 Parameter types](#532-parameter-types)
 
 ## 1 Introduction
 
@@ -721,7 +724,85 @@ Aside from that the POST verb gets an additional expected request field from the
 
 Finally we move the verbs we have defined into the endpointDefinition struct.
 
-## 3 Components
+## 3 Request lifecycle
+
+The framework processes requests through a predictable sequence. Both paths share request preparation, routing, modifier hooks, and error handling, but they differ in how the response is created.
+
+### 3.1 cRestDataset flow
+
+This path is used for data-dictionary-backed endpoints. The iterator parses incoming request bodies and formats outgoing response bodies.
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Api as cWebApi
+    participant Modifiers as Modifiers
+    participant Router as cWebApiRouter
+    participant Dataset as cRestDataset
+    participant Iterator as JSON or XML iterator
+    participant ErrorHandler as cWebApiErrorHandler_Mixin
+
+    Client->>Api: HTTP request
+    Api->>Api: Fire OnHttpPreRequest
+    Api->>Modifiers: Run pre-request hooks
+    Api->>Router: Resolve request path
+    Router-->>Api: Matching cRestDataset endpoint
+
+    alt Request succeeds
+        Api->>Dataset: Process request
+        Dataset->>Iterator: Parse or build body
+        Iterator-->>Dataset: Response body
+        Dataset-->>Api: Endpoint result
+        Api->>Modifiers: Run post-request hooks
+        Api-->>Client: HTTP response
+    else Unexpected error
+        Api->>ErrorHandler: Report error
+        ErrorHandler-->>Client: Error response
+    end
+```
+
+### 3.2 cWebApiCustomEndpoint flow
+
+This path is used when an endpoint needs behavior that cannot be handled by the default cRestDataset. The custom endpoint builds its response directly and does not use a JSON or XML iterator.
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Api as cWebApi
+    participant Modifiers as Modifiers
+    participant Router as cWebApiRouter
+    participant Custom as cWebApiCustomEndpoint
+    participant ErrorHandler as cWebApiErrorHandler_Mixin
+
+    Client->>Api: HTTP request
+    Api->>Api: Fire OnHttpPreRequest
+    Api->>Modifiers: Run pre-request hooks
+    Api->>Router: Resolve request path
+    Router-->>Api: Matching cWebApiCustomEndpoint endpoint
+
+    alt Request succeeds
+        Api->>Custom: Process request
+        Custom-->>Api: Build response directly
+        Api->>Modifiers: Run post-request hooks
+        Api-->>Client: HTTP response
+    else Unexpected error
+        Api->>ErrorHandler: Report error
+        ErrorHandler-->>Client: Error response
+    end
+```
+
+The lifecycle consists of these stages:
+
+1. The client sends an HTTP request to [cWebApi](#41-cwebapi).
+2. cWebApi starts request processing, fires OnHttpPreRequest, and runs pre-request modifier hooks.
+3. [cWebApiRouter](#42-cwebapirouter) or another routable object resolves the request path and selects an endpoint.
+4. The endpoint processes the request:
+   - [cRestDataset](#44-crestdataset) uses [cJSONIterator](#415-cjsoniterator) or [cXMLIterator](#416-cxmliterator) to parse request bodies and build responses.
+   - [cWebApiCustomEndpoint](#45-cwebapicustomendpoint) handles its response logic directly and does not use iterators.
+5. Post-request modifier hooks run before cWebApi sends the response.
+6. Unexpected errors are reported through [cWebApiErrorHandler_Mixin](#420-cwebapierrorhandler_mixin), which formats the error response.
+
+## 4 Components
 
 This chapter explains per component what its functionality is inside of the system and in what way it communicates to other classes. Each subchapter will start with a short functional explanation of the class. Followed by a table with various properties and procedures that go into deeper technical detail about the class.
 
@@ -733,21 +814,21 @@ Use this guide as a starting point when deciding which framework class to use.
 
 | I need to... | Start with... | Notes |
 | --- | --- | --- |
-| Create the root API object | [cWebApi](#31-cwebapi) | Receives HTTP requests and coordinates routing, modifiers, iterators, and responses. |
-| Group endpoints or create API versions | [cWebApiRouter](#32-cwebapirouter) | Routes requests to nested routers and endpoints. |
-| Expose database records with standard REST behavior | [cRestDataset](#34-crestdataset) | The default choice for data-dictionary-backed CRUD endpoints. |
-| Create a specialized dataset endpoint base class | [cBaseRestDataset](#33-cbaserestdataset) | Abstract base class intended for subclassing. |
-| Add behavior that the default dataset cannot handle | [cWebApiCustomEndpoint](#35-cwebapicustomendpoint) | Handles custom response logic directly and does not use JSON or XML iterators. |
-| Add login or registration | [cWebApiLoginEndpoint](#36-cwebapiloginendpoint) | Provides the standard session-manager login flow. |
-| Expose an individual field | [cRestField](#38-crestfield) | Can be nested in [cRestDataset](#34-crestdataset), [cRestEntity](#311-crestentity), and [cRestChildCollection](#310-crestchildcollection). |
-| Include related parent-table data | [cRestEntity](#311-crestentity) | Exposes related parent records as nested data. |
-| Include related child-table data | [cRestChildCollection](#310-crestchildcollection) | Exposes related child records as a nested collection. |
-| Use JSON with a dataset endpoint | [cJSONIterator](#315-cjsoniterator) | Used with [cRestDataset](#34-crestdataset); custom endpoints do not use this iterator. |
-| Use XML with a dataset endpoint | [cXMLIterator](#316-cxmliterator) | Used with [cRestDataset](#34-crestdataset); custom endpoints do not use this iterator. |
-| Add reusable request or response behavior | [cWebApiModifier](#312-cwebapimodifier) | Use [cWebApiAuthModifier](#313-cwebapiauthmodifier) when the behavior is authentication or authorization. |
-| Expose the OpenAPI specification | [cOpenApiEndpoint](#37-copenapiendpoint) | Included in [cWebApi](#31-cwebapi) by default. |
-| Render interactive API documentation | [cSwaggerUI](#322-cswaggerui) | Displays the specification served by [cOpenApiEndpoint](#37-copenapiendpoint). |
-| Customize OpenAPI generation | [cOpenApiSpecification](#321-copenapispecification) | Intended for framework-level OpenAPI customization. |
+| Create the root API object | [cWebApi](#41-cwebapi) | Receives HTTP requests and coordinates routing, modifiers, iterators, and responses. |
+| Group endpoints or create API versions | [cWebApiRouter](#42-cwebapirouter) | Routes requests to nested routers and endpoints. |
+| Expose database records with standard REST behavior | [cRestDataset](#44-crestdataset) | The default choice for data-dictionary-backed CRUD endpoints. |
+| Create a specialized dataset endpoint base class | [cBaseRestDataset](#43-cbaserestdataset) | Abstract base class intended for subclassing. |
+| Add behavior that the default dataset cannot handle | [cWebApiCustomEndpoint](#45-cwebapicustomendpoint) | Handles custom response logic directly and does not use JSON or XML iterators. |
+| Add login or registration | [cWebApiLoginEndpoint](#46-cwebapiloginendpoint) | Provides the standard session-manager login flow. |
+| Expose an individual field | [cRestField](#48-crestfield) | Can be nested in [cRestDataset](#44-crestdataset), [cRestEntity](#411-crestentity), and [cRestChildCollection](#410-crestchildcollection). |
+| Include related parent-table data | [cRestEntity](#411-crestentity) | Exposes related parent records as nested data. |
+| Include related child-table data | [cRestChildCollection](#410-crestchildcollection) | Exposes related child records as a nested collection. |
+| Use JSON with a dataset endpoint | [cJSONIterator](#415-cjsoniterator) | Used with [cRestDataset](#44-crestdataset); custom endpoints do not use this iterator. |
+| Use XML with a dataset endpoint | [cXMLIterator](#416-cxmliterator) | Used with [cRestDataset](#44-crestdataset); custom endpoints do not use this iterator. |
+| Add reusable request or response behavior | [cWebApiModifier](#412-cwebapimodifier) | Use [cWebApiAuthModifier](#413-cwebapiauthmodifier) when the behavior is authentication or authorization. |
+| Expose the OpenAPI specification | [cOpenApiEndpoint](#47-copenapiendpoint) | Included in [cWebApi](#41-cwebapi) by default. |
+| Render interactive API documentation | [cSwaggerUI](#422-cswaggerui) | Displays the specification served by [cOpenApiEndpoint](#47-copenapiendpoint). |
+| Customize OpenAPI generation | [cOpenApiSpecification](#421-copenapispecification) | Intended for framework-level OpenAPI customization. |
 
 ### Component overview
 
@@ -755,56 +836,56 @@ The components below are grouped by the role they play in the framework. Start w
 
 **Core API and routing**
 
-- [cWebApi](#31-cwebapi) — Root HTTP API object that receives and routes requests.
-- [cWebApiRouter](#32-cwebapirouter) — Routes requests to nested routers and endpoints.
+- [cWebApi](#41-cwebapi) — Root HTTP API object that receives and routes requests.
+- [cWebApiRouter](#42-cwebapirouter) — Routes requests to nested routers and endpoints.
 
 **REST endpoints**
 
-- [cBaseRestDataset](#33-cbaserestdataset) — Abstract base class for dataset-like endpoints.
-- [cRestDataset](#34-crestdataset) — Exposes data-dictionary-backed records.
-- [cWebApiCustomEndpoint](#35-cwebapicustomendpoint) — Supports endpoint behavior beyond the default [cRestDataset](#34-crestdataset).
-- [cWebApiLoginEndpoint](#36-cwebapiloginendpoint) — Provides login and registration behavior.
-- [cOpenApiEndpoint](#37-copenapiendpoint) — Serves the generated OpenAPI specification.
+- [cBaseRestDataset](#43-cbaserestdataset) — Abstract base class for dataset-like endpoints.
+- [cRestDataset](#44-crestdataset) — Exposes data-dictionary-backed records.
+- [cWebApiCustomEndpoint](#45-cwebapicustomendpoint) — Supports endpoint behavior beyond the default [cRestDataset](#44-crestdataset).
+- [cWebApiLoginEndpoint](#46-cwebapiloginendpoint) — Provides login and registration behavior.
+- [cOpenApiEndpoint](#47-copenapiendpoint) — Serves the generated OpenAPI specification.
 
 **Fields and relationships**
 
-- [cRestField](#38-crestfield) — Exposes an individual database or calculated field.
-- [cOpenApiRestField](#39-copenapirestfield) — Supplies OpenAPI metadata for a custom field.
-- [cRestChildCollection](#310-crestchildcollection) — Exposes related child records.
-- [cRestEntity](#311-crestentity) — Exposes related parent-table data.
+- [cRestField](#48-crestfield) — Exposes an individual database or calculated field.
+- [cOpenApiRestField](#49-copenapirestfield) — Supplies OpenAPI metadata for a custom field.
+- [cRestChildCollection](#410-crestchildcollection) — Exposes related child records.
+- [cRestEntity](#411-crestentity) — Exposes related parent-table data.
 
 **Request and response formats**
 
-- [cBaseWebApiIterator](#314-cbasewebapiiterator) — Base contract for serializing and parsing data.
-- [cJSONIterator](#315-cjsoniterator) — Handles JSON request and response bodies.
-- [cXMLIterator](#316-cxmliterator) — Handles XML request and response bodies.
+- [cBaseWebApiIterator](#414-cbasewebapiiterator) — Base contract for serializing and parsing data.
+- [cJSONIterator](#415-cjsoniterator) — Handles JSON request and response bodies.
+- [cXMLIterator](#416-cxmliterator) — Handles XML request and response bodies.
 
 **Modifiers**
 
-- [cWebApiModifier](#312-cwebapimodifier) — Adds reusable request and response hooks.
-- [cWebApiAuthModifier](#313-cwebapiauthmodifier) — Applies authentication and authorization rules.
+- [cWebApiModifier](#412-cwebapimodifier) — Adds reusable request and response hooks.
+- [cWebApiAuthModifier](#413-cwebapiauthmodifier) — Applies authentication and authorization rules.
 
 **Framework mixins**
 
-- [cRest_Mixin](#317-crest_mixin) — Adds shared path and server behavior.
-- [cWebApiModifierHost_Mixin](#318-cwebapimodifierhost_mixin) — Provides modifier-host behavior.
-- [cWebApiRoutableHost_Mixin](#319-cwebapiroutablehost_mixin) — Provides nested routable behavior.
-- [cWebApiErrorHandler_Mixin](#320-cwebapierrorhandler_mixin) — Handles unexpected API errors.
+- [cRest_Mixin](#417-crest_mixin) — Adds shared path and server behavior.
+- [cWebApiModifierHost_Mixin](#418-cwebapimodifierhost_mixin) — Provides modifier-host behavior.
+- [cWebApiRoutableHost_Mixin](#419-cwebapiroutablehost_mixin) — Provides nested routable behavior.
+- [cWebApiErrorHandler_Mixin](#420-cwebapierrorhandler_mixin) — Handles unexpected API errors.
 
 **OpenAPI and user interface**
 
-- [cOpenApiSpecification](#321-copenapispecification) — Builds the OpenAPI JSON document.
-- [cSwaggerUI](#322-cswaggerui) — Renders an interactive Swagger UI.
+- [cOpenApiSpecification](#421-copenapispecification) — Builds the OpenAPI JSON document.
+- [cSwaggerUI](#422-cswaggerui) — Renders an interactive Swagger UI.
 
-### 3.1 cWebApi
+### 4.1 cWebApi
 
 **Purpose:** Top-level HTTP API entry point that routes requests and coordinates security, events, iterators, and responses.
 
 **Use when:** Defining the root API object that receives HTTP requests.
 
-**Extends:** `cWebHttpHandler`, [cWebApiModifierHost_Mixin](#318-cwebapimodifierhost_mixin), [cWebApiRoutableHost_Mixin](#319-cwebapiroutablehost_mixin), [cWebApiErrorHandler_Mixin](#320-cwebapierrorhandler_mixin)
+**Extends:** `cWebHttpHandler`, [cWebApiModifierHost_Mixin](#418-cwebapimodifierhost_mixin), [cWebApiRoutableHost_Mixin](#419-cwebapiroutablehost_mixin), [cWebApiErrorHandler_Mixin](#420-cwebapierrorhandler_mixin)
 
-**See also:** [cWebApiRouter](#32-cwebapirouter), [cRestDataset](#34-crestdataset), [cWebApiModifier](#312-cwebapimodifier)
+**See also:** [cWebApiRouter](#42-cwebapirouter), [cRestDataset](#44-crestdataset), [cWebApiModifier](#412-cwebapimodifier)
 
 **Overview:**
 
@@ -822,10 +903,10 @@ If a cWebApiModifier is defined on this level it will be used on all incoming re
 | psApiDescription | String | Property used to generate a description in the OpenApi specification. |  |
 | psApiVersion | String | Property used to determine the version of the api. Will be used when generating the OpenApi specification. |  |
 | psApiRoot | String | Root path used when generating server URLs in the OpenAPI specification. |  |
-| pbInheritSecurity | Boolean | Property that determines if a object will inherit the auth modifiers of its parent. | [cWebApiModifierHost_Mixin](#318-cwebapimodifierhost_mixin) |
-| phoRoutables | Handle[] | Handle to all the child routables. | [cWebApiRoutableHost_Mixin](#319-cwebapiroutablehost_mixin) |
-| pasRoutables | String[] | Names of all the child routables. When searching for a routable we first search the string array if it exists. | [cWebApiRoutableHost_Mixin](#319-cwebapiroutablehost_mixin) |
-| pbDebugMode | Boolean | Determines how error messages are returned to the client. When running in pbDebugMode the entire callstack is returned to the client. When pbDebugMode is false the message "Something went wrong on the server" is returned. | [cWebApiErrorHandler_Mixin](#320-cwebapierrorhandler_mixin) |
+| pbInheritSecurity | Boolean | Property that determines if a object will inherit the auth modifiers of its parent. | [cWebApiModifierHost_Mixin](#418-cwebapimodifierhost_mixin) |
+| phoRoutables | Handle[] | Handle to all the child routables. | [cWebApiRoutableHost_Mixin](#419-cwebapiroutablehost_mixin) |
+| pasRoutables | String[] | Names of all the child routables. When searching for a routable we first search the string array if it exists. | [cWebApiRoutableHost_Mixin](#419-cwebapiroutablehost_mixin) |
+| pbDebugMode | Boolean | Determines how error messages are returned to the client. When running in pbDebugMode the entire callstack is returned to the client. When pbDebugMode is false the message "Something went wrong on the server" is returned. | [cWebApiErrorHandler_Mixin](#420-cwebapierrorhandler_mixin) |
 
 
 #### Procedures/Functions
@@ -838,26 +919,26 @@ If a cWebApiModifier is defined on this level it will be used on all incoming re
 | Construct_Object | Framework lifecycle procedure called during object construction. Do not call directly. |  |  |
 | OnHttpRequest | Receives and routes an HTTP request through the framework. |  |  |
 | End_Construct_Object | Completes framework initialization after construction. Do not call directly. |  |  |
-| Define_cWebApiModifierHost_Mixin | Initializes this mixin during framework object construction. Do not call directly. |  | [cWebApiModifierHost_Mixin](#318-cwebapimodifierhost_mixin) |
-| End_Construct_cWebApiModifierHost_Mixin | If there are no modifiers on the current object just return |  | [cWebApiModifierHost_Mixin](#318-cwebapimodifierhost_mixin) |
-| Define_cWebApiRoutableHost_Mixin | Initializes this mixin during framework object construction. Do not call directly. |  | [cWebApiRoutableHost_Mixin](#319-cwebapiroutablehost_mixin) |
-| RoutableIndex | This procedure binary searches the pasRoutables array to see if the current object has a routable that matches the sPath. If found returns the index. If nothing is found it will return -1. Params:<br>- String sPath: The request URL. | Integer | [cWebApiRoutableHost_Mixin](#319-cwebapiroutablehost_mixin) |
-| Define_cWebApiErrorHandler_Mixin | Initializes this mixin during framework object construction. Do not call directly. |  | [cWebApiErrorHandler_Mixin](#320-cwebapierrorhandler_mixin) |
-| Error_Report | This procedure is called by the error handler whenever a error occurs. Writes the callstack to pasErrorCallStack when pbDebugMode is true. Params:<br>- Integer ErrNum: The number of the error.<br>- Integer Err_Line: The line on which the error occurred.<br>- String sErrMsg: The actual error message. |  | [cWebApiErrorHandler_Mixin](#320-cwebapierrorhandler_mixin) |
-| StartErrorTracking | This procedure allows the cWebApi object to register itself as the error object during the current request. |  | [cWebApiErrorHandler_Mixin](#320-cwebapierrorhandler_mixin) |
-| StopErrorTracking | This procedure makes the ghoErrorHandler the error object again and resets all variables to their default values. |  | [cWebApiErrorHandler_Mixin](#320-cwebapierrorhandler_mixin) |
-| HttpErrorMessage | This function gets the correct error message based on what mode the error handler is running in. In pbDebugMode this will return the entire callstack. When not running in pbDebugMode this returns "Something went wrong on the server" | String | [cWebApiErrorHandler_Mixin](#320-cwebapierrorhandler_mixin) |
-| DetailedErrorMessage | Helper function that combines pasErrorCallstack into a singular string that can be returned to the client. | String | [cWebApiErrorHandler_Mixin](#320-cwebapierrorhandler_mixin) |
+| Define_cWebApiModifierHost_Mixin | Initializes this mixin during framework object construction. Do not call directly. |  | [cWebApiModifierHost_Mixin](#418-cwebapimodifierhost_mixin) |
+| End_Construct_cWebApiModifierHost_Mixin | If there are no modifiers on the current object just return |  | [cWebApiModifierHost_Mixin](#418-cwebapimodifierhost_mixin) |
+| Define_cWebApiRoutableHost_Mixin | Initializes this mixin during framework object construction. Do not call directly. |  | [cWebApiRoutableHost_Mixin](#419-cwebapiroutablehost_mixin) |
+| RoutableIndex | This procedure binary searches the pasRoutables array to see if the current object has a routable that matches the sPath. If found returns the index. If nothing is found it will return -1. Params:<br>- String sPath: The request URL. | Integer | [cWebApiRoutableHost_Mixin](#419-cwebapiroutablehost_mixin) |
+| Define_cWebApiErrorHandler_Mixin | Initializes this mixin during framework object construction. Do not call directly. |  | [cWebApiErrorHandler_Mixin](#420-cwebapierrorhandler_mixin) |
+| Error_Report | This procedure is called by the error handler whenever a error occurs. Writes the callstack to pasErrorCallStack when pbDebugMode is true. Params:<br>- Integer ErrNum: The number of the error.<br>- Integer Err_Line: The line on which the error occurred.<br>- String sErrMsg: The actual error message. |  | [cWebApiErrorHandler_Mixin](#420-cwebapierrorhandler_mixin) |
+| StartErrorTracking | This procedure allows the cWebApi object to register itself as the error object during the current request. |  | [cWebApiErrorHandler_Mixin](#420-cwebapierrorhandler_mixin) |
+| StopErrorTracking | This procedure makes the ghoErrorHandler the error object again and resets all variables to their default values. |  | [cWebApiErrorHandler_Mixin](#420-cwebapierrorhandler_mixin) |
+| HttpErrorMessage | This function gets the correct error message based on what mode the error handler is running in. In pbDebugMode this will return the entire callstack. When not running in pbDebugMode this returns "Something went wrong on the server" | String | [cWebApiErrorHandler_Mixin](#420-cwebapierrorhandler_mixin) |
+| DetailedErrorMessage | Helper function that combines pasErrorCallstack into a singular string that can be returned to the client. | String | [cWebApiErrorHandler_Mixin](#420-cwebapierrorhandler_mixin) |
 
-### 3.2 cWebApiRouter
+### 4.2 cWebApiRouter
 
 **Purpose:** Routes requests to nested routers and endpoints, including versioned API paths.
 
 **Use when:** Grouping endpoints or creating separate API route versions.
 
-**Extends:** `cObject`, [cRest_Mixin](#317-crest_mixin), [cWebApiModifierHost_Mixin](#318-cwebapimodifierhost_mixin), [cWebApiRoutableHost_Mixin](#319-cwebapiroutablehost_mixin)
+**Extends:** `cObject`, [cRest_Mixin](#417-crest_mixin), [cWebApiModifierHost_Mixin](#418-cwebapimodifierhost_mixin), [cWebApiRoutableHost_Mixin](#419-cwebapiroutablehost_mixin)
 
-**See also:** [cWebApi](#31-cwebapi), [cRestDataset](#34-crestdataset), [cWebApiRoutableHost_Mixin](#319-cwebapiroutablehost_mixin)
+**See also:** [cWebApi](#41-cwebapi), [cRestDataset](#44-crestdataset), [cWebApiRoutableHost_Mixin](#419-cwebapiroutablehost_mixin)
 
 **Overview:**
 
@@ -869,10 +950,10 @@ A cWebApiRouter can have nested routers. This allows for example a v1 router to 
 
 | Property | Type | Description | Inherited from |
 | --- | --- | --- | --- |
-| psPath | String | Part of the path in the URL. | [cRest_Mixin](#317-crest_mixin) |
-| pbInheritSecurity | Boolean | Property that determines if a object will inherit the auth modifiers of its parent. | [cWebApiModifierHost_Mixin](#318-cwebapimodifierhost_mixin) |
-| phoRoutables | Handle[] | Handle to all the child routables. | [cWebApiRoutableHost_Mixin](#319-cwebapiroutablehost_mixin) |
-| pasRoutables | String[] | Names of all the child routables. When searching for a routable we first search the string array if it exists. | [cWebApiRoutableHost_Mixin](#319-cwebapiroutablehost_mixin) |
+| psPath | String | Part of the path in the URL. | [cRest_Mixin](#417-crest_mixin) |
+| pbInheritSecurity | Boolean | Property that determines if a object will inherit the auth modifiers of its parent. | [cWebApiModifierHost_Mixin](#418-cwebapimodifierhost_mixin) |
+| phoRoutables | Handle[] | Handle to all the child routables. | [cWebApiRoutableHost_Mixin](#419-cwebapiroutablehost_mixin) |
+| pasRoutables | String[] | Names of all the child routables. When searching for a routable we first search the string array if it exists. | [cWebApiRoutableHost_Mixin](#419-cwebapiroutablehost_mixin) |
 
 
 #### Procedures/Functions
@@ -881,21 +962,21 @@ A cWebApiRouter can have nested routers. This allows for example a v1 router to 
 | --- | --- | --- | --- |
 | Construct_Object | Framework lifecycle procedure called during object construction. Do not call directly. |  |  |
 | End_Construct_Object | Completes framework initialization after construction. Do not call directly. |  |  |
-| Define_cRest_Mixin | Initializes this mixin during framework object construction. Do not call directly. |  | [cRest_Mixin](#317-crest_mixin) |
-| Define_cWebApiModifierHost_Mixin | Initializes this mixin during framework object construction. Do not call directly. |  | [cWebApiModifierHost_Mixin](#318-cwebapimodifierhost_mixin) |
-| End_Construct_cWebApiModifierHost_Mixin | If there are no modifiers on the current object just return |  | [cWebApiModifierHost_Mixin](#318-cwebapimodifierhost_mixin) |
-| Define_cWebApiRoutableHost_Mixin | Initializes this mixin during framework object construction. Do not call directly. |  | [cWebApiRoutableHost_Mixin](#319-cwebapiroutablehost_mixin) |
-| RoutableIndex | This procedure binary searches the pasRoutables array to see if the current object has a routable that matches the sPath. If found returns the index. If nothing is found it will return -1. Params:<br>- String sPath: The request URL. | Integer | [cWebApiRoutableHost_Mixin](#319-cwebapiroutablehost_mixin) |
+| Define_cRest_Mixin | Initializes this mixin during framework object construction. Do not call directly. |  | [cRest_Mixin](#417-crest_mixin) |
+| Define_cWebApiModifierHost_Mixin | Initializes this mixin during framework object construction. Do not call directly. |  | [cWebApiModifierHost_Mixin](#418-cwebapimodifierhost_mixin) |
+| End_Construct_cWebApiModifierHost_Mixin | If there are no modifiers on the current object just return |  | [cWebApiModifierHost_Mixin](#418-cwebapimodifierhost_mixin) |
+| Define_cWebApiRoutableHost_Mixin | Initializes this mixin during framework object construction. Do not call directly. |  | [cWebApiRoutableHost_Mixin](#419-cwebapiroutablehost_mixin) |
+| RoutableIndex | This procedure binary searches the pasRoutables array to see if the current object has a routable that matches the sPath. If found returns the index. If nothing is found it will return -1. Params:<br>- String sPath: The request URL. | Integer | [cWebApiRoutableHost_Mixin](#419-cwebapiroutablehost_mixin) |
 
-### 3.3 cBaseRestDataset
+### 4.3 cBaseRestDataset
 
 **Purpose:** Abstract base endpoint implementation for HTTP verbs, endpoint configuration, security, and response generation. It is intended to be subclassed rather than instantiated directly.
 
 **Use when:** Creating a concrete dataset or specialized endpoint base class. Use `cRestDataset` or another concrete subclass for normal endpoints.
 
-**Extends:** `cWebComponent`, [cRest_Mixin](#317-crest_mixin), [cWebApiModifierHost_Mixin](#318-cwebapimodifierhost_mixin)
+**Extends:** `cWebComponent`, [cRest_Mixin](#417-crest_mixin), [cWebApiModifierHost_Mixin](#418-cwebapimodifierhost_mixin)
 
-**See also:** [cRestDataset](#34-crestdataset), [cWebApiCustomEndpoint](#35-cwebapicustomendpoint), [cWebApiLoginEndpoint](#36-cwebapiloginendpoint), [cOpenApiEndpoint](#37-copenapiendpoint)
+**See also:** [cRestDataset](#44-crestdataset), [cWebApiCustomEndpoint](#45-cwebapicustomendpoint), [cWebApiLoginEndpoint](#46-cwebapiloginendpoint), [cOpenApiEndpoint](#47-copenapiendpoint)
 
 **Overview:**
 
@@ -916,8 +997,8 @@ This class defines the data that will be exposed within a REST api. This class h
 | pbSecureDelete | Boolean | Property that determines if auth modifiers should act on DELETE requests to this endpoint. |  |
 | pbIgnoreID | Boolean | When true, GET requests are routed to OnHttpGet instead of OnHttpGetByID. |  |
 | pbGenerateDocumentation | Boolean | When false, this endpoint is omitted from the generated OpenAPI documentation. |  |
-| psPath | String | Part of the path in the URL. | [cRest_Mixin](#317-crest_mixin) |
-| pbInheritSecurity | Boolean | Property that determines if a object will inherit the auth modifiers of its parent. | [cWebApiModifierHost_Mixin](#318-cwebapimodifierhost_mixin) |
+| psPath | String | Part of the path in the URL. | [cRest_Mixin](#417-crest_mixin) |
+| pbInheritSecurity | Boolean | Property that determines if a object will inherit the auth modifiers of its parent. | [cWebApiModifierHost_Mixin](#418-cwebapimodifierhost_mixin) |
 
 
 #### Procedures/Functions
@@ -934,19 +1015,19 @@ This class defines the data that will be exposed within a REST api. This class h
 | CurrentRecordToResponseBody | Gets the value of all the exposed data objects and uses the iterator to turn them into a response. For non data aware objects this calls the OnSetCalculatedValue. Params: -Handle hoResponseBody: Handle to the response body. -Handle hoIterator: Handle to the iterator object. |  |  |
 | Construct_Object | Framework lifecycle procedure called during object construction. Do not call directly. |  |  |
 | End_Construct_Object | Completes framework initialization after construction. Do not call directly. |  |  |
-| Define_cRest_Mixin | Initializes this mixin during framework object construction. Do not call directly. |  | [cRest_Mixin](#317-crest_mixin) |
-| Define_cWebApiModifierHost_Mixin | Initializes this mixin during framework object construction. Do not call directly. |  | [cWebApiModifierHost_Mixin](#318-cwebapimodifierhost_mixin) |
-| End_Construct_cWebApiModifierHost_Mixin | If there are no modifiers on the current object just return |  | [cWebApiModifierHost_Mixin](#318-cwebapimodifierhost_mixin) |
+| Define_cRest_Mixin | Initializes this mixin during framework object construction. Do not call directly. |  | [cRest_Mixin](#417-crest_mixin) |
+| Define_cWebApiModifierHost_Mixin | Initializes this mixin during framework object construction. Do not call directly. |  | [cWebApiModifierHost_Mixin](#418-cwebapimodifierhost_mixin) |
+| End_Construct_cWebApiModifierHost_Mixin | If there are no modifiers on the current object just return |  | [cWebApiModifierHost_Mixin](#418-cwebapimodifierhost_mixin) |
 
-### 3.4 cRestDataset
+### 4.4 cRestDataset
 
 **Purpose:** Exposes data-dictionary-backed records and their related fields through a REST endpoint.
 
 **Use when:** Building REST endpoints over database tables.
 
-**Extends:** [cBaseRestDataset](#33-cbaserestdataset)
+**Extends:** [cBaseRestDataset](#43-cbaserestdataset)
 
-**See also:** [cRestField](#38-crestfield), [cRestEntity](#311-crestentity), [cRestChildCollection](#310-crestchildcollection), [cJSONIterator](#315-cjsoniterator), [cXMLIterator](#316-cxmliterator)
+**See also:** [cRestField](#48-crestfield), [cRestEntity](#411-crestentity), [cRestChildCollection](#410-crestchildcollection), [cJSONIterator](#415-cjsoniterator), [cXMLIterator](#416-cxmliterator)
 
 **Overview:**
 
@@ -967,19 +1048,19 @@ This class communicates with the data dictionary classes to find records, create
 | piLimitResults | Integer | Property that should be set after reading the url parameters. Determines how many results should be returned during a GET all request. |  |
 | piFindIndex | Integer | This property determines what index will be used for performing find operations on the data dictionary. |  |
 | pbUsePathAsTableName | Boolean | This property determines if the psPath should be used as table name in swagger. When this is set to false it will instead use the DF_FILE_LOGICAL_NAME of the table. |  |
-| pbIgnoreID | Boolean | When true, GET requests are routed to OnHttpGet instead of OnHttpGetByID. | [cBaseRestDataset](#33-cbaserestdataset) |
-| pbGenerateDocumentation | Boolean | When false, this endpoint is omitted from the generated OpenAPI documentation. | [cBaseRestDataset](#33-cbaserestdataset) |
-| pbReadOnly | Boolean | Determines if a dataset is read only and should only allow GET operations. | [cBaseRestDataset](#33-cbaserestdataset) |
-| pbAllowRead | Boolean | Determines if a dataset allows GET requests. | [cBaseRestDataset](#33-cbaserestdataset) |
-| pbAllowCreate | Boolean | Determines if a dataset allows POST requests. | [cBaseRestDataset](#33-cbaserestdataset) |
-| pbAllowEdit | Boolean | Determines if a dataset allows PUT and PATCH requests. | [cBaseRestDataset](#33-cbaserestdataset) |
-| pbAllowDelete | Boolean | Determines if a dataset allows DELETE requests. | [cBaseRestDataset](#33-cbaserestdataset) |
-| pbSecureRead | Boolean | Property that determines if auth modifiers should act on GET requests to this endpoint. | [cBaseRestDataset](#33-cbaserestdataset) |
-| pbSecureCreate | Boolean | Property that determines if auth modifiers should act on POST requests to this endpoint. | [cBaseRestDataset](#33-cbaserestdataset) |
-| pbSecureEdit | Boolean | Property that determines if auth modifiers should act on PUT/PATCH requests to this endpoint. | [cBaseRestDataset](#33-cbaserestdataset) |
-| pbSecureDelete | Boolean | Property that determines if auth modifiers should act on DELETE requests to this endpoint. | [cBaseRestDataset](#33-cbaserestdataset) |
-| psPath | String | Part of the path in the URL. | [cRest_Mixin](#317-crest_mixin) |
-| pbInheritSecurity | Boolean | Property that determines if a object will inherit the auth modifiers of its parent. | [cWebApiModifierHost_Mixin](#318-cwebapimodifierhost_mixin) |
+| pbIgnoreID | Boolean | When true, GET requests are routed to OnHttpGet instead of OnHttpGetByID. | [cBaseRestDataset](#43-cbaserestdataset) |
+| pbGenerateDocumentation | Boolean | When false, this endpoint is omitted from the generated OpenAPI documentation. | [cBaseRestDataset](#43-cbaserestdataset) |
+| pbReadOnly | Boolean | Determines if a dataset is read only and should only allow GET operations. | [cBaseRestDataset](#43-cbaserestdataset) |
+| pbAllowRead | Boolean | Determines if a dataset allows GET requests. | [cBaseRestDataset](#43-cbaserestdataset) |
+| pbAllowCreate | Boolean | Determines if a dataset allows POST requests. | [cBaseRestDataset](#43-cbaserestdataset) |
+| pbAllowEdit | Boolean | Determines if a dataset allows PUT and PATCH requests. | [cBaseRestDataset](#43-cbaserestdataset) |
+| pbAllowDelete | Boolean | Determines if a dataset allows DELETE requests. | [cBaseRestDataset](#43-cbaserestdataset) |
+| pbSecureRead | Boolean | Property that determines if auth modifiers should act on GET requests to this endpoint. | [cBaseRestDataset](#43-cbaserestdataset) |
+| pbSecureCreate | Boolean | Property that determines if auth modifiers should act on POST requests to this endpoint. | [cBaseRestDataset](#43-cbaserestdataset) |
+| pbSecureEdit | Boolean | Property that determines if auth modifiers should act on PUT/PATCH requests to this endpoint. | [cBaseRestDataset](#43-cbaserestdataset) |
+| pbSecureDelete | Boolean | Property that determines if auth modifiers should act on DELETE requests to this endpoint. | [cBaseRestDataset](#43-cbaserestdataset) |
+| psPath | String | Part of the path in the URL. | [cRest_Mixin](#417-crest_mixin) |
+| pbInheritSecurity | Boolean | Property that determines if a object will inherit the auth modifiers of its parent. | [cWebApiModifierHost_Mixin](#418-cwebapimodifierhost_mixin) |
 
 
 #### Procedures/Functions
@@ -997,22 +1078,22 @@ This class communicates with the data dictionary classes to find records, create
 | HandleQueryParams | This procedure applies the constrains based on the query parameters sent in the current request. Is only used for GET requests. If you want to use contrains such as greater than, greater or equals you need to prefix the query param with for example (GT). So if you want to find all employees older than 24 your query parameter would look like the following: Age=(GT)24. Params: -Handle[] hoExposedDataObjects: All the exposed fields in the dataset. |  |  |
 | Construct_Object | Framework lifecycle procedure called during object construction. Do not call directly. |  |  |
 | QueryParams | Returns the parsed query parameters for the current request. | tWebQueryParams[] |  |
-| CurrentRecordToResponseBody | Gets the value of all the exposed data objects and uses the iterator to turn them into a response. For non data aware objects this calls the OnSetCalculatedValue. Params: -Handle hoResponseBody: Handle to the response body. -Handle hoIterator: Handle to the iterator object. |  | [cBaseRestDataset](#33-cbaserestdataset) |
-| RetrieveExposedDataFields | Helper function that retrieves all the defined cRestField, cRestEntity and cRestChildCollection objects. | Handle[] | [cBaseRestDataset](#33-cbaserestdataset) |
-| End_Construct_Object | Completes framework initialization after construction. Do not call directly. |  | [cBaseRestDataset](#33-cbaserestdataset) |
-| Define_cRest_Mixin | Initializes this mixin during framework object construction. Do not call directly. |  | [cRest_Mixin](#317-crest_mixin) |
-| Define_cWebApiModifierHost_Mixin | Initializes this mixin during framework object construction. Do not call directly. |  | [cWebApiModifierHost_Mixin](#318-cwebapimodifierhost_mixin) |
-| End_Construct_cWebApiModifierHost_Mixin | If there are no modifiers on the current object just return |  | [cWebApiModifierHost_Mixin](#318-cwebapimodifierhost_mixin) |
+| CurrentRecordToResponseBody | Gets the value of all the exposed data objects and uses the iterator to turn them into a response. For non data aware objects this calls the OnSetCalculatedValue. Params: -Handle hoResponseBody: Handle to the response body. -Handle hoIterator: Handle to the iterator object. |  | [cBaseRestDataset](#43-cbaserestdataset) |
+| RetrieveExposedDataFields | Helper function that retrieves all the defined cRestField, cRestEntity and cRestChildCollection objects. | Handle[] | [cBaseRestDataset](#43-cbaserestdataset) |
+| End_Construct_Object | Completes framework initialization after construction. Do not call directly. |  | [cBaseRestDataset](#43-cbaserestdataset) |
+| Define_cRest_Mixin | Initializes this mixin during framework object construction. Do not call directly. |  | [cRest_Mixin](#417-crest_mixin) |
+| Define_cWebApiModifierHost_Mixin | Initializes this mixin during framework object construction. Do not call directly. |  | [cWebApiModifierHost_Mixin](#418-cwebapimodifierhost_mixin) |
+| End_Construct_cWebApiModifierHost_Mixin | If there are no modifiers on the current object just return |  | [cWebApiModifierHost_Mixin](#418-cwebapimodifierhost_mixin) |
 
-### 3.5 cWebApiCustomEndpoint
+### 4.5 cWebApiCustomEndpoint
 
 **Purpose:** Provides a base for endpoints that need custom behavior beyond what the default `cRestDataset` class can handle, including custom request logic and OpenAPI schema details.
 
 **Use when:** The endpoint behavior cannot be represented by a standard data-dictionary dataset.
 
-**Extends:** [cBaseRestDataset](#33-cbaserestdataset)
+**Extends:** [cBaseRestDataset](#43-cbaserestdataset)
 
-**See also:** [cRestDataset](#34-crestdataset), [cOpenApiEndpoint](#37-copenapiendpoint), [cOpenApiSpecification](#321-copenapispecification)
+**See also:** [cRestDataset](#44-crestdataset), [cOpenApiEndpoint](#47-copenapiendpoint), [cOpenApiSpecification](#421-copenapispecification)
 
 **Overview:**
 
@@ -1022,19 +1103,19 @@ This class allows developers to implement their custom logic inside of their RES
 
 | Property | Type | Description | Inherited from |
 | --- | --- | --- | --- |
-| pbIgnoreID | Boolean | When true, GET requests are routed to OnHttpGet instead of OnHttpGetByID. | [cBaseRestDataset](#33-cbaserestdataset) |
-| pbGenerateDocumentation | Boolean | When false, this endpoint is omitted from the generated OpenAPI documentation. | [cBaseRestDataset](#33-cbaserestdataset) |
-| pbReadOnly | Boolean | Determines if a dataset is read only and should only allow GET operations. | [cBaseRestDataset](#33-cbaserestdataset) |
-| pbAllowRead | Boolean | Determines if a dataset allows GET requests. | [cBaseRestDataset](#33-cbaserestdataset) |
-| pbAllowCreate | Boolean | Determines if a dataset allows POST requests. | [cBaseRestDataset](#33-cbaserestdataset) |
-| pbAllowEdit | Boolean | Determines if a dataset allows PUT and PATCH requests. | [cBaseRestDataset](#33-cbaserestdataset) |
-| pbAllowDelete | Boolean | Determines if a dataset allows DELETE requests. | [cBaseRestDataset](#33-cbaserestdataset) |
-| pbSecureRead | Boolean | Property that determines if auth modifiers should act on GET requests to this endpoint. | [cBaseRestDataset](#33-cbaserestdataset) |
-| pbSecureCreate | Boolean | Property that determines if auth modifiers should act on POST requests to this endpoint. | [cBaseRestDataset](#33-cbaserestdataset) |
-| pbSecureEdit | Boolean | Property that determines if auth modifiers should act on PUT/PATCH requests to this endpoint. | [cBaseRestDataset](#33-cbaserestdataset) |
-| pbSecureDelete | Boolean | Property that determines if auth modifiers should act on DELETE requests to this endpoint. | [cBaseRestDataset](#33-cbaserestdataset) |
-| psPath | String | Part of the path in the URL. | [cRest_Mixin](#317-crest_mixin) |
-| pbInheritSecurity | Boolean | Property that determines if a object will inherit the auth modifiers of its parent. | [cWebApiModifierHost_Mixin](#318-cwebapimodifierhost_mixin) |
+| pbIgnoreID | Boolean | When true, GET requests are routed to OnHttpGet instead of OnHttpGetByID. | [cBaseRestDataset](#43-cbaserestdataset) |
+| pbGenerateDocumentation | Boolean | When false, this endpoint is omitted from the generated OpenAPI documentation. | [cBaseRestDataset](#43-cbaserestdataset) |
+| pbReadOnly | Boolean | Determines if a dataset is read only and should only allow GET operations. | [cBaseRestDataset](#43-cbaserestdataset) |
+| pbAllowRead | Boolean | Determines if a dataset allows GET requests. | [cBaseRestDataset](#43-cbaserestdataset) |
+| pbAllowCreate | Boolean | Determines if a dataset allows POST requests. | [cBaseRestDataset](#43-cbaserestdataset) |
+| pbAllowEdit | Boolean | Determines if a dataset allows PUT and PATCH requests. | [cBaseRestDataset](#43-cbaserestdataset) |
+| pbAllowDelete | Boolean | Determines if a dataset allows DELETE requests. | [cBaseRestDataset](#43-cbaserestdataset) |
+| pbSecureRead | Boolean | Property that determines if auth modifiers should act on GET requests to this endpoint. | [cBaseRestDataset](#43-cbaserestdataset) |
+| pbSecureCreate | Boolean | Property that determines if auth modifiers should act on POST requests to this endpoint. | [cBaseRestDataset](#43-cbaserestdataset) |
+| pbSecureEdit | Boolean | Property that determines if auth modifiers should act on PUT/PATCH requests to this endpoint. | [cBaseRestDataset](#43-cbaserestdataset) |
+| pbSecureDelete | Boolean | Property that determines if auth modifiers should act on DELETE requests to this endpoint. | [cBaseRestDataset](#43-cbaserestdataset) |
+| psPath | String | Part of the path in the URL. | [cRest_Mixin](#417-crest_mixin) |
+| pbInheritSecurity | Boolean | Property that determines if a object will inherit the auth modifiers of its parent. | [cWebApiModifierHost_Mixin](#418-cwebapimodifierhost_mixin) |
 
 
 #### Procedures/Functions
@@ -1044,28 +1125,28 @@ This class allows developers to implement their custom logic inside of their RES
 | OnDefineSchema | This procedure allows a developer to define all the information needed for the OpenApi specification. This is done by filling the tEndpointDefinition struct with all the information needed. Params:<br>- tEndpointDefinition ByRef endpointDefinition: This struct should be filled with all the information needed for the endpoint. Configurations are on a verb basis. So a GET request could for example have completely different request fields and responses compared to a POST request. Security schemas are not needed in this struct. The framework will handle this. | Handle |  |
 | Construct_Object | Framework lifecycle procedure called during object construction. Do not call directly. |  |  |
 | OnHttpRequest | Handles the incoming request for a custom endpoint. |  |  |
-| OnHttpGet | This procedure is called when a GET request is send to the dataset. Should be augmented in subclasses Params:<br>- tWebApiCallContext webapicallcontext: Struct that is passed through the framework ByRef. |  | [cBaseRestDataset](#33-cbaserestdataset) |
-| OnHttpGetByID | This procedure is called when a GET request is send to the dataset. Should be augmented in subclasses Params:<br>- tWebApiCallContext webapicallcontext: Struct that is passed through the framework ByRef.<br>- Integer iID: The id of the source that needs to be found. |  | [cBaseRestDataset](#33-cbaserestdataset) |
-| OnHttpPost | This procedure is called when a POST request is send to the dataset. Should be augmented in subclasses Params:<br>- tWebApiCallContext webapicallcontext: Struct that is passed through the framework ByRef. |  | [cBaseRestDataset](#33-cbaserestdataset) |
-| OnHttpPut | This procedure is called when a PUT request is send to the dataset. Should be augmented in subclasses Params:<br>- tWebApiCallContext webapicallcontext: Struct that is passed through the framework ByRef.<br>- Integer iID: The id in the path parameter. |  | [cBaseRestDataset](#33-cbaserestdataset) |
-| OnHttpPatch | This procedure is called when a PATCH request is send to the dataset. Should be augmented in subclasses Params:<br>- tWebApiCallContext webapicallcontext: Struct that is passed through the framework ByRef.<br>- Integer iID: The id in the path parameter. |  | [cBaseRestDataset](#33-cbaserestdataset) |
-| OnHttpDelete | This procedure is called when a DELETE request is send to the dataset. Should be augmented in subclasses Params:<br>- tWebApiCallContext webapicallcontext: Struct that is passed through the framework ByRef.<br>- Integer iID: The id in the path parameter. |  | [cBaseRestDataset](#33-cbaserestdataset) |
-| CurrentRecordToResponseBody | Gets the value of all the exposed data objects and uses the iterator to turn them into a response. For non data aware objects this calls the OnSetCalculatedValue. Params: -Handle hoResponseBody: Handle to the response body. -Handle hoIterator: Handle to the iterator object. |  | [cBaseRestDataset](#33-cbaserestdataset) |
-| RetrieveExposedDataFields | Helper function that retrieves all the defined cRestField, cRestEntity and cRestChildCollection objects. | Handle[] | [cBaseRestDataset](#33-cbaserestdataset) |
-| End_Construct_Object | Completes framework initialization after construction. Do not call directly. |  | [cBaseRestDataset](#33-cbaserestdataset) |
-| Define_cRest_Mixin | Initializes this mixin during framework object construction. Do not call directly. |  | [cRest_Mixin](#317-crest_mixin) |
-| Define_cWebApiModifierHost_Mixin | Initializes this mixin during framework object construction. Do not call directly. |  | [cWebApiModifierHost_Mixin](#318-cwebapimodifierhost_mixin) |
-| End_Construct_cWebApiModifierHost_Mixin | If there are no modifiers on the current object just return |  | [cWebApiModifierHost_Mixin](#318-cwebapimodifierhost_mixin) |
+| OnHttpGet | This procedure is called when a GET request is send to the dataset. Should be augmented in subclasses Params:<br>- tWebApiCallContext webapicallcontext: Struct that is passed through the framework ByRef. |  | [cBaseRestDataset](#43-cbaserestdataset) |
+| OnHttpGetByID | This procedure is called when a GET request is send to the dataset. Should be augmented in subclasses Params:<br>- tWebApiCallContext webapicallcontext: Struct that is passed through the framework ByRef.<br>- Integer iID: The id of the source that needs to be found. |  | [cBaseRestDataset](#43-cbaserestdataset) |
+| OnHttpPost | This procedure is called when a POST request is send to the dataset. Should be augmented in subclasses Params:<br>- tWebApiCallContext webapicallcontext: Struct that is passed through the framework ByRef. |  | [cBaseRestDataset](#43-cbaserestdataset) |
+| OnHttpPut | This procedure is called when a PUT request is send to the dataset. Should be augmented in subclasses Params:<br>- tWebApiCallContext webapicallcontext: Struct that is passed through the framework ByRef.<br>- Integer iID: The id in the path parameter. |  | [cBaseRestDataset](#43-cbaserestdataset) |
+| OnHttpPatch | This procedure is called when a PATCH request is send to the dataset. Should be augmented in subclasses Params:<br>- tWebApiCallContext webapicallcontext: Struct that is passed through the framework ByRef.<br>- Integer iID: The id in the path parameter. |  | [cBaseRestDataset](#43-cbaserestdataset) |
+| OnHttpDelete | This procedure is called when a DELETE request is send to the dataset. Should be augmented in subclasses Params:<br>- tWebApiCallContext webapicallcontext: Struct that is passed through the framework ByRef.<br>- Integer iID: The id in the path parameter. |  | [cBaseRestDataset](#43-cbaserestdataset) |
+| CurrentRecordToResponseBody | Gets the value of all the exposed data objects and uses the iterator to turn them into a response. For non data aware objects this calls the OnSetCalculatedValue. Params: -Handle hoResponseBody: Handle to the response body. -Handle hoIterator: Handle to the iterator object. |  | [cBaseRestDataset](#43-cbaserestdataset) |
+| RetrieveExposedDataFields | Helper function that retrieves all the defined cRestField, cRestEntity and cRestChildCollection objects. | Handle[] | [cBaseRestDataset](#43-cbaserestdataset) |
+| End_Construct_Object | Completes framework initialization after construction. Do not call directly. |  | [cBaseRestDataset](#43-cbaserestdataset) |
+| Define_cRest_Mixin | Initializes this mixin during framework object construction. Do not call directly. |  | [cRest_Mixin](#417-crest_mixin) |
+| Define_cWebApiModifierHost_Mixin | Initializes this mixin during framework object construction. Do not call directly. |  | [cWebApiModifierHost_Mixin](#418-cwebapimodifierhost_mixin) |
+| End_Construct_cWebApiModifierHost_Mixin | If there are no modifiers on the current object just return |  | [cWebApiModifierHost_Mixin](#418-cwebapimodifierhost_mixin) |
 
-### 3.6 cWebApiLoginEndpoint
+### 4.6 cWebApiLoginEndpoint
 
 **Purpose:** Provides a standard POST endpoint for session-manager login and registration.
 
 **Use when:** Exposing login or registration functionality through the API.
 
-**Extends:** [cBaseRestDataset](#33-cbaserestdataset)
+**Extends:** [cBaseRestDataset](#43-cbaserestdataset)
 
-**See also:** [cRestDataset](#34-crestdataset), [cWebApiAuthModifier](#313-cwebapiauthmodifier)
+**See also:** [cRestDataset](#44-crestdataset), [cWebApiAuthModifier](#413-cwebapiauthmodifier)
 
 **Overview:**
 
@@ -1080,19 +1161,19 @@ The cWebApiLoginEndpoint only exposes the POST verb.
 | Property | Type | Description | Inherited from |
 | --- | --- | --- | --- |
 | pbRegisterMode | Boolean | Determines if the cWebApiLoginEndpoint is in register mode or login mode. |  |
-| pbIgnoreID | Boolean | When true, GET requests are routed to OnHttpGet instead of OnHttpGetByID. | [cBaseRestDataset](#33-cbaserestdataset) |
-| pbGenerateDocumentation | Boolean | When false, this endpoint is omitted from the generated OpenAPI documentation. | [cBaseRestDataset](#33-cbaserestdataset) |
-| pbReadOnly | Boolean | Determines if a dataset is read only and should only allow GET operations. | [cBaseRestDataset](#33-cbaserestdataset) |
-| pbAllowRead | Boolean | Determines if a dataset allows GET requests. | [cBaseRestDataset](#33-cbaserestdataset) |
-| pbAllowCreate | Boolean | Determines if a dataset allows POST requests. | [cBaseRestDataset](#33-cbaserestdataset) |
-| pbAllowEdit | Boolean | Determines if a dataset allows PUT and PATCH requests. | [cBaseRestDataset](#33-cbaserestdataset) |
-| pbAllowDelete | Boolean | Determines if a dataset allows DELETE requests. | [cBaseRestDataset](#33-cbaserestdataset) |
-| pbSecureRead | Boolean | Property that determines if auth modifiers should act on GET requests to this endpoint. | [cBaseRestDataset](#33-cbaserestdataset) |
-| pbSecureCreate | Boolean | Property that determines if auth modifiers should act on POST requests to this endpoint. | [cBaseRestDataset](#33-cbaserestdataset) |
-| pbSecureEdit | Boolean | Property that determines if auth modifiers should act on PUT/PATCH requests to this endpoint. | [cBaseRestDataset](#33-cbaserestdataset) |
-| pbSecureDelete | Boolean | Property that determines if auth modifiers should act on DELETE requests to this endpoint. | [cBaseRestDataset](#33-cbaserestdataset) |
-| psPath | String | Part of the path in the URL. | [cRest_Mixin](#317-crest_mixin) |
-| pbInheritSecurity | Boolean | Property that determines if a object will inherit the auth modifiers of its parent. | [cWebApiModifierHost_Mixin](#318-cwebapimodifierhost_mixin) |
+| pbIgnoreID | Boolean | When true, GET requests are routed to OnHttpGet instead of OnHttpGetByID. | [cBaseRestDataset](#43-cbaserestdataset) |
+| pbGenerateDocumentation | Boolean | When false, this endpoint is omitted from the generated OpenAPI documentation. | [cBaseRestDataset](#43-cbaserestdataset) |
+| pbReadOnly | Boolean | Determines if a dataset is read only and should only allow GET operations. | [cBaseRestDataset](#43-cbaserestdataset) |
+| pbAllowRead | Boolean | Determines if a dataset allows GET requests. | [cBaseRestDataset](#43-cbaserestdataset) |
+| pbAllowCreate | Boolean | Determines if a dataset allows POST requests. | [cBaseRestDataset](#43-cbaserestdataset) |
+| pbAllowEdit | Boolean | Determines if a dataset allows PUT and PATCH requests. | [cBaseRestDataset](#43-cbaserestdataset) |
+| pbAllowDelete | Boolean | Determines if a dataset allows DELETE requests. | [cBaseRestDataset](#43-cbaserestdataset) |
+| pbSecureRead | Boolean | Property that determines if auth modifiers should act on GET requests to this endpoint. | [cBaseRestDataset](#43-cbaserestdataset) |
+| pbSecureCreate | Boolean | Property that determines if auth modifiers should act on POST requests to this endpoint. | [cBaseRestDataset](#43-cbaserestdataset) |
+| pbSecureEdit | Boolean | Property that determines if auth modifiers should act on PUT/PATCH requests to this endpoint. | [cBaseRestDataset](#43-cbaserestdataset) |
+| pbSecureDelete | Boolean | Property that determines if auth modifiers should act on DELETE requests to this endpoint. | [cBaseRestDataset](#43-cbaserestdataset) |
+| psPath | String | Part of the path in the URL. | [cRest_Mixin](#417-crest_mixin) |
+| pbInheritSecurity | Boolean | Property that determines if a object will inherit the auth modifiers of its parent. | [cWebApiModifierHost_Mixin](#418-cwebapimodifierhost_mixin) |
 
 
 #### Procedures/Functions
@@ -1104,27 +1185,27 @@ The cWebApiLoginEndpoint only exposes the POST verb.
 | OnSuccessfulLogin | This event gets called whenever a login or register was a success. Developers can augment this event to implement some custom logic. Params:<br>- tWebApiCallContext webapicallcontext: This struct has all the information used in the current call. |  |  |
 | Construct_Object | Framework lifecycle procedure called during object construction. Do not call directly. |  |  |
 | OnHttpPost | Handles login or registration POST requests. |  |  |
-| OnHttpGet | This procedure is called when a GET request is send to the dataset. Should be augmented in subclasses Params:<br>- tWebApiCallContext webapicallcontext: Struct that is passed through the framework ByRef. |  | [cBaseRestDataset](#33-cbaserestdataset) |
-| OnHttpGetByID | This procedure is called when a GET request is send to the dataset. Should be augmented in subclasses Params:<br>- tWebApiCallContext webapicallcontext: Struct that is passed through the framework ByRef.<br>- Integer iID: The id of the source that needs to be found. |  | [cBaseRestDataset](#33-cbaserestdataset) |
-| OnHttpPut | This procedure is called when a PUT request is send to the dataset. Should be augmented in subclasses Params:<br>- tWebApiCallContext webapicallcontext: Struct that is passed through the framework ByRef.<br>- Integer iID: The id in the path parameter. |  | [cBaseRestDataset](#33-cbaserestdataset) |
-| OnHttpPatch | This procedure is called when a PATCH request is send to the dataset. Should be augmented in subclasses Params:<br>- tWebApiCallContext webapicallcontext: Struct that is passed through the framework ByRef.<br>- Integer iID: The id in the path parameter. |  | [cBaseRestDataset](#33-cbaserestdataset) |
-| OnHttpDelete | This procedure is called when a DELETE request is send to the dataset. Should be augmented in subclasses Params:<br>- tWebApiCallContext webapicallcontext: Struct that is passed through the framework ByRef.<br>- Integer iID: The id in the path parameter. |  | [cBaseRestDataset](#33-cbaserestdataset) |
-| CurrentRecordToResponseBody | Gets the value of all the exposed data objects and uses the iterator to turn them into a response. For non data aware objects this calls the OnSetCalculatedValue. Params: -Handle hoResponseBody: Handle to the response body. -Handle hoIterator: Handle to the iterator object. |  | [cBaseRestDataset](#33-cbaserestdataset) |
-| RetrieveExposedDataFields | Helper function that retrieves all the defined cRestField, cRestEntity and cRestChildCollection objects. | Handle[] | [cBaseRestDataset](#33-cbaserestdataset) |
-| End_Construct_Object | Completes framework initialization after construction. Do not call directly. |  | [cBaseRestDataset](#33-cbaserestdataset) |
-| Define_cRest_Mixin | Initializes this mixin during framework object construction. Do not call directly. |  | [cRest_Mixin](#317-crest_mixin) |
-| Define_cWebApiModifierHost_Mixin | Initializes this mixin during framework object construction. Do not call directly. |  | [cWebApiModifierHost_Mixin](#318-cwebapimodifierhost_mixin) |
-| End_Construct_cWebApiModifierHost_Mixin | If there are no modifiers on the current object just return |  | [cWebApiModifierHost_Mixin](#318-cwebapimodifierhost_mixin) |
+| OnHttpGet | This procedure is called when a GET request is send to the dataset. Should be augmented in subclasses Params:<br>- tWebApiCallContext webapicallcontext: Struct that is passed through the framework ByRef. |  | [cBaseRestDataset](#43-cbaserestdataset) |
+| OnHttpGetByID | This procedure is called when a GET request is send to the dataset. Should be augmented in subclasses Params:<br>- tWebApiCallContext webapicallcontext: Struct that is passed through the framework ByRef.<br>- Integer iID: The id of the source that needs to be found. |  | [cBaseRestDataset](#43-cbaserestdataset) |
+| OnHttpPut | This procedure is called when a PUT request is send to the dataset. Should be augmented in subclasses Params:<br>- tWebApiCallContext webapicallcontext: Struct that is passed through the framework ByRef.<br>- Integer iID: The id in the path parameter. |  | [cBaseRestDataset](#43-cbaserestdataset) |
+| OnHttpPatch | This procedure is called when a PATCH request is send to the dataset. Should be augmented in subclasses Params:<br>- tWebApiCallContext webapicallcontext: Struct that is passed through the framework ByRef.<br>- Integer iID: The id in the path parameter. |  | [cBaseRestDataset](#43-cbaserestdataset) |
+| OnHttpDelete | This procedure is called when a DELETE request is send to the dataset. Should be augmented in subclasses Params:<br>- tWebApiCallContext webapicallcontext: Struct that is passed through the framework ByRef.<br>- Integer iID: The id in the path parameter. |  | [cBaseRestDataset](#43-cbaserestdataset) |
+| CurrentRecordToResponseBody | Gets the value of all the exposed data objects and uses the iterator to turn them into a response. For non data aware objects this calls the OnSetCalculatedValue. Params: -Handle hoResponseBody: Handle to the response body. -Handle hoIterator: Handle to the iterator object. |  | [cBaseRestDataset](#43-cbaserestdataset) |
+| RetrieveExposedDataFields | Helper function that retrieves all the defined cRestField, cRestEntity and cRestChildCollection objects. | Handle[] | [cBaseRestDataset](#43-cbaserestdataset) |
+| End_Construct_Object | Completes framework initialization after construction. Do not call directly. |  | [cBaseRestDataset](#43-cbaserestdataset) |
+| Define_cRest_Mixin | Initializes this mixin during framework object construction. Do not call directly. |  | [cRest_Mixin](#417-crest_mixin) |
+| Define_cWebApiModifierHost_Mixin | Initializes this mixin during framework object construction. Do not call directly. |  | [cWebApiModifierHost_Mixin](#418-cwebapimodifierhost_mixin) |
+| End_Construct_cWebApiModifierHost_Mixin | If there are no modifiers on the current object just return |  | [cWebApiModifierHost_Mixin](#418-cwebapimodifierhost_mixin) |
 
-### 3.7 cOpenApiEndpoint
+### 4.7 cOpenApiEndpoint
 
 **Purpose:** Serves the generated OpenAPI specification to API clients and documentation tools. It is included in the `cWebApi` object by default.
 
 **Use when:** Exposing the OpenAPI specification through the API.
 
-**Extends:** [cBaseRestDataset](#33-cbaserestdataset)
+**Extends:** [cBaseRestDataset](#43-cbaserestdataset)
 
-**See also:** [cOpenApiSpecification](#321-copenapispecification), [cSwaggerUI](#322-cswaggerui)
+**See also:** [cOpenApiSpecification](#421-copenapispecification), [cSwaggerUI](#422-cswaggerui)
 
 **Overview:**
 
@@ -1134,19 +1215,19 @@ This is a endpoint that only exposes the OpenApi specification. The cSwaggerUI c
 
 | Property | Type | Description | Inherited from |
 | --- | --- | --- | --- |
-| pbIgnoreID | Boolean | When true, GET requests are routed to OnHttpGet instead of OnHttpGetByID. | [cBaseRestDataset](#33-cbaserestdataset) |
-| pbGenerateDocumentation | Boolean | When false, this endpoint is omitted from the generated OpenAPI documentation. | [cBaseRestDataset](#33-cbaserestdataset) |
-| pbReadOnly | Boolean | Determines if a dataset is read only and should only allow GET operations. | [cBaseRestDataset](#33-cbaserestdataset) |
-| pbAllowRead | Boolean | Determines if a dataset allows GET requests. | [cBaseRestDataset](#33-cbaserestdataset) |
-| pbAllowCreate | Boolean | Determines if a dataset allows POST requests. | [cBaseRestDataset](#33-cbaserestdataset) |
-| pbAllowEdit | Boolean | Determines if a dataset allows PUT and PATCH requests. | [cBaseRestDataset](#33-cbaserestdataset) |
-| pbAllowDelete | Boolean | Determines if a dataset allows DELETE requests. | [cBaseRestDataset](#33-cbaserestdataset) |
-| pbSecureRead | Boolean | Property that determines if auth modifiers should act on GET requests to this endpoint. | [cBaseRestDataset](#33-cbaserestdataset) |
-| pbSecureCreate | Boolean | Property that determines if auth modifiers should act on POST requests to this endpoint. | [cBaseRestDataset](#33-cbaserestdataset) |
-| pbSecureEdit | Boolean | Property that determines if auth modifiers should act on PUT/PATCH requests to this endpoint. | [cBaseRestDataset](#33-cbaserestdataset) |
-| pbSecureDelete | Boolean | Property that determines if auth modifiers should act on DELETE requests to this endpoint. | [cBaseRestDataset](#33-cbaserestdataset) |
-| psPath | String | Part of the path in the URL. | [cRest_Mixin](#317-crest_mixin) |
-| pbInheritSecurity | Boolean | Property that determines if a object will inherit the auth modifiers of its parent. | [cWebApiModifierHost_Mixin](#318-cwebapimodifierhost_mixin) |
+| pbIgnoreID | Boolean | When true, GET requests are routed to OnHttpGet instead of OnHttpGetByID. | [cBaseRestDataset](#43-cbaserestdataset) |
+| pbGenerateDocumentation | Boolean | When false, this endpoint is omitted from the generated OpenAPI documentation. | [cBaseRestDataset](#43-cbaserestdataset) |
+| pbReadOnly | Boolean | Determines if a dataset is read only and should only allow GET operations. | [cBaseRestDataset](#43-cbaserestdataset) |
+| pbAllowRead | Boolean | Determines if a dataset allows GET requests. | [cBaseRestDataset](#43-cbaserestdataset) |
+| pbAllowCreate | Boolean | Determines if a dataset allows POST requests. | [cBaseRestDataset](#43-cbaserestdataset) |
+| pbAllowEdit | Boolean | Determines if a dataset allows PUT and PATCH requests. | [cBaseRestDataset](#43-cbaserestdataset) |
+| pbAllowDelete | Boolean | Determines if a dataset allows DELETE requests. | [cBaseRestDataset](#43-cbaserestdataset) |
+| pbSecureRead | Boolean | Property that determines if auth modifiers should act on GET requests to this endpoint. | [cBaseRestDataset](#43-cbaserestdataset) |
+| pbSecureCreate | Boolean | Property that determines if auth modifiers should act on POST requests to this endpoint. | [cBaseRestDataset](#43-cbaserestdataset) |
+| pbSecureEdit | Boolean | Property that determines if auth modifiers should act on PUT/PATCH requests to this endpoint. | [cBaseRestDataset](#43-cbaserestdataset) |
+| pbSecureDelete | Boolean | Property that determines if auth modifiers should act on DELETE requests to this endpoint. | [cBaseRestDataset](#43-cbaserestdataset) |
+| psPath | String | Part of the path in the URL. | [cRest_Mixin](#417-crest_mixin) |
+| pbInheritSecurity | Boolean | Property that determines if a object will inherit the auth modifiers of its parent. | [cWebApiModifierHost_Mixin](#418-cwebapimodifierhost_mixin) |
 
 
 #### Procedures/Functions
@@ -1155,19 +1236,19 @@ This is a endpoint that only exposes the OpenApi specification. The cSwaggerUI c
 | --- | --- | --- | --- |
 | Construct_Object | Framework lifecycle procedure called during object construction. Do not call directly. |  |  |
 | OnHttpGet | Handles GET requests for the OpenAPI endpoint. |  |  |
-| OnHttpGetByID | This procedure is called when a GET request is send to the dataset. Should be augmented in subclasses Params:<br>- tWebApiCallContext webapicallcontext: Struct that is passed through the framework ByRef.<br>- Integer iID: The id of the source that needs to be found. |  | [cBaseRestDataset](#33-cbaserestdataset) |
-| OnHttpPost | This procedure is called when a POST request is send to the dataset. Should be augmented in subclasses Params:<br>- tWebApiCallContext webapicallcontext: Struct that is passed through the framework ByRef. |  | [cBaseRestDataset](#33-cbaserestdataset) |
-| OnHttpPut | This procedure is called when a PUT request is send to the dataset. Should be augmented in subclasses Params:<br>- tWebApiCallContext webapicallcontext: Struct that is passed through the framework ByRef.<br>- Integer iID: The id in the path parameter. |  | [cBaseRestDataset](#33-cbaserestdataset) |
-| OnHttpPatch | This procedure is called when a PATCH request is send to the dataset. Should be augmented in subclasses Params:<br>- tWebApiCallContext webapicallcontext: Struct that is passed through the framework ByRef.<br>- Integer iID: The id in the path parameter. |  | [cBaseRestDataset](#33-cbaserestdataset) |
-| OnHttpDelete | This procedure is called when a DELETE request is send to the dataset. Should be augmented in subclasses Params:<br>- tWebApiCallContext webapicallcontext: Struct that is passed through the framework ByRef.<br>- Integer iID: The id in the path parameter. |  | [cBaseRestDataset](#33-cbaserestdataset) |
-| CurrentRecordToResponseBody | Gets the value of all the exposed data objects and uses the iterator to turn them into a response. For non data aware objects this calls the OnSetCalculatedValue. Params: -Handle hoResponseBody: Handle to the response body. -Handle hoIterator: Handle to the iterator object. |  | [cBaseRestDataset](#33-cbaserestdataset) |
-| RetrieveExposedDataFields | Helper function that retrieves all the defined cRestField, cRestEntity and cRestChildCollection objects. | Handle[] | [cBaseRestDataset](#33-cbaserestdataset) |
-| End_Construct_Object | Completes framework initialization after construction. Do not call directly. |  | [cBaseRestDataset](#33-cbaserestdataset) |
-| Define_cRest_Mixin | Initializes this mixin during framework object construction. Do not call directly. |  | [cRest_Mixin](#317-crest_mixin) |
-| Define_cWebApiModifierHost_Mixin | Initializes this mixin during framework object construction. Do not call directly. |  | [cWebApiModifierHost_Mixin](#318-cwebapimodifierhost_mixin) |
-| End_Construct_cWebApiModifierHost_Mixin | If there are no modifiers on the current object just return |  | [cWebApiModifierHost_Mixin](#318-cwebapimodifierhost_mixin) |
+| OnHttpGetByID | This procedure is called when a GET request is send to the dataset. Should be augmented in subclasses Params:<br>- tWebApiCallContext webapicallcontext: Struct that is passed through the framework ByRef.<br>- Integer iID: The id of the source that needs to be found. |  | [cBaseRestDataset](#43-cbaserestdataset) |
+| OnHttpPost | This procedure is called when a POST request is send to the dataset. Should be augmented in subclasses Params:<br>- tWebApiCallContext webapicallcontext: Struct that is passed through the framework ByRef. |  | [cBaseRestDataset](#43-cbaserestdataset) |
+| OnHttpPut | This procedure is called when a PUT request is send to the dataset. Should be augmented in subclasses Params:<br>- tWebApiCallContext webapicallcontext: Struct that is passed through the framework ByRef.<br>- Integer iID: The id in the path parameter. |  | [cBaseRestDataset](#43-cbaserestdataset) |
+| OnHttpPatch | This procedure is called when a PATCH request is send to the dataset. Should be augmented in subclasses Params:<br>- tWebApiCallContext webapicallcontext: Struct that is passed through the framework ByRef.<br>- Integer iID: The id in the path parameter. |  | [cBaseRestDataset](#43-cbaserestdataset) |
+| OnHttpDelete | This procedure is called when a DELETE request is send to the dataset. Should be augmented in subclasses Params:<br>- tWebApiCallContext webapicallcontext: Struct that is passed through the framework ByRef.<br>- Integer iID: The id in the path parameter. |  | [cBaseRestDataset](#43-cbaserestdataset) |
+| CurrentRecordToResponseBody | Gets the value of all the exposed data objects and uses the iterator to turn them into a response. For non data aware objects this calls the OnSetCalculatedValue. Params: -Handle hoResponseBody: Handle to the response body. -Handle hoIterator: Handle to the iterator object. |  | [cBaseRestDataset](#43-cbaserestdataset) |
+| RetrieveExposedDataFields | Helper function that retrieves all the defined cRestField, cRestEntity and cRestChildCollection objects. | Handle[] | [cBaseRestDataset](#43-cbaserestdataset) |
+| End_Construct_Object | Completes framework initialization after construction. Do not call directly. |  | [cBaseRestDataset](#43-cbaserestdataset) |
+| Define_cRest_Mixin | Initializes this mixin during framework object construction. Do not call directly. |  | [cRest_Mixin](#417-crest_mixin) |
+| Define_cWebApiModifierHost_Mixin | Initializes this mixin during framework object construction. Do not call directly. |  | [cWebApiModifierHost_Mixin](#418-cwebapimodifierhost_mixin) |
+| End_Construct_cWebApiModifierHost_Mixin | If there are no modifiers on the current object just return |  | [cWebApiModifierHost_Mixin](#418-cwebapimodifierhost_mixin) |
 
-### 3.8 cRestField
+### 4.8 cRestField
 
 **Purpose:** Exposes one database or calculated field inside a cRestDataset, cRestEntity, or cRestChildCollection.
 
@@ -1175,7 +1256,7 @@ This is a endpoint that only exposes the OpenApi specification. The cSwaggerUI c
 
 **Extends:** `cObject`, `cBaseDEO_Mixin`
 
-**See also:** [cRestDataset](#34-crestdataset), [cRestEntity](#311-crestentity), [cRestChildCollection](#310-crestchildcollection), [cOpenApiRestField](#39-copenapirestfield)
+**See also:** [cRestDataset](#44-crestdataset), [cRestEntity](#411-crestentity), [cRestChildCollection](#410-crestchildcollection), [cOpenApiRestField](#49-copenapirestfield)
 
 **Overview:**
 
@@ -1223,15 +1304,15 @@ The main functionality of this class is to provide developers an easy way to exp
 | Construct_Object | Framework lifecycle procedure called during object construction. Do not call directly. |  |  |
 | AfterAttachDDO | Field Options If the DD did not flag it as required give the developers one more chance to override it Fired by the cBaseDeo interface. Sets default values. This way we only need to query database APIs once instead of for every single find. |  |  |
 
-### 3.9 cOpenApiRestField
+### 4.9 cOpenApiRestField
 
 **Purpose:** Supplies OpenAPI metadata for a calculated or otherwise custom REST field.
 
 **Use when:** A field needs custom behavior while its OpenAPI representation is being generated.
 
-**Extends:** [cRestField](#38-crestfield)
+**Extends:** [cRestField](#48-crestfield)
 
-**See also:** [cRestField](#38-crestfield), [cOpenApiSpecification](#321-copenapispecification)
+**See also:** [cRestField](#48-crestfield), [cOpenApiSpecification](#421-copenapispecification)
 
 **Overview:**
 
@@ -1241,15 +1322,15 @@ Subclass of the cRestField. It's only purpose is returning the OpenApi specifica
 
 | Property | Type | Description | Inherited from |
 | --- | --- | --- | --- |
-| pbFilterable | Boolean | This property determines if this field can be filtered through query parameters. | [cRestField](#38-crestfield) |
-| pbReadOnly | Boolean | Read only fields are only retrieved during GET requests and are omitted during other types of requests. | [cRestField](#38-crestfield) |
-| pbWriteOnly | Boolean | Write only fields are only used inside of POST, PUT and PATCH requests but are never returned in the response body. | [cRestField](#38-crestfield) |
-| pbRequired | Boolean | This property determines if the field is required in the request body. This is used in the OpenApi specification. | [cRestField](#38-crestfield) |
-| pbShowDuringGetAll | Boolean | This property determines if the field will be shown during a GET all. Allows developers to have less detail during a GET all compared to a GET of a specific record. | [cRestField](#38-crestfield) |
-| psFieldName | String | The name of the field is shown in the response body. | [cRestField](#38-crestfield) |
-| peFieldType | Integer | This property determines the field type of the current field. | [cRestField](#38-crestfield) |
-| piPrecision | Integer | Precision used for numeric fields. | [cRestField](#38-crestfield) |
-| psExampleValue | String | This property determines what the example value is for the field. This will be shown in the OpenApi specification. | [cRestField](#38-crestfield) |
+| pbFilterable | Boolean | This property determines if this field can be filtered through query parameters. | [cRestField](#48-crestfield) |
+| pbReadOnly | Boolean | Read only fields are only retrieved during GET requests and are omitted during other types of requests. | [cRestField](#48-crestfield) |
+| pbWriteOnly | Boolean | Write only fields are only used inside of POST, PUT and PATCH requests but are never returned in the response body. | [cRestField](#48-crestfield) |
+| pbRequired | Boolean | This property determines if the field is required in the request body. This is used in the OpenApi specification. | [cRestField](#48-crestfield) |
+| pbShowDuringGetAll | Boolean | This property determines if the field will be shown during a GET all. Allows developers to have less detail during a GET all compared to a GET of a specific record. | [cRestField](#48-crestfield) |
+| psFieldName | String | The name of the field is shown in the response body. | [cRestField](#48-crestfield) |
+| peFieldType | Integer | This property determines the field type of the current field. | [cRestField](#48-crestfield) |
+| piPrecision | Integer | Precision used for numeric fields. | [cRestField](#48-crestfield) |
+| psExampleValue | String | This property determines what the example value is for the field. This will be shown in the OpenApi specification. | [cRestField](#48-crestfield) |
 
 
 #### Procedures/Functions
@@ -1258,21 +1339,21 @@ Subclass of the cRestField. It's only purpose is returning the OpenApi specifica
 | --- | --- | --- | --- |
 | Construct_Object | Framework lifecycle procedure called during object construction. Do not call directly. |  |  |
 | OnSetCalculatedValue | Sets the value of a calculated field while generating the OpenAPI response. |  |  |
-| AppendToBody | This procedure appends data to the response body. It does this in combination with the appropriate iterator. Params:<br>- Handle hoIterator: The iterator to use. The iterator is responsible for putting the value of the current field inside of a response body.<br>- Handle hoResponseBody: The response body that is eventually sent back to the client. |  | [cRestField](#38-crestfield) |
-| SetFieldGlobalValue | This procedure changes the value of the field in the global buffers. Calls Set_Field_Value to change the value. This is mainly used to perform finds. Params:<br>- String sValue: The value that the field should be changed to. |  | [cRestField](#38-crestfield) |
-| SetFieldLocalValue | This procedure changes the value of the field in the local buffers. Calls File_Field_Changed_Value to change the value. This way the field itself is responsible for changing its value and not the cRestDataset. This is used when doing POST, PUT and PATCH requests. Params:<br>- String sValue: The value that the field should be changed to. |  | [cRestField](#38-crestfield) |
-| AddConstrain | Adds a constrain to the current field if it is data aware. Params:<br>- String sConstrain: The constrain to apply to the field.<br>- String sFilterType: The filter type to use. Can be GE, GT, LT or LE. If nothing is specified will fall back to EQ. |  | [cRestField](#38-crestfield) |
-| IsKeyField | Checks if the current field is linked to the tables primary key. Returns true if this is the case otherwise returns false. | Boolean | [cRestField](#38-crestfield) |
-| FieldValue | Retrieves the current value of the field. | String | [cRestField](#38-crestfield) |
-| FieldName | Retrieves the name of the field. If psFieldName is set this will be used and is absolute. If it is not set and the field is data aware it will retrieve the field name from the table. | String | [cRestField](#38-crestfield) |
-| FieldType | Retrieves the type of the field. For data aware fields this returns the field type from the table. For non data aware fields this returns peFieldType. | Integer | [cRestField](#38-crestfield) |
-| FieldHelp | Retrieves the help information for the current field. If psExampleValue is set this will be absolute. For data aware fields the File_Field_Status_Help is called from the data dictionary. | String | [cRestField](#38-crestfield) |
-| FieldValidationTable | Helper function that retrieves the validation table tied to the current field if there is one. | Variant[][2] | [cRestField](#38-crestfield) |
-| IsFilterable | Returns if a field is filterable. This is done by retrieving pbFilterable and checking if it is false or true. If its set to true data aware fields will check if the current field is present in some kind of index. | Boolean | [cRestField](#38-crestfield) |
-| IsRequired | Returns if a field is required. Data aware fields first check the required property of the data dictionary. If pbRequired is set to true this is absolute. | Boolean | [cRestField](#38-crestfield) |
-| AfterAttachDDO | Field Options If the DD did not flag it as required give the developers one more chance to override it Fired by the cBaseDeo interface. Sets default values. This way we only need to query database APIs once instead of for every single find. |  | [cRestField](#38-crestfield) |
+| AppendToBody | This procedure appends data to the response body. It does this in combination with the appropriate iterator. Params:<br>- Handle hoIterator: The iterator to use. The iterator is responsible for putting the value of the current field inside of a response body.<br>- Handle hoResponseBody: The response body that is eventually sent back to the client. |  | [cRestField](#48-crestfield) |
+| SetFieldGlobalValue | This procedure changes the value of the field in the global buffers. Calls Set_Field_Value to change the value. This is mainly used to perform finds. Params:<br>- String sValue: The value that the field should be changed to. |  | [cRestField](#48-crestfield) |
+| SetFieldLocalValue | This procedure changes the value of the field in the local buffers. Calls File_Field_Changed_Value to change the value. This way the field itself is responsible for changing its value and not the cRestDataset. This is used when doing POST, PUT and PATCH requests. Params:<br>- String sValue: The value that the field should be changed to. |  | [cRestField](#48-crestfield) |
+| AddConstrain | Adds a constrain to the current field if it is data aware. Params:<br>- String sConstrain: The constrain to apply to the field.<br>- String sFilterType: The filter type to use. Can be GE, GT, LT or LE. If nothing is specified will fall back to EQ. |  | [cRestField](#48-crestfield) |
+| IsKeyField | Checks if the current field is linked to the tables primary key. Returns true if this is the case otherwise returns false. | Boolean | [cRestField](#48-crestfield) |
+| FieldValue | Retrieves the current value of the field. | String | [cRestField](#48-crestfield) |
+| FieldName | Retrieves the name of the field. If psFieldName is set this will be used and is absolute. If it is not set and the field is data aware it will retrieve the field name from the table. | String | [cRestField](#48-crestfield) |
+| FieldType | Retrieves the type of the field. For data aware fields this returns the field type from the table. For non data aware fields this returns peFieldType. | Integer | [cRestField](#48-crestfield) |
+| FieldHelp | Retrieves the help information for the current field. If psExampleValue is set this will be absolute. For data aware fields the File_Field_Status_Help is called from the data dictionary. | String | [cRestField](#48-crestfield) |
+| FieldValidationTable | Helper function that retrieves the validation table tied to the current field if there is one. | Variant[][2] | [cRestField](#48-crestfield) |
+| IsFilterable | Returns if a field is filterable. This is done by retrieving pbFilterable and checking if it is false or true. If its set to true data aware fields will check if the current field is present in some kind of index. | Boolean | [cRestField](#48-crestfield) |
+| IsRequired | Returns if a field is required. Data aware fields first check the required property of the data dictionary. If pbRequired is set to true this is absolute. | Boolean | [cRestField](#48-crestfield) |
+| AfterAttachDDO | Field Options If the DD did not flag it as required give the developers one more chance to override it Fired by the cBaseDeo interface. Sets default values. This way we only need to query database APIs once instead of for every single find. |  | [cRestField](#48-crestfield) |
 
-### 3.10 cRestChildCollection
+### 4.10 cRestChildCollection
 
 **Purpose:** Exposes related child records as a nested collection in a REST response.
 
@@ -1280,7 +1361,7 @@ Subclass of the cRestField. It's only purpose is returning the OpenApi specifica
 
 **Extends:** `cObject`, `cBaseDEO_Mixin`
 
-**See also:** [cRestDataset](#34-crestdataset), [cRestField](#38-crestfield), [cRestEntity](#311-crestentity), [cJSONIterator](#315-cjsoniterator), [cXMLIterator](#316-cxmliterator)
+**See also:** [cRestDataset](#44-crestdataset), [cRestField](#48-crestfield), [cRestEntity](#411-crestentity), [cJSONIterator](#415-cjsoniterator), [cXMLIterator](#416-cxmliterator)
 
 **Overview:**
 
@@ -1316,7 +1397,7 @@ Information provided in this class is only used during GET requests. The fields 
 | Construct_Object | Framework lifecycle procedure called during object construction. Do not call directly. |  |  |
 | AfterAttachDDO | Lifecycle hook called after the data dictionary object is attached. |  |  |
 
-### 3.11 cRestEntity
+### 4.11 cRestEntity
 
 **Purpose:** Exposes related parent-table data as a nested object in a REST response.
 
@@ -1324,7 +1405,7 @@ Information provided in this class is only used during GET requests. The fields 
 
 **Extends:** `cObject`, `cBaseDEO_Mixin`
 
-**See also:** [cRestDataset](#34-crestdataset), [cRestField](#38-crestfield), [cRestChildCollection](#310-crestchildcollection), [cJSONIterator](#315-cjsoniterator), [cXMLIterator](#316-cxmliterator)
+**See also:** [cRestDataset](#44-crestdataset), [cRestField](#48-crestfield), [cRestChildCollection](#410-crestchildcollection), [cJSONIterator](#415-cjsoniterator), [cXMLIterator](#416-cxmliterator)
 
 **Overview:**
 
@@ -1365,7 +1446,7 @@ For example if we take the inventory table and the vendor table from the WebOrde
 | AfterAttachDDO | Lifecycle hook called after the data dictionary object is attached. |  |  |
 | End_Construct_Object | Completes framework initialization after construction. Do not call directly. |  |  |
 
-### 3.12 cWebApiModifier
+### 4.12 cWebApiModifier
 
 **Purpose:** Provides hooks for cross-cutting request and response behavior such as logging or security.
 
@@ -1373,7 +1454,7 @@ For example if we take the inventory table and the vendor table from the WebOrde
 
 **Extends:** `cObject`
 
-**See also:** [cWebApiAuthModifier](#313-cwebapiauthmodifier), [cWebApiModifierHost_Mixin](#318-cwebapimodifierhost_mixin)
+**See also:** [cWebApiAuthModifier](#413-cwebapiauthmodifier), [cWebApiModifierHost_Mixin](#418-cwebapimodifierhost_mixin)
 
 **Overview:**
 
@@ -1396,15 +1477,15 @@ If a developer wishes to implement security mechanisms into their API they shoul
 | Construct_Object | Framework lifecycle procedure called during object construction. Do not call directly. |  |  |
 | End_Construct_Object | Completes framework initialization after construction. Do not call directly. |  |  |
 
-### 3.13 cWebApiAuthModifier
+### 4.13 cWebApiAuthModifier
 
 **Purpose:** Applies authentication and authorization rules to the endpoints it secures.
 
 **Use when:** Protecting API endpoints with authentication or authorization logic.
 
-**Extends:** [cWebApiModifier](#312-cwebapimodifier)
+**Extends:** [cWebApiModifier](#412-cwebapimodifier)
 
-**See also:** [cWebApiModifier](#312-cwebapimodifier), [cWebApiModifierHost_Mixin](#318-cwebapimodifierhost_mixin), [cWebApiLoginEndpoint](#36-cwebapiloginendpoint)
+**See also:** [cWebApiModifier](#412-cwebapimodifier), [cWebApiModifierHost_Mixin](#418-cwebapimodifierhost_mixin), [cWebApiLoginEndpoint](#46-cwebapiloginendpoint)
 
 **Overview:**
 
@@ -1427,9 +1508,9 @@ A subclass of the cWebApiModifier that implements extra functionality to allow i
 | Construct_Object | Framework lifecycle procedure called during object construction. Do not call directly. |  |  |
 | OnPreRequest | Checks the current request before the authentication modifier runs. |  |  |
 | End_Construct_Object | Completes framework initialization after construction. Do not call directly. |  |  |
-| OnPostRequest | This event is triggered when the framework is done handling the main logic for the HTTP request. This would be an appropriate place to build in mechanisms such as logging how the message was handled. Things such as status code, time spent processing and more. Params:<br>- tWebApiCallContext webapicallcontext: Struct that is passed through the framework ByRef. Can be useful for logging modifiers to retrieve the status codes and other information of the request. |  | [cWebApiModifier](#312-cwebapimodifier) |
+| OnPostRequest | This event is triggered when the framework is done handling the main logic for the HTTP request. This would be an appropriate place to build in mechanisms such as logging how the message was handled. Things such as status code, time spent processing and more. Params:<br>- tWebApiCallContext webapicallcontext: Struct that is passed through the framework ByRef. Can be useful for logging modifiers to retrieve the status codes and other information of the request. |  | [cWebApiModifier](#412-cwebapimodifier) |
 
-### 3.14 cBaseWebApiIterator
+### 4.14 cBaseWebApiIterator
 
 **Purpose:** Defines the shared contract for serializing responses and parsing request bodies.
 
@@ -1437,7 +1518,7 @@ A subclass of the cWebApiModifier that implements extra functionality to allow i
 
 **Extends:** `cObject`
 
-**See also:** [cJSONIterator](#315-cjsoniterator), [cXMLIterator](#316-cxmliterator), [cRestDataset](#34-crestdataset)
+**See also:** [cJSONIterator](#415-cjsoniterator), [cXMLIterator](#416-cxmliterator), [cRestDataset](#44-crestdataset)
 
 **Overview:**
 
@@ -1467,15 +1548,15 @@ This class covers the shared functionality for each iterator. It's meant as a ba
 | Construct_Object | Framework lifecycle procedure called during object construction. Do not call directly. |  |  |
 | CleanupHandle | Cleans up a temporary object used while preparing a response. |  |  |
 
-### 3.15 cJSONIterator
+### 4.15 cJSONIterator
 
-**Purpose:** Serializes REST responses to JSON and parses JSON request bodies for [cRestDataset](#34-crestdataset) endpoints.
+**Purpose:** Serializes REST responses to JSON and parses JSON request bodies for [cRestDataset](#44-crestdataset) endpoints.
 
-**Use when:** JSON is the request or response format for a [cRestDataset](#34-crestdataset). [cWebApiCustomEndpoint](#35-cwebapicustomendpoint) does not use this iterator.
+**Use when:** JSON is the request or response format for a [cRestDataset](#44-crestdataset). [cWebApiCustomEndpoint](#45-cwebapicustomendpoint) does not use this iterator.
 
-**Extends:** [cBaseWebApiIterator](#314-cbasewebapiiterator)
+**Extends:** [cBaseWebApiIterator](#414-cbasewebapiiterator)
 
-**See also:** [cXMLIterator](#316-cxmliterator), [cBaseWebApiIterator](#314-cbasewebapiiterator), [cRestDataset](#34-crestdataset)
+**See also:** [cXMLIterator](#416-cxmliterator), [cBaseWebApiIterator](#414-cbasewebapiiterator), [cRestDataset](#44-crestdataset)
 
 **Overview:**
 
@@ -1487,7 +1568,7 @@ When it runs into a cRestField it will create a regular JSON member. When it run
 
 | Property | Type | Description | Inherited from |
 | --- | --- | --- | --- |
-| psMessageType | String | This defines the type of message the iterator covers. Sub classes would set it to specify what data type they are used for. For example, this could be set to JSON to specify that the iterator is used to build up and parse JSON objects. This should match the value in the Content-Type header. | [cBaseWebApiIterator](#314-cbasewebapiiterator) |
+| psMessageType | String | This defines the type of message the iterator covers. Sub classes would set it to specify what data type they are used for. For example, this could be set to JSON to specify that the iterator is used to build up and parse JSON objects. This should match the value in the Content-Type header. | [cBaseWebApiIterator](#414-cbasewebapiiterator) |
 
 
 #### Procedures/Functions
@@ -1504,17 +1585,17 @@ When it runs into a cRestField it will create a regular JSON member. When it run
 | AppendNestedObject | Procedure AppendNestedObject exposed by the cJSONIterator class. |  |  |
 | ParseRequestBody | This function is used to parse the request body into a data type that is easily understandable by DataFlex as a key-value pair. Because DataFlex does not have hashmaps a struct of type tRESTRequestBodyStruct is returned. Params:<br>- Handle hoRequestBody: The request body that is send from the client. This will be parsed into a tRESTRequestBodyStruct[]. | tRESTRequestBody[] |  |
 | GenerateErrorResponse | This procedure formulates an error response back to the client. Uses the status code and error message to parse into a response object. Errors are formatted according to the following RFC: https://www.rfc-editor.org/rfc/rfc9457.html Params:<br>- tWebApiCallContext webapicallcontext: Provides this method all information related to the request. Including a handle to the response body, status codes and potential error messages |  |  |
-| SetContentType | This procedure sets the content-type for the http request that will be send back to the client. Uses the psMessageType property to determine what to set in the header. |  | [cBaseWebApiIterator](#314-cbasewebapiiterator) |
+| SetContentType | This procedure sets the content-type for the http request that will be send back to the client. Uses the psMessageType property to determine what to set in the header. |  | [cBaseWebApiIterator](#414-cbasewebapiiterator) |
 
-### 3.16 cXMLIterator
+### 4.16 cXMLIterator
 
-**Purpose:** Serializes REST responses to XML and parses XML request bodies for [cRestDataset](#34-crestdataset) endpoints.
+**Purpose:** Serializes REST responses to XML and parses XML request bodies for [cRestDataset](#44-crestdataset) endpoints.
 
-**Use when:** XML is the request or response format for a [cRestDataset](#34-crestdataset). [cWebApiCustomEndpoint](#35-cwebapicustomendpoint) does not use this iterator.
+**Use when:** XML is the request or response format for a [cRestDataset](#44-crestdataset). [cWebApiCustomEndpoint](#45-cwebapicustomendpoint) does not use this iterator.
 
-**Extends:** [cBaseWebApiIterator](#314-cbasewebapiiterator)
+**Extends:** [cBaseWebApiIterator](#414-cbasewebapiiterator)
 
-**See also:** [cJSONIterator](#315-cjsoniterator), [cBaseWebApiIterator](#314-cbasewebapiiterator), [cRestDataset](#34-crestdataset)
+**See also:** [cJSONIterator](#415-cjsoniterator), [cBaseWebApiIterator](#414-cbasewebapiiterator), [cRestDataset](#44-crestdataset)
 
 **Overview:**
 
@@ -1527,7 +1608,7 @@ When it runs into a cRestField it will create an XML node. When it runs into a c
 | Property | Type | Description | Inherited from |
 | --- | --- | --- | --- |
 | phoXmlDocument | Handle | The outer most xml object. Used to create nested xml objects. |  |
-| psMessageType | String | This defines the type of message the iterator covers. Sub classes would set it to specify what data type they are used for. For example, this could be set to JSON to specify that the iterator is used to build up and parse JSON objects. This should match the value in the Content-Type header. | [cBaseWebApiIterator](#314-cbasewebapiiterator) |
+| psMessageType | String | This defines the type of message the iterator covers. Sub classes would set it to specify what data type they are used for. For example, this could be set to JSON to specify that the iterator is used to build up and parse JSON objects. This should match the value in the Content-Type header. | [cBaseWebApiIterator](#414-cbasewebapiiterator) |
 
 
 #### Procedures/Functions
@@ -1544,9 +1625,9 @@ When it runs into a cRestField it will create an XML node. When it runs into a c
 | AppendNestedObject | Adds a nested object to the main response body under a specified field name |  |  |
 | ParseRequestBody | This function is used to parse the request body into a data type that is easily understandable by DataFlex as a key-value pair. Because DataFlex does not have hashmaps a struct of type tRESTRequestBodyStruct is returned. Params:<br>- Handle hoRequestBody: The request body that is send from the client. This will be parsed into a tRESTRequestBodyStruct[]. | tRESTRequestBody[] |  |
 | GenerateErrorResponse | This procedure formulates an error response back to the client. Uses the status code and error message to parse into a response object. Errors are formatted according to the following RFC: https://www.rfc-editor.org/rfc/rfc9457.html Params:<br>- tWebApiCallContext webapicallcontext: Provides this method all information related to the request. Including a handle to the response body, status codes and potential error messages |  |  |
-| SetContentType | This procedure sets the content-type for the http request that will be send back to the client. Uses the psMessageType property to determine what to set in the header. |  | [cBaseWebApiIterator](#314-cbasewebapiiterator) |
+| SetContentType | This procedure sets the content-type for the http request that will be send back to the client. Uses the psMessageType property to determine what to set in the header. |  | [cBaseWebApiIterator](#414-cbasewebapiiterator) |
 
-### 3.17 cRest_Mixin
+### 4.17 cRest_Mixin
 
 **Purpose:** Supplies shared path and server-lookup behavior to routable framework classes.
 
@@ -1554,7 +1635,7 @@ When it runs into a cRestField it will create an XML node. When it runs into a c
 
 **Extends:** `Mixin`
 
-**See also:** [cWebApiRouter](#32-cwebapirouter), [cBaseRestDataset](#33-cbaserestdataset), [cRestDataset](#34-crestdataset)
+**See also:** [cWebApiRouter](#42-cwebapirouter), [cBaseRestDataset](#43-cbaserestdataset), [cRestDataset](#44-crestdataset)
 
 **Overview:**
 
@@ -1573,7 +1654,7 @@ This mixin covers the functionality shared between the cWebApiRouter and cRestDa
 | --- | --- | --- | --- |
 | Define_cRest_Mixin | Initializes this mixin during framework object construction. Do not call directly. |  |  |
 
-### 3.18 cWebApiModifierHost_Mixin
+### 4.18 cWebApiModifierHost_Mixin
 
 **Purpose:** Provides storage and dispatch for modifiers attached to a framework object.
 
@@ -1581,7 +1662,7 @@ This mixin covers the functionality shared between the cWebApiRouter and cRestDa
 
 **Extends:** `Mixin`
 
-**See also:** [cWebApi](#31-cwebapi), [cWebApiRouter](#32-cwebapirouter), [cBaseRestDataset](#33-cbaserestdataset), [cWebApiModifier](#312-cwebapimodifier)
+**See also:** [cWebApi](#41-cwebapi), [cWebApiRouter](#42-cwebapirouter), [cBaseRestDataset](#43-cbaserestdataset), [cWebApiModifier](#412-cwebapimodifier)
 
 **Overview:**
 
@@ -1601,7 +1682,7 @@ This mixin implements the functionality needed to attach modifiers to a object.
 | Define_cWebApiModifierHost_Mixin | Initializes this mixin during framework object construction. Do not call directly. |  |  |
 | End_Construct_cWebApiModifierHost_Mixin | If there are no modifiers on the current object just return |  |  |
 
-### 3.19 cWebApiRoutableHost_Mixin
+### 4.19 cWebApiRoutableHost_Mixin
 
 **Purpose:** Registers and searches child routable objects used by the API routing system.
 
@@ -1609,7 +1690,7 @@ This mixin implements the functionality needed to attach modifiers to a object.
 
 **Extends:** `Mixin`
 
-**See also:** [cWebApi](#31-cwebapi), [cWebApiRouter](#32-cwebapirouter)
+**See also:** [cWebApi](#41-cwebapi), [cWebApiRouter](#42-cwebapirouter)
 
 **Overview:**
 
@@ -1630,7 +1711,7 @@ This mixin has all the functionality needed for the routing logic of the framewo
 | RoutableIndex | This procedure binary searches the pasRoutables array to see if the current object has a routable that matches the sPath. If found returns the index. If nothing is found it will return -1. Params:<br>- String sPath: The request URL. | Integer |  |
 | Define_cWebApiRoutableHost_Mixin | Initializes this mixin during framework object construction. Do not call directly. |  |  |
 
-### 3.20 cWebApiErrorHandler_Mixin
+### 4.20 cWebApiErrorHandler_Mixin
 
 **Purpose:** Captures unexpected errors and formats the resulting API error response.
 
@@ -1638,7 +1719,7 @@ This mixin has all the functionality needed for the routing logic of the framewo
 
 **Extends:** `Mixin`
 
-**See also:** [cWebApi](#31-cwebapi), [cWebApiModifier](#312-cwebapimodifier)
+**See also:** [cWebApi](#41-cwebapi), [cWebApiModifier](#412-cwebapimodifier)
 
 **Overview:**
 
@@ -1662,7 +1743,7 @@ This mixin is used to handle unexpected errors that might occur during a http ca
 | DetailedErrorMessage | Helper function that combines pasErrorCallstack into a singular string that can be returned to the client. | String |  |
 | Define_cWebApiErrorHandler_Mixin | Initializes this mixin during framework object construction. Do not call directly. |  |  |
 
-### 3.21 cOpenApiSpecification
+### 4.21 cOpenApiSpecification
 
 **Purpose:** Builds the OpenAPI JSON document from the configured API structure.
 
@@ -1670,7 +1751,7 @@ This mixin is used to handle unexpected errors that might occur during a http ca
 
 **Extends:** `cObject`
 
-**See also:** [cOpenApiEndpoint](#37-copenapiendpoint), [cSwaggerUI](#322-cswaggerui), [cOpenApiRestField](#39-copenapirestfield)
+**See also:** [cOpenApiEndpoint](#47-copenapiendpoint), [cSwaggerUI](#422-cswaggerui), [cOpenApiRestField](#49-copenapirestfield)
 
 **Overview:**
 
@@ -1693,7 +1774,7 @@ This class is considered private.
 | ParseCustomField | This procedure parses a custom defined field. Params:<br>- tFieldDefinition currentField: The information of the current field. It is up to developers to implement this and add the right information.<br>- Handle hoPropertiesJson: Handle to the properties part of the OpenApi specification. |  |  |
 | Construct_Object | Framework lifecycle procedure called during object construction. Do not call directly. |  |  |
 
-### 3.22 cSwaggerUI
+### 4.22 cSwaggerUI
 
 **Purpose:** Renders an interactive Swagger UI for the generated OpenAPI specification.
 
@@ -1701,7 +1782,7 @@ This class is considered private.
 
 **Extends:** `cWebBaseControl`
 
-**See also:** [cOpenApiEndpoint](#37-copenapiendpoint), [cOpenApiSpecification](#321-copenapispecification)
+**See also:** [cOpenApiEndpoint](#47-copenapiendpoint), [cOpenApiSpecification](#421-copenapispecification)
 
 **Overview:**
 
@@ -1720,11 +1801,11 @@ This class is responsible for rendering the OpenApi specification on the client.
 | --- | --- | --- | --- |
 | Construct_Object | Framework lifecycle procedure called during object construction. Do not call directly. |  |  |
 
-## 4 Structs, constants and enums
+## 5 Structs, constants and enums
 
-### 4.1 Structs
+### 5.1 Structs
 
-#### 4.1.1 tRESTRequestBody
+#### 5.1.1 tRESTRequestBody
 
 This struct is used when parsing data from a request body to a useable type. For example when someone does a post request with a JSON body the cJSONIterator will parse the body into a tRESTRequestBody array. This struct can then be used to save the data to the proper fields. This struct is used as a substitution for a hash map because those do not exist in DataFlex as of the moment of creating this framework.
 
@@ -1736,7 +1817,7 @@ This struct is used when parsing data from a request body to a useable type. For
 | sFieldValue | String | The actual value of the field. |
 | nestedFields | tRESTRequestBody[] | Potentially nested fields. (only happens in for example a json object or json array.) |
 
-#### 4.1.2 tWebApiCallContext
+#### 5.1.2 tWebApiCallContext
 
 This struct contains all the information of the current http request. This struct is passed through the request pipeline ByRef and is filled as it passes through each object. This file also defines constants used throughout the framework.
 
@@ -1761,7 +1842,7 @@ This struct contains all the information of the current http request. This struc
 | sAcceptType | String | The accept-type of the current request if applicable. |
 | sMainTableName | String | The name of the main table used in the endpoint that is handling the current request. |
 
-#### 4.1.3 tSecuredDataset
+#### 5.1.3 tSecuredDataset
 
 The cWebApiAuthModifier maintains a list of this struct to determine what endpoints are secured and what verbs of that specific endpoint are secured.
 
@@ -1775,7 +1856,7 @@ The cWebApiAuthModifier maintains a list of this struct to determine what endpoi
 | bSecureEdit | Boolean | Determines if the PUT and PATCH verbs of a endpoint are secured. |
 | bSecureDelete | Boolean | Determines if the DELETE verbs of a endpoint are secured. |
 
-#### 4.1.4 oneOf
+#### 5.1.4 oneOf
 
 This struct is used to parse validation tables into the OpenApi specification.
 
@@ -1787,7 +1868,7 @@ This struct is used to parse validation tables into the OpenApi specification.
 | const | String | The short value of the validation table entry. |
 | description | String | The long value of the validation table entry. |
 
-#### 4.1.5 tEndpointDefinition
+#### 5.1.5 tEndpointDefinition
 
 This struct holds multiple tVerbDefinitions. A developer can fill the value of this struct to determine what will be shown in the OpenApi specification.
 
@@ -1797,7 +1878,7 @@ This struct holds multiple tVerbDefinitions. A developer can fill the value of t
 | --- | --- | --- |
 | verbDefinitions | tVerbDefinition[] | Information about all the verbs in the current endpoint. |
 
-#### 4.1.6 tVerbDefinition
+#### 5.1.6 tVerbDefinition
 
 This struct holds all the information relevant to a specific verb in a endpoint.
 
@@ -1812,7 +1893,7 @@ This struct holds all the information relevant to a specific verb in a endpoint.
 | requestFields | tFieldDefinition[] | Information about all the exposed request fields. |
 | Parameters | tParameterDefinition[] | All parameters used for the verb. Can be query or header parameters. |
 
-#### 4.1.7 tResponseDefinition
+#### 5.1.7 tResponseDefinition
 
 This struct has all the information related to a response.
 
@@ -1825,7 +1906,7 @@ This struct has all the information related to a response.
 | asResponseMediaTypes | String[] | The response types available. |
 | responseFields | tFieldDefinition[] | The fields that are returned to the consumer in a response. |
 
-#### 4.1.8 tFieldDefinition
+#### 5.1.8 tFieldDefinition
 
 This struct has all the information related to defining a field in the OpenApi specification.
 
@@ -1839,7 +1920,7 @@ This struct has all the information related to defining a field in the OpenApi s
 | bRequired | Boolean | Determines if this field is required. |
 | nestedFields | tFieldDefinition[] | This can be filled if there are objects or arrays nested inside of eachother. Is only used whenever the eFieldType is set to REST_ARRAY_FIELD or REST_OBJECT_FIELD. |
 
-#### 4.1.9 tParameterDefinition
+#### 5.1.9 tParameterDefinition
 
 This struct has all the information needed for additional parameters. These parameters are query or header parameters.
 
@@ -1853,7 +1934,7 @@ This struct has all the information needed for additional parameters. These para
 | eParameterType | Integer | The field type of the parameter. Can be one of the following:<br>- WEBAPI_INTEGER_FIELD<br>- WEBAPI_NUMBER_FIELD<br>- WEBAPI_STRING_FIELD<br>- WEBAPI_BOOLEAN_FIELD<br>- WEBAPI_ARRAY_FIELD<br>- WEBAPI_OBJECT_FIELD<br>- WEBAPI_BINARY_FIELD<br>- WEBAPI_DATETIME_FIELD<br>- WEBAPI_DATE_FIELD |
 | bRequired | Boolean | Determines if this parameter is required. |
 
-### 4.2 Constants
+### 5.2 Constants
 
 The table below shows a list of all the constants used. It shows the name of the constant, the value and what it represents.
 
@@ -1878,15 +1959,15 @@ The table below shows a list of all the constants used. It shows the name of the
 | C_WEBAPI_NOTALLOWED | 405 | Represents the 405 NOTALLOWED status code. |
 | C_WEBAPI_ERROR_TYPE |  | Link to the mozilla page containing the description of all status codes. |
 
-### 4.3 Enums
+### 5.3 Enums
 
 This chapter has the information related to all the enums used inside of the framework.
 
-#### 4.3.1 Field types
+#### 5.3.1 Field types
 
 This enum list represents all the available field types.
 
-#### 4.3.2 Parameter types
+#### 5.3.2 Parameter types
 
 This enum list represents all the types for query parameters.
 
