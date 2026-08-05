@@ -3,6 +3,8 @@
 ## Table of Contents
 
 - [1 Introduction](#1-introduction)
+  - [1.1 Prerequisites and setup](#11-prerequisites-and-setup)
+  - [1.2 Supported DataFlex versions and compatibility](#12-supported-dataflex-versions-and-compatibility)
 - [2 Example usage](#2-example-usage)
   - [2.1 Building a very basic REST service](#21-building-a-very-basic-rest-service)
   - [2.2 Adding information from a parent table to a endpoint](#22-adding-information-from-a-parent-table-to-a-endpoint)
@@ -73,6 +75,40 @@
 ## 1 Introduction
 
 This document contains all the information regarding the implementation of the technical aspects of the Web API framework.
+
+### 1.1 Prerequisites and setup
+
+Before building an API, make sure the following prerequisites are available:
+
+- A DataFlex workspace with Web UI classes and `cWebHttpHandler` available. DataFlex 25.0 or newer is required for DDO drag-and-drop.
+- The Web API Framework library attached through the package or workspace file that matches the DataFlex version.
+- A web application or Web HTTP handler where the root `cWebApi` object can be hosted.
+- Data dictionary classes for the tables exposed by `cRestDataset` endpoints.
+
+Optional dependencies are only needed for specific features:
+
+- The JsonWebToken library and its native DLLs are needed for the JWT sample and JWT authentication.
+- The MCP Server library is needed only for the MCP sample endpoints.
+- Swagger UI assets are needed only when using the `cSwaggerUI` control. The DataFlex 26 package installs these assets; DataFlex 25 users should copy `Web API Library/AppHtml/WebApi` to the application's `AppHtml` folder.
+
+Basic setup:
+
+1. Attach the Web API Framework `.sws` file that matches your workspace's DataFlex version.
+2. Create a root object that is a `cWebApi`.
+3. Register the JSON and/or XML iterators required by the application.
+4. Add endpoint packages below the `cWebApi` object or one of its routers.
+5. Follow [Building a very basic REST service](#21-building-a-very-basic-rest-service) for a complete first endpoint.
+
+### 1.2 Supported DataFlex versions and compatibility
+
+The repository currently provides package/workspace files for DataFlex 25.0 and 26.0:
+
+| DataFlex version | File to use | Compatibility notes |
+| --- | --- | --- |
+| 25.0 | `WebAPIFramework-25.0.sws` | Uses the legacy workspace format and `Config.ws`. Copy Swagger UI assets manually when using `cSwaggerUI`. |
+| 26.0 | `WebAPIFramework.sws` | Uses the JSON package format, declares the Web UI dependency, and installs the Swagger UI assets. The sample workspace targets `df:26.0`. |
+
+Use the file that matches the DataFlex Studio version. The two package formats are not interchangeable. Most DataFlex versions that provide `cWebHttpHandler` should be able to run the framework, but only DataFlex 25.0 and newer are documented here as supporting the DDO drag-and-drop workflow. Earlier versions are not individually validated. The code examples mention DataFlex 25.0 because that version introduced the DDO-explorer workflow used in the walkthrough; the same endpoint structure can also be created manually in DataFlex 26.0.
 
 ## 2 Example usage
 
