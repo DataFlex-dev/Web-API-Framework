@@ -895,6 +895,23 @@ The router will return a handle to the appropriate cRestDataset that should be u
 
 If a cWebApiModifier is defined on this level it will be used on all incoming requests unless child objects opt out of inheriting the modifiers through the pbInheritSecurity property.
 
+#### Usage example
+
+Define one root object, register supported response formats, and include endpoints as child objects or package files:
+
+```dataflex
+Use WebApi\cWebApi.pkg
+
+Object oMyRestAPI is a cWebApi
+    Set psPath to "Api"
+    Send AddIterator (RefClass(cJSONIterator)) "application/json"
+
+    Use CustomerEndpoint.pkg
+End_Object
+```
+
+For complete setup, see [Building a very basic REST service](#21-building-a-very-basic-rest-service).
+
 #### Properties
 
 | Property | Type | Description | Inherited from |
@@ -945,6 +962,20 @@ If a cWebApiModifier is defined on this level it will be used on all incoming re
 This class acts as a router within the framework. This class allows a developer to build in features such as versioning within their REST api. This could be done by having multiple cWebApiRouters within a cWebApi. Each router would have its own version like v1 and v2 and so on simply by setting a path property. The cWebApi can use this path and compare it to the path of the incoming request.
 
 A cWebApiRouter can have nested routers. This allows for example a v1 router to have a public and private sub router. A developer can create as many nested routers as they want. The RouteRequest procedure in this class will recursively route requests to child routers until it no longer has a child router. This class forwards the request by looking at the path and then compares that to the path of its children. When it finds a matching one it forwards the request. This will be done until the request reaches a cRestDataset. At that point the router returns a handle of the cRestDataset to the cWebApi so it can start building up the response. If a cWebApiModifier is defined in this layer it will only be applicable for cRestDatasets defined within this cWebApiRouter and other child routers.
+
+#### Usage example
+
+Place a router inside `cWebApi` to group endpoints or add a version prefix:
+
+```dataflex
+Object oV1Router is a cWebApiRouter
+    Set psPath to "v1"
+
+    Use CustomerEndpoint.pkg
+End_Object
+```
+
+Child endpoints now include `v1` in their route. See [How to use routers](#24-how-to-use-routers) for nested router examples.
 
 #### Properties
 
@@ -1039,6 +1070,31 @@ This class defines the data that will be exposed within a REST api. This class a
 
 This class communicates with the data dictionary classes to find records, create records, alter records, and delete records. For example, during a GET request it will call the data dictionary class to load a record into the buffer. This class will then call procedures exposed by the cRestField, cRestEntity and cRestChildCollection classes to build up the response. Information that is retrieved by calling the cRestField, cRestEntity and cRestChildCollection classes is parsed into the response body using the iterator classes.
 
+#### Usage example
+
+Create a data-dictionary-backed endpoint and expose only the fields needed by the API:
+
+```dataflex
+Use WebApi\cRestDataset.pkg
+Use WebApi\cRestField.pkg
+
+Object oCustomerEndpoint is a cRestDataset
+    Set psPath to "Customers"
+
+    Object oCustomer_DD is a cCustomerDataDictionary
+    End_Object
+
+    Set Main_DD to oCustomer_DD
+    Set Server to oCustomer_DD
+
+    Object oCustomer_Name is a cRestField
+        Entry_Item Customer.Name
+    End_Object
+End_Object
+```
+
+See [Building a very basic REST service](#21-building-a-very-basic-rest-service) for a complete dataset endpoint.
+
 #### Properties
 
 | Property | Type | Description | Inherited from |
@@ -1098,6 +1154,28 @@ This class communicates with the data dictionary classes to find records, create
 **Overview:**
 
 This class allows developers to implement their custom logic inside of their REST api. The biggest difference this has compared to the regular cWebHttpHandler is that developers can define the information needed for the OpenApi specification by augmenting the OnDefineSchema procedure.
+
+#### Usage example
+
+Implement the HTTP events needed by the endpoint. Add `OnDefineSchema` when the endpoint should appear in generated OpenAPI documentation:
+
+```dataflex
+Use WebApi\cWebApiCustomEndpoint.pkg
+
+Object oHealthEndpoint is a cWebApiCustomEndpoint
+    Set psPath to "Health"
+
+    Procedure OnHttpGet tWebApiCallContext ByRef webapicallcontext
+        // Build the custom response here.
+    End_Procedure
+
+    Procedure OnDefineSchema tEndpointDefinition ByRef endpointDefinition
+        // Describe the request and response schema here.
+    End_Procedure
+End_Object
+```
+
+See [Building custom endpoints](#27-building-custom-endpoints) for an OpenAPI schema example.
 
 #### Properties
 
@@ -1270,6 +1348,32 @@ The field that is exposed is determined through an entry_item like other data aw
 
 The main functionality of this class is to provide developers an easy way to expose table fields in their REST apis.
 
+#### Usage example
+
+Place each field inside a `cRestDataset`, `cRestEntity`, or `cRestChildCollection`. Parent-table fields can also be placed directly under a `cRestDataset` when a nested `cRestEntity` response is not needed:
+
+```dataflex
+Object oInventoryEndpoint is a cRestDataset
+    Object oVendor_DD is a cVendorDataDictionary
+    End_Object
+
+    Object oInventory_DD is a cInventoryDataDictionary
+        Set DDO_Server to oVendor_DD
+    End_Object
+
+    Set Main_DD to oInventory_DD
+    Set Server to oInventory_DD
+
+    Object oInventory_Item_ID is a cRestField
+        Entry_Item Inventory.Item_ID
+    End_Object
+
+    Object oVendor_Name is a cRestField
+        Entry_Item Vendor.Name
+    End_Object
+End_Object
+```
+
 #### Properties
 
 | Property | Type | Description | Inherited from |
@@ -1375,6 +1479,22 @@ When the iterator sees this object, it knows how to structure it differently com
 
 Information provided in this class is only used during GET requests. The fields exposed in this class are omitted during POST, PUT, PATCH and DELETE requests. They are read only.
 
+#### Usage example
+
+Set the server to the child data dictionary and nest the fields that should be returned in the child collection:
+
+```dataflex
+Object oInventoryCollection is a cRestChildCollection
+    Set Server to oInventory_DD
+
+    Object oInventory_Item_ID is a cRestField
+        Entry_Item Inventory.Item_ID
+    End_Object
+End_Object
+```
+
+See [Adding information from a child table to a endpoint](#23-adding-information-from-a-child-table-to-a-endpoint) for a complete example.
+
 #### Properties
 
 | Property | Type | Description | Inherited from |
@@ -1423,6 +1543,22 @@ This class behaves differently on POST, PUT and PATCH requests. During POST, PUT
 
 For example if we take the inventory table and the vendor table from the WebOrder database, If we have a cRestEntity object that represents the vendor table, whenever we make a POST request the body expects the Vendor_ID field instead of the nested object entirely.
 
+#### Usage example
+
+Set the server to the parent data dictionary, then nest the fields that should be returned:
+
+```dataflex
+Object oVendorEntity is a cRestEntity
+    Set Server to oVendor_DD
+
+    Object oVendor_Name is a cRestField
+        Entry_Item Vendor.Name
+    End_Object
+End_Object
+```
+
+See [Adding information from a parent table to a endpoint](#22-adding-information-from-a-parent-table-to-a-endpoint) for a complete example.
+
 #### Properties
 
 | Property | Type | Description | Inherited from |
@@ -1461,6 +1597,24 @@ For example if we take the inventory table and the vendor table from the WebOrde
 This class allows a developer to add different types of modifiers to their program. A modifier can be a lot of different things, but it is designed with the idea that it is used for authentication/authorization and logging. It adds hooks that developers themselves can extend upon and add their own functionality. As the name suggests this is meant to be the most modifyable part of the framework.
 
 If a developer wishes to implement security mechanisms into their API they should look into implementing the cWebApiAuthModifier class instead as it has more logic to implement security mechanisms more easily.
+
+#### Usage example
+
+Override request hooks to add reusable behavior such as logging:
+
+```dataflex
+Object oRequestLogger is a cWebApiModifier
+    Procedure OnPreRequest tWebApiCallContext ByRef webapicallcontext
+        // Inspect or record the incoming request.
+    End_Procedure
+
+    Procedure OnPostRequest tWebApiCallContext ByRef webapicallcontext
+        // Inspect or record the completed request.
+    End_Procedure
+End_Object
+```
+
+See [Implementing modifiers](#25-implementing-modifiers) for a complete logging example.
 
 #### Properties
 
