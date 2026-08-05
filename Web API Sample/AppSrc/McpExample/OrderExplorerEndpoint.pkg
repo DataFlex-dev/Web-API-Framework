@@ -12,6 +12,7 @@ Object oOrderExplorerEndpoint is a cMcpRestDataset
 
     Set pbReadOnly to True
     Set pbUsePathAsTableName to True
+    Set pbGenerateDocumentation to False
 
     Object oSalesPerson_DD is a cSalesPersonDataDictionary
     End_Object

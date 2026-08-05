@@ -10,6 +10,7 @@ Object oVendorCatalogEndpoint is a cMcpRestDataset
 
     Set pbReadOnly to True
     Set pbUsePathAsTableName to True
+    Set pbGenerateDocumentation to False
 
     Object oVendor_DD is a cVendorDataDictionary
     End_Object

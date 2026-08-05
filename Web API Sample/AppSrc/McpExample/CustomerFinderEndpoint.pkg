@@ -10,6 +10,7 @@ Object oCustomerFinderEndpoint is a cMcpRestDataset
     Set pbReadOnly to True
     Set pbSecureRead to False
     Set pbUsePathAsTableName to True
+    Set pbGenerateDocumentation to False
 
     Object oCustomer_DD is a cCustomerDataDictionary
     End_Object

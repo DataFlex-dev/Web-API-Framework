@@ -18,6 +18,9 @@ Class cBaseRestDataset is a cWebComponent
         
         //When this property is set to true all GET requests will be routed to OnHttpGet instead of OnHttpGetByID.
         Property Boolean pbIgnoreID False
+
+        //When this property is set to false this endpoint will not be included in the OpenAPI specification.
+        Property Boolean pbGenerateDocumentation True
         
         //When this property is set to true only GET operations will be available for this endpoint
         Property Boolean pbReadOnly False

@@ -1281,6 +1281,14 @@ Class cOpenApiSpecification is a cObject
     Procedure RecursiveParseDatasets Handle hoPathsJson Handle hoSchemasJson Handle hoRoutable
         Handle[] hoNestedRoutables
         Integer iAmountOfRoutables iIndex
+        Boolean bGenerateDocumentation
+
+        If (IsObjectOfClass(hoRoutable, RefClass(cBaseRestDataset))) Begin
+            Get pbGenerateDocumentation of hoRoutable to bGenerateDocumentation
+            If (not(bGenerateDocumentation)) Begin
+                Procedure_Return
+            End
+        End
         
         //Check if the class is a custom endpoint or a data aware endpoint
         If (IsObjectOfClass(hoRoutable, RefClass(cWebApiCustomEndpoint))) Begin
