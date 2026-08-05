@@ -108,7 +108,7 @@ The repository currently provides package/workspace files for DataFlex 25.0 and 
 | 25.0 | `WebAPIFramework-25.0.sws` | Uses the legacy workspace format and `Config.ws`. Copy Swagger UI assets manually when using `cSwaggerUI`. |
 | 26.0 | `WebAPIFramework.sws` | Uses the JSON package format, declares the Web UI dependency, and installs the Swagger UI assets. The sample workspace targets `df:26.0`. |
 
-Use the file that matches the DataFlex Studio version. The two package formats are not interchangeable. Most DataFlex versions that provide `cWebHttpHandler` should be able to run the framework, but only DataFlex 25.0 and newer are documented here as supporting the DDO drag-and-drop workflow. Earlier versions are not individually validated. The code examples mention DataFlex 25.0 because that version introduced the DDO-explorer workflow used in the walkthrough; the same endpoint structure can also be created manually in DataFlex 26.0.
+Use the file that matches the DataFlex Studio version. The two package formats are not interchangeable. Most DataFlex versions that provide `cWebHttpHandler` should be able to run the framework, but only DataFlex 25.0 and newer support DDO drag-and-drop capabilities. Earlier versions are not individually validated. The code examples mention DataFlex 25.0 because that version introduced the DDO-explorer workflow used in the walkthrough; the same endpoint structure can also be created manually in DataFlex 26.0.
 
 ## 2 Example usage
 
