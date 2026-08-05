@@ -259,19 +259,20 @@ Class cRestField is a cObject
     
     //Gets the validation table of the field linked to this data dictionary
     Function FieldValidationTable Returns Variant[][2]
-        Integer iField
+        Integer iFile iField
         Variant[][2] avValidationTable
         Handle hoValidationTable hoDD
         
         Get Server to hoDD
+        Get Data_File to iFile
         Get Data_Field to iField
         
         //Fields that have no data binding cannot have a validation table
-        If (iField = 0) Begin
+        If (iFile = 0 or iField = 0) Begin
             Function_Return avValidationTable
         End
         
-        Get Field_Table_Object of hoDD iField to hoValidationTable
+        Get File_Field_Table_Object of hoDD iFile iField to hoValidationTable
         //If the field has no validation table just return a empty avValidationTable
         If (hoValidationTable = 0) Begin
             Function_Return avValidationTable
@@ -353,7 +354,7 @@ Class cRestField is a cObject
             
         // If the field name isnt
         If (psFieldName(Self) = "") Begin
-            Get Field_Label of hoDD iField DD_LABEL_TAG to sFieldName
+            Get File_Field_Label of hoDD iFile iField DD_LABEL_TAG to sFieldName
             Set psFieldName to sFieldName    
         End
         
