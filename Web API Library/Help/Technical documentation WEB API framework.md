@@ -13,6 +13,7 @@
     - [2.6.1 Including authentication/authorization into the OpenApi specification](#261-including-authenticationauthorization-into-the-openapi-specification)
   - [2.7 Building custom endpoints](#27-building-custom-endpoints)
 - [3 Components](#3-components)
+  - [Component overview](#component-overview)
   - [3.1 cWebApi](#31-cwebapi)
   - [3.2 cWebApiRouter](#32-cwebapirouter)
   - [3.3 cBaseRestDataset](#33-cbaserestdataset)
@@ -725,6 +726,53 @@ This chapter explains per component what its functionality is inside of the syst
 
 The `Inherited from` column identifies members inherited from library-native classes or mixins. It is blank for members declared by the current class. Members marked private in the source are intentionally excluded, as are DataFlex framework base-class members.
 
+### Component overview
+
+The components below are grouped by the role they play in the framework. Start with the core API and routing classes, then choose the endpoint, field, iterator, modifier, or OpenAPI components that fit your use case.
+
+**Core API and routing**
+
+- [cWebApi](#31-cwebapi) — Root HTTP API object that receives and routes requests.
+- [cWebApiRouter](#32-cwebapirouter) — Routes requests to nested routers and endpoints.
+
+**REST endpoints**
+
+- [cBaseRestDataset](#33-cbaserestdataset) — Abstract base class for dataset-like endpoints.
+- [cRestDataset](#34-crestdataset) — Exposes data-dictionary-backed records.
+- [cWebApiCustomEndpoint](#35-cwebapicustomendpoint) — Supports endpoint behavior beyond the default [cRestDataset](#34-crestdataset).
+- [cWebApiLoginEndpoint](#36-cwebapiloginendpoint) — Provides login and registration behavior.
+- [cOpenApiEndpoint](#37-copenapiendpoint) — Serves the generated OpenAPI specification.
+
+**Fields and relationships**
+
+- [cRestField](#38-crestfield) — Exposes an individual database or calculated field.
+- [cOpenApiRestField](#39-copenapirestfield) — Supplies OpenAPI metadata for a custom field.
+- [cRestChildCollection](#310-crestchildcollection) — Exposes related child records.
+- [cRestEntity](#311-crestentity) — Exposes related parent-table data.
+
+**Request and response formats**
+
+- [cBaseWebApiIterator](#314-cbasewebapiiterator) — Base contract for serializing and parsing data.
+- [cJSONIterator](#315-cjsoniterator) — Handles JSON request and response bodies.
+- [cXMLIterator](#316-cxmliterator) — Handles XML request and response bodies.
+
+**Modifiers**
+
+- [cWebApiModifier](#312-cwebapimodifier) — Adds reusable request and response hooks.
+- [cWebApiAuthModifier](#313-cwebapiauthmodifier) — Applies authentication and authorization rules.
+
+**Framework mixins**
+
+- [cRest_Mixin](#317-crest_mixin) — Adds shared path and server behavior.
+- [cWebApiModifierHost_Mixin](#318-cwebapimodifierhost_mixin) — Provides modifier-host behavior.
+- [cWebApiRoutableHost_Mixin](#319-cwebapiroutablehost_mixin) — Provides nested routable behavior.
+- [cWebApiErrorHandler_Mixin](#320-cwebapierrorhandler_mixin) — Handles unexpected API errors.
+
+**OpenAPI and user interface**
+
+- [cOpenApiSpecification](#321-copenapispecification) — Builds the OpenAPI JSON document.
+- [cSwaggerUI](#322-cswaggerui) — Renders an interactive Swagger UI.
+
 ### 3.1 cWebApi
 
 **Purpose:** Top-level HTTP API entry point that routes requests and coordinates security, events, iterators, and responses.
@@ -734,6 +782,8 @@ The `Inherited from` column identifies members inherited from library-native cla
 **Extends:** `cWebHttpHandler`, [cWebApiModifierHost_Mixin](#318-cwebapimodifierhost_mixin), [cWebApiRoutableHost_Mixin](#319-cwebapiroutablehost_mixin), [cWebApiErrorHandler_Mixin](#320-cwebapierrorhandler_mixin)
 
 **See also:** [cWebApiRouter](#32-cwebapirouter), [cRestDataset](#34-crestdataset), [cWebApiModifier](#312-cwebapimodifier)
+
+**Overview:**
 
 This class acts as the casing of the REST framework. This class extends from the cWebHttpHandler and is the class that will initially receive the http request. It forwards it by pulling apart the request path and forwarding it to a router with the path that is extracted from the URL.
 
@@ -786,6 +836,8 @@ If a cWebApiModifier is defined on this level it will be used on all incoming re
 
 **See also:** [cWebApi](#31-cwebapi), [cRestDataset](#34-crestdataset), [cWebApiRoutableHost_Mixin](#319-cwebapiroutablehost_mixin)
 
+**Overview:**
+
 This class acts as a router within the framework. This class allows a developer to build in features such as versioning within their REST api. This could be done by having multiple cWebApiRouters within a cWebApi. Each router would have its own version like v1 and v2 and so on simply by setting a path property. The cWebApi can use this path and compare it to the path of the incoming request.
 
 A cWebApiRouter can have nested routers. This allows for example a v1 router to have a public and private sub router. A developer can create as many nested routers as they want. The RouteRequest procedure in this class will recursively route requests to child routers until it no longer has a child router. This class forwards the request by looking at the path and then compares that to the path of its children. When it finds a matching one it forwards the request. This will be done until the request reaches a cRestDataset. At that point the router returns a handle of the cRestDataset to the cWebApi so it can start building up the response. If a cWebApiModifier is defined in this layer it will only be applicable for cRestDatasets defined within this cWebApiRouter and other child routers.
@@ -821,6 +873,8 @@ A cWebApiRouter can have nested routers. This allows for example a v1 router to 
 **Extends:** `cWebComponent`, [cRest_Mixin](#317-crest_mixin), [cWebApiModifierHost_Mixin](#318-cwebapimodifierhost_mixin)
 
 **See also:** [cRestDataset](#34-crestdataset), [cWebApiCustomEndpoint](#35-cwebapicustomendpoint), [cWebApiLoginEndpoint](#36-cwebapiloginendpoint), [cOpenApiEndpoint](#37-copenapiendpoint)
+
+**Overview:**
 
 This class defines the data that will be exposed within a REST api. This class has all the base functionality needed for building a dataset.
 
@@ -870,6 +924,8 @@ This class defines the data that will be exposed within a REST api. This class h
 **Extends:** [cBaseRestDataset](#33-cbaserestdataset)
 
 **See also:** [cRestField](#38-crestfield), [cRestEntity](#311-crestentity), [cRestChildCollection](#310-crestchildcollection), [cJSONIterator](#315-cjsoniterator), [cXMLIterator](#316-cxmliterator)
+
+**Overview:**
 
 This class defines the data that will be exposed within a REST api. This class also calls other classes to build up a response to the client that initiated the request. This is done with the help of other classes such as the data dictionaries and iterator classes. To determine what fields will be exposed for the api consumers It uses a combination of the following classes:
 
@@ -935,6 +991,8 @@ This class communicates with the data dictionary classes to find records, create
 
 **See also:** [cRestDataset](#34-crestdataset), [cOpenApiEndpoint](#37-copenapiendpoint), [cOpenApiSpecification](#321-copenapispecification)
 
+**Overview:**
+
 This class allows developers to implement their custom logic inside of their REST api. The biggest difference this has compared to the regular cWebHttpHandler is that developers can define the information needed for the OpenApi specification by augmenting the OnDefineSchema procedure.
 
 #### Properties
@@ -986,6 +1044,8 @@ This class allows developers to implement their custom logic inside of their RES
 
 **See also:** [cRestDataset](#34-crestdataset), [cWebApiAuthModifier](#313-cwebapiauthmodifier)
 
+**Overview:**
+
 This class is used to allow developers a easy way to create login functionality for their REST apis. The default implementation uses the default session manager behaviour that is also used in web apps to facilitate logins. The login endpoint can be toggled between register and login mode with the pbRegisterMode property. When either a register or login is successful the developer can augment OnSuccessfulLogin to implement their custom logic. Much like the regular cRestDataset classes a developer can define fields that will be returned to the user. When a request is a success the OnSetCalculatedValue of these fields is called. Allowing developers to fill the field with the needed values.
 
 For example, a developer could define a oSessionKey field. Whenever a login is a success inside of the OnSetCalculatedValue for this field the developer could move the WebAppSession.SessionKey to sValue. This will return the SessionKey to the user.
@@ -1035,13 +1095,15 @@ The cWebApiLoginEndpoint only exposes the POST verb.
 
 ### 3.7 cOpenApiEndpoint
 
-**Purpose:** Serves the generated OpenAPI specification to API clients and documentation tools.
+**Purpose:** Serves the generated OpenAPI specification to API clients and documentation tools. It is included in the `cWebApi` object by default.
 
 **Use when:** Exposing the OpenAPI specification through the API.
 
 **Extends:** [cBaseRestDataset](#33-cbaserestdataset)
 
 **See also:** [cOpenApiSpecification](#321-copenapispecification), [cSwaggerUI](#322-cswaggerui)
+
+**Overview:**
 
 This is a endpoint that only exposes the OpenApi specification. The cSwaggerUI class makes a GET request to this endpoint to retrieve the OpenApi specification.
 
@@ -1091,6 +1153,8 @@ This is a endpoint that only exposes the OpenApi specification. The cSwaggerUI c
 **Extends:** `cObject`, `cBaseDEO_Mixin`
 
 **See also:** [cRestDataset](#34-crestdataset), [cRestEntity](#311-crestentity), [cRestChildCollection](#310-crestchildcollection), [cOpenApiRestField](#39-copenapirestfield)
+
+**Overview:**
 
 This class is nested inside of a cRestDataset and exposes a singular field. It is possible to define multiple cRestFields inside of a cRestDataset to expose multiple fields of a specific table.
 
@@ -1144,6 +1208,8 @@ The main functionality of this class is to provide developers an easy way to exp
 
 **See also:** [cRestField](#38-crestfield), [cOpenApiSpecification](#321-copenapispecification)
 
+**Overview:**
+
 Subclass of the cRestField. It's only purpose is returning the OpenApi specification inside of its OnSetCalculatedValue.
 
 #### Properties
@@ -1191,6 +1257,8 @@ Subclass of the cRestField. It's only purpose is returning the OpenApi specifica
 
 **See also:** [cRestDataset](#34-crestdataset), [cRestField](#38-crestfield), [cRestEntity](#311-crestentity), [cJSONIterator](#315-cjsoniterator), [cXMLIterator](#316-cxmliterator)
 
+**Overview:**
+
 This class allows for interaction with child tables. To use this class, you need to set the server of this object to that of the child data dictionary. It finds the child records based on the related field in the Main_DD. It uses the same concept as the cWebList inside of DataFlex. You can define what fields of the child table in one of two ways.
 
 The first option is to refer to a cRestDataset that exposes data of the child table. It will use the same data structure as defined in this endpoint.
@@ -1232,6 +1300,8 @@ Information provided in this class is only used during GET requests. The fields 
 **Extends:** `cObject`, `cBaseDEO_Mixin`
 
 **See also:** [cRestDataset](#34-crestdataset), [cRestField](#38-crestfield), [cRestChildCollection](#310-crestchildcollection), [cJSONIterator](#315-cjsoniterator), [cXMLIterator](#316-cxmliterator)
+
+**Overview:**
 
 This class allows for interaction with parent tables. It can find the data of the parent table related to this field. You can define the values retrieved from the parent table in two different ways.
 
@@ -1280,6 +1350,8 @@ For example if we take the inventory table and the vendor table from the WebOrde
 
 **See also:** [cWebApiAuthModifier](#313-cwebapiauthmodifier), [cWebApiModifierHost_Mixin](#318-cwebapimodifierhost_mixin)
 
+**Overview:**
+
 This class allows a developer to add different types of modifiers to their program. A modifier can be a lot of different things, but it is designed with the idea that it is used for authentication/authorization and logging. It adds hooks that developers themselves can extend upon and add their own functionality. As the name suggests this is meant to be the most modifyable part of the framework.
 
 If a developer wishes to implement security mechanisms into their API they should look into implementing the cWebApiAuthModifier class instead as it has more logic to implement security mechanisms more easily.
@@ -1308,6 +1380,8 @@ If a developer wishes to implement security mechanisms into their API they shoul
 **Extends:** [cWebApiModifier](#312-cwebapimodifier)
 
 **See also:** [cWebApiModifier](#312-cwebapimodifier), [cWebApiModifierHost_Mixin](#318-cwebapimodifierhost_mixin), [cWebApiLoginEndpoint](#36-cwebapiloginendpoint)
+
+**Overview:**
 
 A subclass of the cWebApiModifier that implements extra functionality to allow implementing authentication or authorization needs of developers more easily. During object creation this class builds up a list of cRestDatasets that it secures. This is done by parsing objects that are defined on the same level as this object or objects that are defined on a lower level. Objects can opt out of using their parents' security mechanisms by using the property pbInheritSecurity. This class modifies the OnPreRequest behaviour. Whenever the OnPreRequest of this object is called it will check if the endpoint used in the current call is present in this objects list of secured endpoints. If it is the OnAuth event will be called.
 
@@ -1339,6 +1413,8 @@ A subclass of the cWebApiModifier that implements extra functionality to allow i
 **Extends:** `cObject`
 
 **See also:** [cJSONIterator](#315-cjsoniterator), [cXMLIterator](#316-cxmliterator), [cRestDataset](#34-crestdataset)
+
+**Overview:**
 
 This is the base class for iterators. An iterator is an object that is used to formulate a response body in a specific type. It can also be used to convert a request body to a tRESTRequestBody struct that is easier to use in DataFlex code. All iterators should inherit from
 
@@ -1376,6 +1452,8 @@ This class covers the shared functionality for each iterator. It's meant as a ba
 
 **See also:** [cXMLIterator](#316-cxmliterator), [cBaseWebApiIterator](#314-cbasewebapiiterator), [cRestDataset](#34-crestdataset)
 
+**Overview:**
+
 This class is used to retrieve and build data into a JSON format. It works in collaboration with cRestFields, cRestChildCollections and cRestEntity's to build up a response back to the client. It can also be used to parse a JSON request body to a datatype that is easily useable in DataFlex code. This is the tRESTRequestBody struct.
 
 When it runs into a cRestField it will create a regular JSON member. When it runs into a cRestChildCollection it will create a JSON array. When it runs into a cRestEntity it will create a nested JSON object.
@@ -1412,6 +1490,8 @@ When it runs into a cRestField it will create a regular JSON member. When it run
 **Extends:** [cBaseWebApiIterator](#314-cbasewebapiiterator)
 
 **See also:** [cJSONIterator](#315-cjsoniterator), [cBaseWebApiIterator](#314-cbasewebapiiterator), [cRestDataset](#34-crestdataset)
+
+**Overview:**
 
 This class is used to build and retrieve data into an XML format. It works in collaboration with the cRestFields, cRestChildCollections and cRestEntity's to build up a response back to the client. Apart from building up a response to the client it is also capable of parsing the XML request body from the client to an easy to use datatype in DataFlex. This is the tRESTRequestBody struct.
 
@@ -1451,6 +1531,8 @@ When it runs into a cRestField it will create an XML node. When it runs into a c
 
 **See also:** [cWebApiRouter](#32-cwebapirouter), [cBaseRestDataset](#33-cbaserestdataset), [cRestDataset](#34-crestdataset)
 
+**Overview:**
+
 This mixin covers the functionality shared between the cWebApiRouter and cRestDataset. This covers the psPath property and the Locate_Server and Server functions. These functions have to be implemented into these objects to allow the framework to operate within a cWebAppBasic project.
 
 #### Properties
@@ -1475,6 +1557,8 @@ This mixin covers the functionality shared between the cWebApiRouter and cRestDa
 **Extends:** `Mixin`
 
 **See also:** [cWebApi](#31-cwebapi), [cWebApiRouter](#32-cwebapirouter), [cBaseRestDataset](#33-cbaserestdataset), [cWebApiModifier](#312-cwebapimodifier)
+
+**Overview:**
 
 This mixin implements the functionality needed to attach modifiers to a object.
 
@@ -1502,6 +1586,8 @@ This mixin implements the functionality needed to attach modifiers to a object.
 
 **See also:** [cWebApi](#31-cwebapi), [cWebApiRouter](#32-cwebapirouter)
 
+**Overview:**
+
 This mixin has all the functionality needed for the routing logic of the framework. Objects that implement this mixin have the ability to register child routables. The current routable hosts in the framework are the cWebApi and the cWebApiRouter.
 
 #### Properties
@@ -1528,6 +1614,8 @@ This mixin has all the functionality needed for the routing logic of the framewo
 **Extends:** `Mixin`
 
 **See also:** [cWebApi](#31-cwebapi), [cWebApiModifier](#312-cwebapimodifier)
+
+**Overview:**
 
 This mixin is used to handle unexpected errors that might occur during a http call to the service. Incase one of these unexpected errors might occur the server will return a generic error telling the client "Something went wrong on the server". If you want more details on what went wrong you can toggle pbDebugMode to true. This will instead return the callstack when a unexpected error occurs.
 
@@ -1559,6 +1647,8 @@ This mixin is used to handle unexpected errors that might occur during a http ca
 
 **See also:** [cOpenApiEndpoint](#37-copenapiendpoint), [cSwaggerUI](#322-cswaggerui), [cOpenApiRestField](#39-copenapirestfield)
 
+**Overview:**
+
 This class is responsible for building the OpenApi specification in JSON format. This is done by iterating through the existing structure and parsing the info of the objects into a JSON file using Direct_Output. Each object in the framework maps to a different part of the OpenApi specification. This class is created after the cWebApi finishes initializing. It's main procedure will be called and after it is done generating the OpenApi specification it will be destroyed again.
 
 This class is considered private.
@@ -1587,6 +1677,8 @@ This class is considered private.
 **Extends:** `cWebBaseControl`
 
 **See also:** [cOpenApiEndpoint](#37-copenapiendpoint), [cOpenApiSpecification](#321-copenapispecification)
+
+**Overview:**
 
 This class is responsible for rendering the OpenApi specification on the client. Developers can drag this custom control in any view they desire. This control renders the OpenApi specification by sending a http request to psOpenApiUrl.
 
