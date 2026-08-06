@@ -44,6 +44,7 @@ Struct tWebApiCallContext
     Integer iLimit
     Integer iOffset
     String sOldSQLFilter
+    Boolean bOldUseDDSQLFilters
     
     //Status codes and potential error messages
     Integer iStatusCode
