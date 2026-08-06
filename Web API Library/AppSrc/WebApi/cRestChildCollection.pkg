@@ -11,6 +11,9 @@ Class cRestChildCollection is a cObject
     Procedure Construct_Object
         Forward Send Construct_Object
         
+        { Visibility=Private }
+        Property Boolean pbDataBindable False
+        
         Send Define_cBaseDEO_Mixin
         
         Property String psNodeName
