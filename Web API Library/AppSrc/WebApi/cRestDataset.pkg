@@ -552,8 +552,13 @@ Class cRestDataset is a cBaseRestDataset
                 End
                 
                 // Key will be lowercased for case insensitive finds
-                Move (Lowercase(aParam[0])) to requestParams[i].sKey
-                Move aParam[1] to requestParams[i].sValue
+                Move (Lowercase(CString(wsUnescape))) to requestParams[i].sKey
+
+                Move aParam[1] to wsUnescape
+                If (SizeOfWString(wsUnescape) > 0) Begin
+                    Move (UrlUnescapeW(AddressOf(wsUnescape), 0, 0, URL_UNESCAPE_INPLACE ior URL_UNESCAPE_AS_UTF8)) to iVoid
+                End
+                Move (CString(wsUnescape)) to requestParams[i].sValue
                 
             End
         Loop

@@ -108,7 +108,7 @@ Class cWebApi is a cWebHttpHandler
         End
         
         //Check if the type is present in the list of iterators
-        Move (FindIteratorIndex(sType, sIteratorTypes)) to iIndex
+        Move (FindIteratorIndex(Self, sType, sIteratorTypes)) to iIndex
         
         //If no match is found default to the first registered iterator
         If (iIndex = -1) Begin
