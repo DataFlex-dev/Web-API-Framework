@@ -618,6 +618,7 @@ Class cRestDataset is a cBaseRestDataset
                     Move requestParams[iFoundIndex].sValue to sQueryParam
                     
                     //Check what type of constrain we're dealing with. If nothing is specified we default to EQ
+                    Move "EQ" to sFilterType
                     If (Pos("(GE)", sQueryParam, 0) <> 0) Begin
                         Move "GE" to sFilterType
                         Move (Replace("(GE)", sQueryParam, "")) to sQueryParam

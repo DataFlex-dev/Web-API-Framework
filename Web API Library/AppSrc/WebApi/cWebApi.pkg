@@ -53,8 +53,39 @@ Class cWebApi is a cWebHttpHandler
             Set phoCachedIterator to 0    
         End
         
-    End_Procedure  
-    
+    End_Procedure
+
+    { Visibility = Private }
+    Function NormalizeMediaType String sMediaType Returns String
+        String[] asMediaTypeParts
+
+        Move (StrSplitToArray(sMediaType, ";")) to asMediaTypeParts
+        If (SizeOfArray(asMediaTypeParts) > 0) Begin
+            Function_Return (Lowercase(Trim(asMediaTypeParts[0])))
+        End
+
+        Function_Return ""
+    End_Function
+
+    { Visibility = Private }
+    Function FindIteratorIndex String sMediaTypes String[] sIteratorTypes Returns Integer
+        String[] asMediaTypes
+        String sMediaType
+        Integer iIndex iMediaType
+
+        Move (StrSplitToArray(sMediaTypes, ",")) to asMediaTypes
+        For iMediaType from 0 to (SizeOfArray(asMediaTypes) - 1)
+            Get NormalizeMediaType asMediaTypes[iMediaType] to sMediaType
+            Move (BinarySearchArray(sMediaType, sIteratorTypes)) to iIndex
+
+            If (iIndex <> -1) Begin
+                Function_Return iIndex
+            End
+        Loop
+
+        Function_Return -1
+    End_Function
+
     //Gets the iterator of the specified type
     { Visibility = Private }
     Procedure GetIterator tWebApiCallContext ByRef webapicallcontext
@@ -76,11 +107,8 @@ Class cWebApi is a cWebHttpHandler
             Move webapicallcontext.sContentType to sType
         End
         
-        //Make sure its lowercased
-        Move (Lowercase(sType)) to sType
-        
         //Check if the type is present in the list of iterators
-        Move (BinarySearchArray(sType, sIteratorTypes)) to iIndex
+        Move (FindIteratorIndex(sType, sIteratorTypes)) to iIndex
         
         //If no match is found default to the first registered iterator
         If (iIndex = -1) Begin
@@ -120,8 +148,8 @@ Class cWebApi is a cWebHttpHandler
         Get piIteratorClasses to aiIteratorClasses
         Get pasIteratorTypes to asIteratorTypes
         
-        //Make sure everything is casted to lowercase
-        Move (Lowercase(sMessageType)) to sMessageType
+        //Store a canonical media type so lookup remains binary-searchable
+        Get NormalizeMediaType sMessageType to sMessageType
         
         Move (BinarySearchArray(sMessageType, asIteratorTypes)) to iIndex
         
