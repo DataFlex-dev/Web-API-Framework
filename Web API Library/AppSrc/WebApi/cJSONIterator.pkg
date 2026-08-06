@@ -1,4 +1,5 @@
 ﻿Use WebApi\cBaseWebApiIterator.pkg
+Use cJsonObject.pkg
 
 Class cJSONIterator is a cBaseWebApiIterator
     
