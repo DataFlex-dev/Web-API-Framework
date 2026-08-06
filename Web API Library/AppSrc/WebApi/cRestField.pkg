@@ -121,7 +121,6 @@ Class cRestField is a cObject
         
         // Check if we can use sql filters. Only apply them to the main dd.
         If (hoMainDD = hoServer and SupportsSQLFilters(hoMainDD)) Begin
-            Set pbUseDDSQLFilters of hoMainDD to True
             Get psSQLFilter of hoMainDD to sSqlFilter
             Get peFieldType to eFieldType
             

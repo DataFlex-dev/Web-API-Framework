@@ -592,9 +592,11 @@ Class cRestDataset is a cBaseRestDataset
         
         Move (SizeOfArray(hoExposedDataObjects)-1) to iAmountOfDataObjects
         
-        // Remember the old sql filter
+        // Remember the old SQL filter state
         If (SupportsSQLFilters(hoDD)) Begin
+            Get pbUseDDSQLFilters of hoDD to webapicallcontext.bOldUseDDSQLFilters
             Get psSQLFilter of hoDD to webapicallcontext.sOldSQLFilter
+            Set pbUseDDSQLFilters of hoDD to True
         End
         
         //Reset all the current constrains to make room for the new ones
@@ -656,6 +658,7 @@ Class cRestDataset is a cBaseRestDataset
             If (SupportsSQLFilters(hoDD)) Begin
                 // Return the old filter
                 Set psSQLFilter of hoDD to webapicallcontext.sOldSQLFilter
+                Set pbUseDDSQLFilters of hoDD to webapicallcontext.bOldUseDDSQLFilters
             End
         End
         
