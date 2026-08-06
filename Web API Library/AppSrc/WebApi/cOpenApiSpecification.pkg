@@ -14,19 +14,71 @@ Class cOpenApiSpecification is a cObject
     
     Procedure Construct_Object
         Forward Send Construct_Object
+
+        { Visibility = Private }
+        Property String psCachedApiRoot ""
+        { Visibility = Private }
+        Property String psCachedOpenApiSpec ""
     End_Procedure
+
+    { Visibility = Private }
+    Function GetApiRoot Handle hoHttpApi Returns String
+        String sApiRoot sServerName sSecureString sForwardedProto
+        Boolean bSecure
+        Integer iServerPort
+
+        Get psApiRoot of hoHttpApi to sApiRoot
+
+        //If there is no psApiRoot we retrieve it from IIS
+        If (sApiRoot = "") Begin
+            Get ServerVariable of ghoWebServiceDispatcher "SERVER_NAME" to sServerName
+            Get ServerVariable of ghoWebServiceDispatcher "URL" to sApiRoot
+            Get ServerVariable of ghoWebServiceDispatcher "HTTP_X_FORWARDED_PROTO" to sForwardedProto
+
+            // Check for reverse proxy
+            If (sForwardedProto <> "") Begin
+                Move (sForwardedProto + "://") to sSecureString
+            End
+            Else Begin
+                Get ServerVariable of ghoWebServiceDispatcher "SERVER_PORT" to iServerPort
+                // 443 is the default secure port
+                Move (iServerPort = 443) to bSecure
+                //Add http or https based on the SERVER_PORT setting
+                If bSecure Begin
+                    Move "https://" to sSecureString
+                End
+                Else Begin
+                    Move "http://" to sSecureString
+                End
+            End
+
+            //The url contains /OpenApi since its part of the requesting url, we can take it out of the url.
+            Move (Replace("/OpenApi", sApiRoot, "")) to sApiRoot
+            Move (sSecureString + sServerName + sApiRoot) to sApiRoot
+        End
+
+        Function_Return sApiRoot
+    End_Function
     
     { Visibility = Private }
     Function GenerateOpenApiSpec Returns String
-        String sTitle sDescription sVersion sStringifiedJson sPath
+        String sTitle sDescription sVersion sStringifiedJson sApiRoot sCachedApiRoot
         Handle hoOpenApiSpec hoInfo hoHttpApi
         
         Get GetWebApiObject to hoHttpApi
+        Get GetApiRoot hoHttpApi to sApiRoot
+        Get psCachedApiRoot to sCachedApiRoot
+
+        If (sCachedApiRoot = sApiRoot) Begin
+            Get psCachedOpenApiSpec to sStringifiedJson
+            If (sStringifiedJson <> "") Begin
+                Function_Return sStringifiedJson
+            End
+        End
         
         Get psApiTitle of hoHttpApi to sTitle
         Get psApiDescription of hoHttpApi to sDescription
         Get psApiVersion of hoHttpApi to sVersion
-        Get psPath of hoHttpApi to sPath
         
         Get Create (RefClass(cJsonObject)) to hoOpenApiSpec
         Get Create (RefClass(cJsonObject)) to hoInfo
@@ -45,7 +97,7 @@ Class cOpenApiSpecification is a cObject
         
         Send SetMember of hoOpenApiSpec "info" hoInfo
         
-        Send GenerateServersInfo hoOpenApiSpec
+        Send GenerateServersInfo hoOpenApiSpec sApiRoot
         
         Send GenerateEndpointInfo hoOpenApiSpec
         
@@ -59,48 +111,18 @@ Class cOpenApiSpecification is a cObject
         //Clean up the json after we're done with it
         Send Destroy of hoInfo
         Send Destroy of hoOpenApiSpec
+
+        Set psCachedApiRoot to sApiRoot
+        Set psCachedOpenApiSpec to sStringifiedJson
         
         Function_Return sStringifiedJson
     End_Function
     
     { Visibility = Private }
-    Procedure GenerateServersInfo Handle hoOpenApiSpecJson
-        Handle hoServersJson hoServerJson hoHttpApi
-        String sApiPath sRouterPath sDescription sApiRoot sServerName sSecureString sForwardedProto
-        Boolean bSecure
-        Integer iServerPort
-        
-        Get GetWebApiObject to hoHttpApi
-        Get psPath of hoHttpApi to sApiPath
-        Get psApiRoot of hoHttpApi to sApiRoot
-        
-        //If there is no psApiRoot we retrieve it from IIS
-        If (sApiRoot = "") Begin
-            Get ServerVariable of ghoWebServiceDispatcher "SERVER_NAME" to sServerName
-            Get ServerVariable of ghoWebServiceDispatcher "URL" to sApiRoot
-            Get ServerVariable of ghoWebServiceDispatcher "HTTP_X_FORWARDED_PROTO" to sForwardedProto
-            
-            // Check for reverse proxy
-            If (sForwardedProto <> "") Begin
-                Move (sForwardedProto + "://") to sSecureString    
-            End
-            Else Begin
-                Get ServerVariable of ghoWebServiceDispatcher "SERVER_PORT" to iServerPort
-                // 443 is the default secure port
-                Move (iServerPort = 443) to bSecure
-                //Add http or https based on the SERVER_PORT setting
-                If bSecure Begin
-                    Move "https://" to sSecureString
-                End
-                Else Begin
-                    Move "http://" to sSecureString
-                End    
-            End
-            
-            //The url contains /OpenApi since its part of the requesting url, we can take it out of the url.
-            Move (Replace("/OpenApi", sApiRoot, "")) to sApiRoot
-            Move (sSecureString + sServerName + sApiRoot) to sApiRoot
-        End
+    Procedure GenerateServersInfo Handle hoOpenApiSpecJson String sApiRoot
+        Handle hoServersJson hoServerJson
+        String sDescription
+
         //Create the JSON objects
         Get Create (RefClass(cJsonObject)) to hoServersJson
         Get Create (RefClass(cJsonObject)) to hoServerJson
