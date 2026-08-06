@@ -36,6 +36,11 @@ Class cBaseRestDataset is a cWebComponent
         Property Boolean pbSecureCreate True
         Property Boolean pbSecureEdit True
         Property Boolean pbSecureDelete True
+
+        { Visibility = Private }
+        Property Handle[] phoCachedDataFields
+        { Visibility = Private }
+        Property Boolean pbDataFieldsCached False
         
         Send Define_cRest_Mixin
         Send Define_cWebApiModifierHost_Mixin
@@ -248,17 +253,26 @@ Class cBaseRestDataset is a cWebComponent
         Integer iIndex iChildCount
         Handle hoChild
         Handle[] hoExposedDataObjects
-        
-        Get Child_Count to iChildCount
-        
-        For iIndex from 0 to (iChildCount - 1)
-            Get ChildByIndex iIndex to hoChild
-            If (IsObjectOfClass(hoChild, RefClass(cRestField)) or ;
-            IsObjectOfClass(hoChild, RefClass(cRestEntity)) or ;
-            IsObjectOfClass(hoChild, RefClass(cRestChildCollection))) Begin
-                Move hoChild to hoExposedDataObjects[-1]
-            End
-        Loop
+        Boolean bCached
+
+        Get pbDataFieldsCached to bCached
+        If not bCached Begin
+            Get Child_Count to iChildCount
+
+            For iIndex from 0 to (iChildCount - 1)
+                Get ChildByIndex iIndex to hoChild
+                If (IsObjectOfClass(hoChild, RefClass(cRestField)) or ;
+                IsObjectOfClass(hoChild, RefClass(cRestEntity)) or ;
+                IsObjectOfClass(hoChild, RefClass(cRestChildCollection))) Begin
+                    Move hoChild to hoExposedDataObjects[-1]
+                End
+            Loop
+
+            Set phoCachedDataFields to hoExposedDataObjects
+            Set pbDataFieldsCached to True
+        End
+
+        Get phoCachedDataFields to hoExposedDataObjects
         
         Function_Return hoExposedDataObjects
     End_Function
