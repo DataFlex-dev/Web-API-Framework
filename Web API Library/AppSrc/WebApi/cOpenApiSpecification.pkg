@@ -1310,8 +1310,9 @@ Class cOpenApiSpecification is a cObject
             If (not(bGenerateDocumentation)) Begin
                 Procedure_Return
             End
+            
+            Send InitializeEndpoint of hoRoutable
         End
-        
         //Check if the class is a custom endpoint or a data aware endpoint
         If (IsObjectOfClass(hoRoutable, RefClass(cWebApiCustomEndpoint))) Begin
             Send ParseCustomEndpoint hoPathsJson hoRoutable

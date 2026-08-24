@@ -41,6 +41,8 @@ Class cBaseRestDataset is a cWebComponent
         Property Handle[] phoCachedDataFields
         { Visibility = Private }
         Property Boolean pbDataFieldsCached False
+        { Visibility = Private }
+        Property Boolean pbInitialized False
         
         Send Define_cRest_Mixin
         Send Define_cWebApiModifierHost_Mixin
@@ -49,12 +51,34 @@ Class cBaseRestDataset is a cWebComponent
     Import_Class_Protocol cRest_Mixin
     Import_Class_Protocol cWebApiModifierHost_Mixin   
     
+    { Visibility = Private }
+    Procedure InitializeEndpoint
+        Boolean bInitialized
+        
+        Get pbInitialized to bInitialized
+        If bInitialized Begin
+            Procedure_Return
+        End
+        
+        Send InitializeEndpointData
+        
+        // Only mark the endpoint initialized after its initialization completed.
+        Set pbInitialized to True
+    End_Procedure
+    
+    { Visibility = Private }
+    Procedure InitializeEndpointData
+        // To be implemented by endpoint classes that need initialization.
+    End_Procedure
+    
         { Visibility = Private }
     Procedure OnHttpRequest tWebApiCallContext ByRef webapicallcontext
         Boolean bExposedVerb bHasID
         Integer iSizeOfPathPieces
         String sID
         String[] asPathPieces
+        
+        Send InitializeEndpoint
         
         Move (StrSplitToArray(webapicallcontext.sPath, "/")) to asPathPieces
         Move (SizeOfArray(asPathPieces)-1) to iSizeOfPathPieces

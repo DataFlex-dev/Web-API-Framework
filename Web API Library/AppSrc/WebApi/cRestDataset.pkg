@@ -24,6 +24,12 @@ Class cRestDataset is a cBaseRestDataset
         //Determines what index will be used to perform finds in the dataset
         Property Integer piFindIndex 1  
     End_Procedure
+    
+    { Visibility = Private }
+    Procedure InitializeEndpointData
+        Forward Send InitializeEndpointData
+        Broadcast Recursive Send InitializeDefaults
+    End_Procedure
 
     
     //Receives the message here

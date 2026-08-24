@@ -92,7 +92,8 @@ Class cRestChildCollection is a cObject
         Function_Return False
     End_Function
     
-    Procedure AfterAttachDDO
+    { Visibility=Private }
+    Procedure InitializeDefaults
         Integer iFile
         Handle hoServer
         String sTableName

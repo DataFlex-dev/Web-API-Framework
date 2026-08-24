@@ -338,9 +338,9 @@ Class cRestField is a cObject
         Function_Return bRequired
     End_Function
     
-    // Fired by the cBaseDeo interface. Sets default values.
-    // This way we only need to query database APIs once instead of for every single find.
-    Procedure AfterAttachDDO
+    // Initializes data-aware field defaults for this REST endpoint.
+    { Visibility = Private }
+    Procedure InitializeDefaults
         String sFieldName
         Integer iFile iField iPrecision
         Integer eFieldType
