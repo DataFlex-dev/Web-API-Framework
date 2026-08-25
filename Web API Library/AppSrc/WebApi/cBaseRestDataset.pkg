@@ -5,7 +5,12 @@ Use WebApi\cRestEntity.pkg
 Use WebApi\cRestChildCollection.pkg
 Use WebApi\cRest_Mixin.pkg
 Use WebApi\cWebApiModifierHost_Mixin.pkg
+
+#IFDEF IS$CROSS_PLATFORM
+Use WebAppServer\cWebComponent.pkg
+#ELSE
 Use cWebComponent.pkg
+#ENDIF
 
 //Base class for all dataset classes.
 { DataAware=True }

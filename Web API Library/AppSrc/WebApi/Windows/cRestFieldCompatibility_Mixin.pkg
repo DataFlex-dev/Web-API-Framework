@@ -1,0 +1,88 @@
+﻿Class cRestFieldCompatibility_Mixin is a Mixin
+
+    Procedure AddConstrain String sConstrain String sFilterType
+        Integer iFile iField
+        Integer eFieldType
+        Handle hoMainDD hoServer
+        String sSqlFilter
+
+        Get Main_DD to hoMainDD
+        Get Server to hoServer
+        Get Data_File to iFile
+        Get Data_Field to iField
+
+        //Only constrain fields that have data binding
+        If (iFile = 0) Begin
+            Procedure_Return
+        End
+
+        Get peFieldType to eFieldType
+
+        // Check if we can use sql filters. Only apply them to the main dd.
+        If (hoMainDD = hoServer and SupportsSQLFilters(hoMainDD)) Begin
+            Get psSQLFilter of hoMainDD to sSqlFilter
+
+            If (eFieldType = DF_ASCII or eFieldType = DF_TEXT) Begin
+                Get SQLEscapedStr of hoMainDD sConstrain to sConstrain
+                Move ("'" + sConstrain + "'") to sConstrain
+            End
+
+            //Check what type of constrain we need to use
+            If (sFilterType = "GE") Begin
+                Get SQLStrAppend of hoMainDD sSqlFilter (SQLStrFileFieldName(hoMainDD, iField) + " >= " + sConstrain) to sSqlFilter
+            End
+            Else If (sFilterType = "GT") Begin
+                Get SQLStrAppend of hoMainDD sSqlFilter (SQLStrFileFieldName(hoMainDD, iField) + " > " + sConstrain) to sSqlFilter
+            End
+            Else If (sFilterType = "LE") Begin
+                Get SQLStrAppend of hoMainDD sSqlFilter (SQLStrFileFieldName(hoMainDD, iField) + " <= " + sConstrain) to sSqlFilter
+            End
+            Else If (sFilterType = "LT") Begin
+                Get SQLStrAppend of hoMainDD sSqlFilter (SQLStrFileFieldName(hoMainDD, iField) + " < " + sConstrain) to sSqlFilter
+            End
+            Else If (sFilterType = "NE") Begin
+                Get SQLStrAppend of hoMainDD sSqlFilter (SQLStrFileFieldName(hoMainDD, iField) + " != " + sConstrain) to sSqlFilter
+            End
+            Else Begin
+                Get SQLStrAppend of hoMainDD sSqlFilter (SQLStrFileFieldName(hoMainDD, iField) + " = " + sConstrain) to sSqlFilter
+            End
+
+            Set psSQLFilter of hoMainDD to sSqlFilter
+        End
+        Else Begin
+            // Apply constrain using vconstrain command
+            If (sFilterType = "GE") Begin
+                Vconstrain iFile iField GE sConstrain
+            End
+            Else If (sFilterType = "GT") Begin
+                Vconstrain iFile iField GT sConstrain
+            End
+            Else If (sFilterType = "LT") Begin
+                Vconstrain iFile iField LT sConstrain
+            End
+            Else If (sFilterType = "LE") Begin
+                Vconstrain iFile iField LE sConstrain
+            End
+            Else Begin
+                Vconstrain iFile iField EQ sConstrain
+            End
+        End
+    End_Procedure
+
+    
+    //Modifies the global buffer of the field, only really used to perform finds on the data dictionary
+    Procedure SetFieldGlobalValue String sValue
+        Integer iField iFile
+        
+        Get Data_Field to iField
+        Get Data_File to iFile
+        
+        //Only modify the global buffer if the field has data binding. Non data aware fields do not have to be set.
+        If (iFile <> 0) Begin
+            Set_Field_Value iFile iField to sValue    
+        End
+    End_Procedure
+
+    
+
+End_Class

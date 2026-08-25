@@ -1,5 +1,10 @@
-﻿Use UI
+﻿#IFDEF IS$CROSS_PLATFORM
+Use Db\cBaseDEO.pkg
+Use WebApi\CrossPlatform\cWebApiDDCompatibility_Mixin.pkg
+#ELSE
 Use cBaseDEO.pkg
+Use WebApi\Windows\cWebApiDDCompatibility_Mixin.pkg
+#ENDIF
 
 //Class used to refer to data in a child table
 { DataAware = True }
@@ -7,6 +12,8 @@ Use cBaseDEO.pkg
 Class cRestChildCollection is a cObject
     
     Import_Class_Protocol cBaseDEO_Mixin
+    
+    Import_Class_Protocol cWebApiDDCompatibility_Mixin
     
     Procedure Construct_Object
         Forward Send Construct_Object
@@ -17,6 +24,7 @@ Class cRestChildCollection is a cObject
         Send Define_cBaseDEO_Mixin
         
         Property String psNodeName
+        Property Handle Server
         
         Property Boolean pbReadOnly True
         Property Integer piLimitResult 0
@@ -98,15 +106,18 @@ Class cRestChildCollection is a cObject
         Handle hoServer
         String sTableName
         
-        Get Server to hoServer        
+        Get Server to hoServer
+        If (hoServer = 0) ;
+            Procedure_Return
+
         Get Main_File of hoServer to iFile
-        
-        If (hoServer = 0 and iFile = 0) ;
+        If (iFile = 0) ;
             Procedure_Return
             
         If (psNodeName(Self) = "") Begin
-            Get_Attribute DF_FILE_LOGICAL_NAME of iFile to sTableName
+            Get CompatibilityTableName hoServer iFile to sTableName
             Set psNodeName to sTableName   
         End
     End_Procedure
+    
 End_Class

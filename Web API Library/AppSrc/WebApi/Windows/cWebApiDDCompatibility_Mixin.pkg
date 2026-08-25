@@ -1,0 +1,68 @@
+Class cWebApiDDCompatibility_Mixin is a Mixin
+
+    Function CompatibilityTableName Handle hoServer Integer iFile Returns String
+        String sTableName
+
+        Get_Attribute DF_FILE_LOGICAL_NAME of iFile to sTableName
+
+        Function_Return sTableName
+    End_Function
+    Function CompatibilityIsRequired Handle hoDD Integer iFile Integer iField Returns Boolean
+        Integer iDDOptions
+        Boolean bRequired
+
+        Get File_Field_Options of hoDD iFile iField to iDDOptions
+        Move (IsFlagIn(DD_Required, iDDOptions)) to bRequired
+
+        Function_Return bRequired
+    End_Function
+
+    Function CompatibilityFieldValidationTable Handle hoDD Integer iFile Integer iField Returns Variant[][2]
+        Handle hoValidationTable
+        Variant[][2] avValidationTable
+
+        Get File_Field_Table_Object of hoDD iFile iField to hoValidationTable
+        If (hoValidationTable <> 0) Begin
+            Get TableData of hoValidationTable to avValidationTable
+        End
+
+        Function_Return avValidationTable
+    End_Function
+
+    Function CompatibilityIsKeyField Handle hoDD Integer iField Returns Boolean
+        Boolean bIsKeyField
+        
+        Get Key_Field_State of hoDD iField to bIsKeyField
+        
+        Function_Return bIsKeyField
+    End_Function
+    
+    Function CompatibilityFieldName Handle hoDD Integer iFile Integer iField Returns String
+        String sFieldName
+        
+        Get File_Field_Label of hoDD iFile iField DD_LABEL_TAG to sFieldName
+        
+        Function_Return sFieldName
+    End_Function
+    
+    Function CompatibilityFieldType Handle hoDD Integer iFile Integer iField Returns Integer
+        Integer eFieldType
+        
+        Get_Attribute DF_FIELD_TYPE of iFile iField to eFieldType
+        
+        Function_Return eFieldType
+    End_Function
+    
+    Function CompatibilityFieldPrecision Handle hoDD Integer iFile Integer iField Integer eFieldType Returns Integer
+        Integer iPrecision
+        
+        Move -1 to iPrecision
+        
+        If (eFieldType = DF_BCD) Begin
+            Get_Attribute DF_FIELD_PRECISION of iFile iField to iPrecision
+        End
+        
+        Function_Return iPrecision
+    End_Function
+
+End_Class

@@ -1,4 +1,13 @@
-﻿Use cBaseDEO.pkg
+﻿#IFDEF IS$CROSS_PLATFORM
+Use Db\cBaseDEO.pkg
+Use Db\cDataDictionary.pkg
+Use WebApi\CrossPlatform\cWebApiDDCompatibility_Mixin.pkg
+Use WebApi\CrossPlatform\cRestEntityCompatibility_Mixin.pkg
+#ELSE
+Use cBaseDEO.pkg
+Use WebApi\Windows\cWebApiDDCompatibility_Mixin.pkg
+Use WebApi\Windows\cRestEntityCompatibility_Mixin.pkg
+#ENDIF
 
 //Class used to refer to data in a parent table
 { DataAware = True }
@@ -12,9 +21,9 @@ Class cRestEntity is a cObject
         Property Boolean pbDataBindable False
         
         Send Define_cBaseDEO_Mixin
-        
         //This name is displayed inside of the json. When not specified this will use the name of the table
         Property String psNodeName
+        Property Handle Server
         
         //Determines if this field is ReadOnly. Applies to the foreign key field in the Main_DD.
         Property Boolean pbReadOnly False
@@ -22,6 +31,10 @@ Class cRestEntity is a cObject
     End_Procedure
     
     Import_Class_Protocol cBaseDEO_Mixin
+    
+    Import_Class_Protocol cWebApiDDCompatibility_Mixin
+    
+    Import_Class_Protocol cRestEntityCompatibility_Mixin
     
     //This procedure should be called from within cRestDataset to append data to the json
     //This way the cRestEntity is responsible for retrieving and setting the value and not the cRestDataset
@@ -52,52 +65,16 @@ Class cRestEntity is a cObject
     //Entity cannot have its own entry_item. But it should translate to the related field.
     Procedure SetFieldLocalValue String sValue
         Handle hoDD hoServer
-        Integer iFile iField iServerRelatedField iForeignFile
+        Integer iFile iField
         
         Get Main_DD to hoDD
         Get Server to hoServer       
         Get Data_File to iFile
         Get Data_Field to iField       
-        Get Main_File of hoServer to iForeignFile
         
-        Set File_Field_Changed_Value of hoDD iFile iField to sValue
-        
-        Get RetrieveServerRelatedField to iServerRelatedField
-        //After we have set the value we must perform a find on the server to ensure the parent record exists.
-        Set_Field_Value iForeignFile iServerRelatedField to sValue
-        Send Find of hoServer EQ 1
+        Send CompatibilitySetFieldLocalValue hoDD hoServer iFile iField sValue
     End_Procedure
     
-    //Sets the Data_File and Data_Field of this object to the field that has a relation with the server.
-    Procedure PrepareBinding
-        Handle hoDD hoServer
-        Integer iFieldCount iMainFile iServerFile iRelFile iField
-        
-        Get Main_DD to hoDD
-        Get Server to hoServer
-        
-        If (hoDD = 0 or hoServer = 0) Begin
-            Procedure_Return
-        End
-        
-        Get Main_File of hoDD to iMainFile
-        Get Main_File of hoServer to iServerFile
-        // Get the total field count in the main Data Dictionary (hoDD)
-        Get Field_Count of hoDD to iFieldCount
-        
-        // Loop through each field in the Data Dictionary to check for a relationship
-        For iField from 0 to iFieldCount
-            Get_Attribute DF_FIELD_RELATED_FILE of iMainFile iField to iRelFile
-            
-            //If the related file matches the server file we've got the right one
-            If (iRelFile = iServerFile) Begin
-                Set Data_File to iMainFile
-                Set Data_Field to iField
-                Procedure_Return
-            End
-            
-        Loop
-    End_Procedure
     
     //Returns the name of the table
     Function SchemaName Returns String        
@@ -113,19 +90,6 @@ Class cRestEntity is a cObject
         Function_Return False
     End_Function
     
-    //Helper function to retrieve the server related field
-    Function RetrieveServerRelatedField Returns Integer
-        Handle hoDD
-        Integer iFile iRelField iField
-        
-        Get Main_DD to hoDD
-        Get Data_File to iFile
-        Get Data_Field to iField
-
-        Get_Attribute DF_FIELD_RELATED_FIELD of iFile iField to iRelField
-        
-        Function_Return iRelField
-    End_Function
     
     { Visibility=Private }
     Procedure InitializeDefaults
@@ -133,17 +97,20 @@ Class cRestEntity is a cObject
         Handle hoServer
         String sTableName
         
-        Get Server to hoServer        
+        Get Server to hoServer
+        If (hoServer = 0) ;
+            Procedure_Return
+
         Get Main_File of hoServer to iFile
-        
-        If (hoServer = 0 and iFile = 0) ;
+        If (iFile = 0) ;
             Procedure_Return
             
         If (psNodeName(Self) = "") Begin
-            Get_Attribute DF_FILE_LOGICAL_NAME of iFile to sTableName
+            Get CompatibilityTableName hoServer iFile to sTableName
             Set psNodeName to sTableName   
         End
     End_Procedure
+    
 
     Procedure End_Construct_Object
         Forward Send End_Construct_Object

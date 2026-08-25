@@ -1,0 +1,48 @@
+﻿Class cRestFieldCompatibility_Mixin is a Mixin
+
+    Procedure AddConstrain String sConstrain String sFilterType
+        Integer iFile iField eMode
+        Handle hoServer
+
+        Get Server to hoServer
+        Get Data_File to iFile
+        Get Data_Field to iField
+
+        //Only constrain fields that have data binding
+        If (iFile = 0) Begin
+            Procedure_Return
+        End
+
+        //Check what type of constrain we need to use
+        If (sFilterType = "GE") Begin
+            Move (GE) to eMode
+        End
+        Else If (sFilterType = "GT") Begin
+            Move (GT) to eMode
+        End
+        Else If (sFilterType = "LT") Begin
+            Move (LT) to eMode
+        End
+        Else If (sFilterType = "LE") Begin
+            Move (LE) to eMode
+        End
+        Else If (sFilterType = "NE") Begin
+            Move (NE) to eMode
+        End
+        Else Begin
+            Move (EQ) to eMode
+        End
+
+        Send Add_Value_Constraint of hoServer iFile iField eMode sConstrain
+    End_Procedure
+
+    
+    //Modifies the global buffer of the field, only really used to perform finds on the data dictionary
+    Procedure SetFieldGlobalValue String sValue
+        // Global values are no longer a thing, forward it to the local value
+        Send SetFieldLocalValue sValue
+    End_Procedure
+
+    
+
+End_Class

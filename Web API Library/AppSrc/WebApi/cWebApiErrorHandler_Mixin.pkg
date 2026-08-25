@@ -94,8 +94,8 @@ Class cWebApiErrorHandler_Mixin is a Mixin
         Boolean bAvailable
         
         //  Fetch system error text
-        Get Error_Text of Desktop iError to sDescription
-        Get Error_Text_Available of Desktop iError to bAvailable
+//        Get Error_Text of Desktop iError to sDescription
+//        Get Error_Text_Available of Desktop iError to bAvailable
         
         //  Trim both messages
         Move (Trim(sDescription)) to sDescription

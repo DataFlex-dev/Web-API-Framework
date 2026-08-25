@@ -1,7 +1,17 @@
 ﻿Use WebApi\cBaseWebApiIterator.pkg
-Use cJsonObject.pkg
+
+#IFDEF IS$CROSS_PLATFORM
+Use System\Types.pkg
+Use System\Json.pkg
+Use WebApi\CrossPlatform\cDFTypeToJsonType_Mixin.pkg
+#ELSE
+Use cJsonObject.pkg    
+Use WebApi\Windows\cDFTypeToJsonType_Mixin.pkg
+#ENDIF
 
 Class cJSONIterator is a cBaseWebApiIterator
+    
+    Import_Class_Protocol cDFTypeToJsonType_Mixin
     
     Procedure Construct_Object
         Forward Send Construct_Object
@@ -56,17 +66,7 @@ Class cJSONIterator is a cBaseWebApiIterator
     //This should append to a response body
     Procedure ModifyResponseBody Handle hoResponseBody Variant vValue String sFieldName Integer eDataType
         Integer eJsonType
-        
-        //Localisatie misschien fixed formaat
-        //Kijken naar een standaard voor REST
-        Case Begin
-            Case (eDataType = DF_ASCII or eDataType = DF_DATE or eDataType = DF_TEXT)     
-                Move jsonTypeString to eJsonType
-                Case Break
-            Case (eDataType = DF_BCD)
-                Move jsonTypeDouble to eJsonType
-                Case Break
-        Case End
+        Get DFTypeToJsonType eDataType to eJsonType
         
         Send SetMemberValue of hoResponseBody sFieldName eJsonType vValue
     End_Procedure
@@ -106,7 +106,11 @@ Class cJSONIterator is a cBaseWebApiIterator
     
     Procedure GenerateErrorResponse tWebApiCallContext ByRef webapicallcontext
         
-        Get Create (RefClass(cJsonObject)) to webapicallcontext.hoResponseBody
+        If (webapicallcontext.hoResponseBody = 0) Begin
+            Get Create (RefClass(cJsonObject)) to webapicallcontext.hoResponseBody
+        End
+        
+        // Reuse the existing response object instead of orphaning it.
         Send InitializeJsonType of webapicallcontext.hoResponseBody jsonTypeObject
         
         Send SetMemberValue of webapicallcontext.hoResponseBody "type" jsonTypeString C_WEBAPI_ERROR_TYPE

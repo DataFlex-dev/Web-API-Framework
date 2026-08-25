@@ -4,6 +4,13 @@ Use WebApi\cWebApiCustomEndpoint.pkg
 Use WebApi\cWebApi.pkg
 Use WebApi\cRestDataset.pkg
 
+#IFDEF IS$CROSS_PLATFORM
+//Use AppSrc_Server\WebUI\cWebServiceDispatcher.pkg
+Use WebAppServer\cWebHttpHandler.pkg
+#ELSE
+Use cWebHttpHandler.pkg
+#ENDIF
+
 Struct oneOf
     String title
     String const
@@ -31,16 +38,16 @@ Class cOpenApiSpecification is a cObject
 
         //If there is no psApiRoot we retrieve it from IIS
         If (sApiRoot = "") Begin
-            Get ServerVariable of ghoWebServiceDispatcher "SERVER_NAME" to sServerName
-            Get ServerVariable of ghoWebServiceDispatcher "URL" to sApiRoot
-            Get ServerVariable of ghoWebServiceDispatcher "HTTP_X_FORWARDED_PROTO" to sForwardedProto
+//            Get ServerVariable of ghoWebServiceDispatcher "SERVER_NAME" to sServerName
+//            Get ServerVariable of ghoWebServiceDispatcher "URL" to sApiRoot
+//            Get ServerVariable of ghoWebServiceDispatcher "HTTP_X_FORWARDED_PROTO" to sForwardedProto
 
             // Check for reverse proxy
             If (sForwardedProto <> "") Begin
                 Move (sForwardedProto + "://") to sSecureString
             End
             Else Begin
-                Get ServerVariable of ghoWebServiceDispatcher "SERVER_PORT" to iServerPort
+//                Get ServerVariable of ghoWebServiceDispatcher "SERVER_PORT" to iServerPort
                 // 443 is the default secure port
                 Move (iServerPort = 443) to bSecure
                 //Add http or https based on the SERVER_PORT setting
@@ -801,21 +808,21 @@ Class cOpenApiSpecification is a cObject
             Get pvSecurityInfo of hoAuthModifiers[iAuthModifierIndex] to vSecurityInfo
             
             //Check if the variant is actually a struct
-            Get VariantType vSecurityInfo to iVariantType
+//            Get VariantType vSecurityInfo to iVariantType
             
-            If (sSecuritySchemaName = "" or not(iVariantType = OLE_VT_Record)) Begin
-                Get Name of hoAuthModifiers[iAuthModifierIndex] to sAuthModifierName
-                //Make sure we do not leak any memory
-                Send Destroy of hoSecuritySchemesJson
-                Send Destroy of hoComponentsJson
-                Send Destroy of hoPathsJson
-                Send Destroy of hoCurrentAuthJson
-                Send Destroy of hoEndpointSecurityMember
-                Send Destroy of hoSecurityAuthMember
-                Send Destroy of hoAuthEmptyArrayJson
-                //Maybe this should not be a blocking error
-                Error DFERR_PROGRAM (SFormat("psSecuritySchemaName and pvSecurityInfo have to be set on object %1", sAuthModifierName))
-            End
+//            If (sSecuritySchemaName = "" or not(iVariantType = OLE_VT_Record)) Begin
+//                Get Name of hoAuthModifiers[iAuthModifierIndex] to sAuthModifierName
+//                //Make sure we do not leak any memory
+//                Send Destroy of hoSecuritySchemesJson
+//                Send Destroy of hoComponentsJson
+//                Send Destroy of hoPathsJson
+//                Send Destroy of hoCurrentAuthJson
+//                Send Destroy of hoEndpointSecurityMember
+//                Send Destroy of hoSecurityAuthMember
+//                Send Destroy of hoAuthEmptyArrayJson
+//                //Maybe this should not be a blocking error
+//                Error DFERR_PROGRAM (SFormat("psSecuritySchemaName and pvSecurityInfo have to be set on object %1", sAuthModifierName))
+//            End
             
             //Start filling the JSON
             Send DataTypeToJson of hoCurrentAuthJson vSecurityInfo         
@@ -1369,27 +1376,27 @@ Class cOpenApiSpecification is a cObject
     { Visibility = Private }
     Procedure FieldTypeToOpenApiType Integer eDataflexFieldType String ByRef sFieldType String ByRef sFieldFormat Integer iPrecision
         
-        If (eDataflexFieldType = DF_ASCII or eDataflexFieldType = DF_TEXT) Begin
-            Move "string" to sFieldType
-        End
-        Else If (eDataflexFieldType = DF_DATE) Begin
-            Move "string" to sFieldType
-            Move "date" to sFieldFormat
-        End
-        Else If (eDataflexFieldType = DF_DATETIME) Begin
-            Move "string" to sFieldType
-            Move "date-time" to sFieldFormat
-        End
-        Else If (eDataflexFieldType = DF_BINARY) Begin
-            Move "string" to sFieldType
-            Move "binary" to sFieldFormat
-        End
-        Else If (eDataflexFieldType = DF_BCD and iPrecision = 0) Begin
-            Move "integer" to sFieldType
-        End
-        Else If (eDataflexFieldType = DF_BCD) Begin
-            Move "number" to sFieldType
-        End             
+//        If (eDataflexFieldType = DF_ASCII or eDataflexFieldType = DF_TEXT) Begin
+//            Move "string" to sFieldType
+//        End
+//        Else If (eDataflexFieldType = DF_DATE) Begin
+//            Move "string" to sFieldType
+//            Move "date" to sFieldFormat
+//        End
+//        Else If (eDataflexFieldType = DF_DATETIME) Begin
+//            Move "string" to sFieldType
+//            Move "date-time" to sFieldFormat
+//        End
+//        Else If (eDataflexFieldType = DF_BINARY) Begin
+//            Move "string" to sFieldType
+//            Move "binary" to sFieldFormat
+//        End
+//        Else If (eDataflexFieldType = DF_BCD and iPrecision = 0) Begin
+//            Move "integer" to sFieldType
+//        End
+//        Else If (eDataflexFieldType = DF_BCD) Begin
+//            Move "number" to sFieldType
+//        End             
     End_Procedure
     
     { Visibility = Private }

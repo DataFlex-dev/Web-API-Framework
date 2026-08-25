@@ -170,10 +170,7 @@ Class cRestDataset is a cBaseRestDataset
         Get Main_DD to hoDD
         
         // Check if there is no requestbody already passed.
-        If (SizeOfArray(webapicallcontext.requestBodyParts) > 0) Begin
-            Move webapicallcontext.requestBodyParts to requestBodyParts
-        End
-        Else Begin
+        If (SizeOfArray(webapicallcontext.requestBodyParts) = 0) Begin
             //Parse the request body into key value pairs
             Get ParseRequestBody of webapicallcontext.hoIterator to webapicallcontext.requestBodyParts
         End
@@ -262,13 +259,12 @@ Class cRestDataset is a cBaseRestDataset
         Move False to bModified
         
         // Check if there is no requestbody already passed.
-        If (SizeOfArray(webapicallcontext.requestBodyParts) > 0) Begin
-            Move webapicallcontext.requestBodyParts to requestBodyParts
-        End
-        Else Begin
+        If (SizeOfArray(webapicallcontext.requestBodyParts) = 0) Begin
             //Parse the request body into key value pairs
             Get ParseRequestBody of webapicallcontext.hoIterator to webapicallcontext.requestBodyParts
         End
+        
+        Move webapicallcontext.requestBodyParts to requestBodyParts
         
         Move (SizeOfArray(requestBodyParts)) to iAmountOfRequestFields
         
@@ -330,10 +326,13 @@ Class cRestDataset is a cBaseRestDataset
             Get Request_Validate of hoDD to bErr
             
             If not bErr Begin
-                Send Request_Save of hoDD
+                // Formulate response while the data dictionary still contains the edited record.
+                Send CreateResponseBodyObject of webapicallcontext.hoIterator webapicallcontext.sMainTableName (&webapicallcontext.hoResponseBody)
+                Send CurrentRecordToResponseBody webapicallcontext.hoResponseBody webapicallcontext.hoIterator
                 
+                Send Request_Save of hoDD
                 Move (Err) to bErr
-            End   
+            End
             
         End
         Else Begin
@@ -353,9 +352,6 @@ Class cRestDataset is a cBaseRestDataset
         Move C_WEBAPI_OK to webapicallcontext.iStatusCode
         Move "OK" to webapicallcontext.sShortStatusMessage
         
-        //Formulate the response
-        Send CreateResponseBodyObject of webapicallcontext.hoIterator webapicallcontext.sMainTableName (&webapicallcontext.hoResponseBody)
-        Send CurrentRecordToResponseBody webapicallcontext.hoResponseBody webapicallcontext.hoIterator
         
     End_Procedure
 
@@ -374,14 +370,12 @@ Class cRestDataset is a cBaseRestDataset
         Move False to bModified
         
         // Check if there is no requestbody already passed.
-        If (SizeOfArray(webapicallcontext.requestBodyParts) > 0) Begin
-            Move webapicallcontext.requestBodyParts to requestBodyParts
-        End
-        Else Begin
+        If (SizeOfArray(webapicallcontext.requestBodyParts) = 0) Begin
             //Parse the request body into key value pairs
             Get ParseRequestBody of webapicallcontext.hoIterator to webapicallcontext.requestBodyParts
         End
         
+        Move webapicallcontext.requestBodyParts to requestBodyParts
         Move (SizeOfArray(requestBodyParts)) to iAmountOfRequestFields
         
         //Only continue if we actually have a request body
@@ -445,10 +439,13 @@ Class cRestDataset is a cBaseRestDataset
             Get Request_Validate of hoDD to bErr
             
             If not bErr Begin
-                Send Request_Save of hoDD
+                // Formulate response while the data dictionary still contains the edited record.
+                Send CreateResponseBodyObject of webapicallcontext.hoIterator webapicallcontext.sMainTableName (&webapicallcontext.hoResponseBody)
+                Send CurrentRecordToResponseBody webapicallcontext.hoResponseBody webapicallcontext.hoIterator
                 
+                Send Request_Save of hoDD
                 Move (Err) to bErr
-            End   
+            End
             
         End
         Else Begin
@@ -468,9 +465,6 @@ Class cRestDataset is a cBaseRestDataset
         Move C_WEBAPI_OK to webapicallcontext.iStatusCode
         Move "OK" to webapicallcontext.sShortStatusMessage
         
-        //Formulate the response
-        Send CreateResponseBodyObject of webapicallcontext.hoIterator webapicallcontext.sMainTableName (&webapicallcontext.hoResponseBody)
-        Send CurrentRecordToResponseBody webapicallcontext.hoResponseBody webapicallcontext.hoIterator
         
     End_Procedure
     
@@ -506,7 +500,9 @@ Class cRestDataset is a cBaseRestDataset
         //Only delete the record if it is actually found
         If (Found and not(Err)) Begin
             //If the record is found check if we can delete it
-            Get Validate_Delete of hoDD to bErr
+            //Get Validate_Delete of hoDD to bErr
+            Move (not(Can_Delete(hoDD))) to bErr
+           
             
             //If all went well send a response back to the client
             If not bErr Begin
@@ -540,7 +536,7 @@ Class cRestDataset is a cBaseRestDataset
     // Helper function that returns all query parameters based on psRequestQueryString
     Function QueryParams Returns tWebQueryParams[]
         String[] aParams aParam
-        String sQueryString
+        String sQueryString sUnescaped
         WString wsUnescape
         Integer i iVoid
         tWebQueryParams[] requestParams
@@ -552,20 +548,13 @@ Class cRestDataset is a cBaseRestDataset
             Get StrSplitToArray aParams[i] "=" to aParam
             
             If (SizeOfArray(aParam) > 1) Begin
-                Move aParam[0] to wsUnescape
-                If (SizeOfWString(wsUnescape) > 0) Begin
-                    Move (UrlUnescapeW(AddressOf(wsUnescape), 0, 0, URL_UNESCAPE_INPLACE ior URL_UNESCAPE_AS_UTF8)) to iVoid
-                End
+                Move (UrlDecode(aParam[0])) to sUnescaped
                 
                 // Key will be lowercased for case insensitive finds
-                Move (Lowercase(CString(wsUnescape))) to requestParams[i].sKey
+                Move (Lowercase(sUnescaped)) to requestParams[i].sKey
 
-                Move aParam[1] to wsUnescape
-                If (SizeOfWString(wsUnescape) > 0) Begin
-                    Move (UrlUnescapeW(AddressOf(wsUnescape), 0, 0, URL_UNESCAPE_INPLACE ior URL_UNESCAPE_AS_UTF8)) to iVoid
-                End
-                Move (CString(wsUnescape)) to requestParams[i].sValue
-                
+                Move (UrlDecode(aParam[1])) to sUnescaped
+                Move (Replaces("%20", sUnescaped, " ")) to requestParams[i].sValue
             End
         Loop
         
@@ -604,11 +593,11 @@ Class cRestDataset is a cBaseRestDataset
         Move (SizeOfArray(hoExposedDataObjects)-1) to iAmountOfDataObjects
         
         // Remember the old SQL filter state
-        If (SupportsSQLFilters(hoDD)) Begin
-            Get pbUseDDSQLFilters of hoDD to webapicallcontext.bOldUseDDSQLFilters
-            Get psSQLFilter of hoDD to webapicallcontext.sOldSQLFilter
-            Set pbUseDDSQLFilters of hoDD to True
-        End
+//        If (SupportsSQLFilters(hoDD)) Begin
+//            Get pbUseDDSQLFilters of hoDD to webapicallcontext.bOldUseDDSQLFilters
+//            Get psSQLFilter of hoDD to webapicallcontext.sOldSQLFilter
+//            Set pbUseDDSQLFilters of hoDD to True
+//        End
         
         //Reset all the current constrains to make room for the new ones
         Send Rebuild_Constraints of hoDD
@@ -666,11 +655,11 @@ Class cRestDataset is a cBaseRestDataset
         //Only clear the Main_DD if there is one.
         If (hoDD <> 0) Begin
             Send Clear of hoDD
-            If (SupportsSQLFilters(hoDD)) Begin
-                // Return the old filter
-                Set psSQLFilter of hoDD to webapicallcontext.sOldSQLFilter
-                Set pbUseDDSQLFilters of hoDD to webapicallcontext.bOldUseDDSQLFilters
-            End
+//            If (SupportsSQLFilters(hoDD)) Begin
+//                // Return the old filter
+//                Set psSQLFilter of hoDD to webapicallcontext.sOldSQLFilter
+//                Set pbUseDDSQLFilters of hoDD to webapicallcontext.bOldUseDDSQLFilters
+//            End
         End
         
     End_Procedure
@@ -719,7 +708,7 @@ Class cRestDataset is a cBaseRestDataset
         If (hoDD <> 0 and not(bUsePathAsTableName)) Begin
             Get Main_File of hoDD to iMainFile
         
-            Get_Attribute DF_FILE_LOGICAL_NAME of iMainFile to sTableName 
+//            Get_Attribute DF_FILE_LOGICAL_NAME of iMainFile to sTableName 
         End
         Else Begin
             Get psPath to sTableName
@@ -733,7 +722,7 @@ Class cRestDataset is a cBaseRestDataset
     Function DataDictionaryErrorMessage Returns String
         String sDDErrorMessage
         
-        Get Error_Text LastErr to sDDErrorMessage
+//        Get Error_Text LastErr to sDDErrorMessage
         
         Function_Return sDDErrorMessage
     End_Function

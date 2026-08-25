@@ -1,10 +1,15 @@
 ﻿Use WebApi\cWebApiModifierHost_Mixin.pkg
 Use WebApi\cJSONIterator.pkg
-Use cWebHttpHandler.pkg
-Use WebApi\cXMLIterator.pkg
 Use WebApi\cWebApiRoutableHost_Mixin.pkg
 Use WebApi\cOpenApiEndpoint.pkg
 Use WebApi\cWebApiErrorHandler_Mixin.pkg
+
+#IFDEF IS$CROSS_PLATFORM
+Use WebAppServer\cWebHttpHandler.pkg
+#ELSE
+Use WebApi\cXMLIterator.pkg
+Use cWebHttpHandler.pkg
+#ENDIF
 
 {OverrideProperty=psVerbs Visibility=Private}
 Class cWebApi is a cWebHttpHandler

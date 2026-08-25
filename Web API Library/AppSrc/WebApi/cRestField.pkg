@@ -1,4 +1,12 @@
-﻿Use cBaseDEO.pkg
+﻿#IFDEF IS$CROSS_PLATFORM
+Use Db\cBaseDEO.pkg
+Use WebApi\CrossPlatform\cWebApiDDCompatibility_Mixin.pkg
+Use WebApi\CrossPlatform\cRestFieldCompatibility_Mixin.pkg
+#ELSE
+Use cBaseDEO.pkg
+Use WebApi\Windows\cWebApiDDCompatibility_Mixin.pkg
+Use WebApi\Windows\cRestFieldCompatibility_Mixin.pkg
+#ENDIF
 
 { DataBindable = True }
 Class cRestField is a cObject
@@ -19,13 +27,15 @@ Class cRestField is a cObject
         Property Boolean pbWriteOnly False
         //Determines if this field is required in the request body
         Property Boolean pbRequired False
+        //Determines if this field should use the DD_Required flag
+        Property Boolean pbUseDDRequired False
         //Determines if this field is shown during a GET all call.
         Property Boolean pbShowDuringGetAll True
         //Determines the field name in request en response bodies.
         Property String psFieldName ""
         
         //Needed for non data aware fields
-        Property Integer peFieldType DF_ASCII
+        Property Integer peFieldType 0 //DF_ASCII
         //Precision for numeric fields
         Property Integer piPrecision 0
         //Only used for fields with no data binding
@@ -34,6 +44,10 @@ Class cRestField is a cObject
     End_Procedure
     
     Import_Class_Protocol cBaseDEO_Mixin
+    
+    Import_Class_Protocol cWebApiDDCompatibility_Mixin
+    
+    Import_Class_Protocol cRestFieldCompatibility_Mixin
     
     //This procedure should be called from within cRestDataset to append data to the json
     //This way the cRestField is responsible for retrieving and setting the value and not the cRestDataset
@@ -69,20 +83,6 @@ Class cRestField is a cObject
         Send ModifyResponseBody of hoIterator hoResponseBody sFieldValue sFieldName eFieldType
     End_Procedure
     
-    //Modifies the global buffer of the field, only really used to perform finds on the data dictionary
-    Procedure SetFieldGlobalValue String sValue
-        Integer iField iFile
-        
-        Get Data_Field to iField
-        Get Data_File to iFile
-        
-        //Only modify the global buffer if the field has data binding. Non data aware fields do not have to be set.
-        If (iFile <> 0) Begin
-            Set_Field_Value iFile iField to sValue    
-        End
-
-        
-    End_Procedure
     
     //Modifies the local buffer of the field
     Procedure SetFieldLocalValue String sValue
@@ -103,76 +103,6 @@ Class cRestField is a cObject
         
     End_Procedure
     
-    Procedure AddConstrain String sConstrain String sFilterType
-        Integer iFile iField
-        Integer eFieldType
-        Handle hoMainDD hoServer
-        String sSqlFilter
-        
-        Get Main_DD to hoMainDD
-        Get Server to hoServer
-        Get Data_File to iFile
-        Get Data_Field to iField
-        
-        //Only constrain fields that have data binding
-        If (iFile = 0) Begin
-            Procedure_Return
-        End
-        
-        // Check if we can use sql filters. Only apply them to the main dd.
-        If (hoMainDD = hoServer and SupportsSQLFilters(hoMainDD)) Begin
-            Get psSQLFilter of hoMainDD to sSqlFilter
-            Get peFieldType to eFieldType
-            
-            If (eFieldType = DF_ASCII or eFieldType = DF_TEXT) Begin
-                Get SQLEscapedStr of hoMainDD sConstrain to sConstrain
-                Move ("'" + sConstrain + "'") to sConstrain    
-            End
-            
-            //Check what type of constrain we need to use
-            If (sFilterType = "GE") Begin
-                Get SQLStrAppend of hoMainDD sSqlFilter (SQLStrFileFieldName(hoMainDD, iField) + " >= " + sConstrain) to sSqlFilter
-            End
-            Else If (sFilterType = "GT") Begin
-                Get SQLStrAppend of hoMainDD sSqlFilter (SQLStrFileFieldName(hoMainDD, iField) + " > " + sConstrain) to sSqlFilter
-            End
-            Else If (sFilterType = "LE") Begin
-                Get SQLStrAppend of hoMainDD sSqlFilter (SQLStrFileFieldName(hoMainDD, iField) + " <= " + sConstrain) to sSqlFilter
-            End
-            Else If (sFilterType = "LT") Begin
-                Get SQLStrAppend of hoMainDD sSqlFilter (SQLStrFileFieldName(hoMainDD, iField) + " < " + sConstrain) to sSqlFilter
-            End
-            Else If (sFilterType = "NE") Begin
-                Get SQLStrAppend of hoMainDD sSqlFilter (SQLStrFileFieldName(hoMainDD, iField) + " != " + sConstrain) to sSqlFilter
-            End
-            Else Begin
-                Get SQLStrAppend of hoMainDD sSqlFilter (SQLStrFileFieldName(hoMainDD, iField) + " = " + sConstrain) to sSqlFilter    
-            End
-            
-            Set psSQLFilter of hoMainDD to sSqlFilter
-        End
-        Else Begin
-            // Apply constrain using vconstrain command
-            If (sFilterType = "GE") Begin
-                Vconstrain iFile iField GE sConstrain
-            End
-            Else If (sFilterType = "GT") Begin
-                Vconstrain iFile iField GT sConstrain
-            End
-            Else If (sFilterType = "LT") Begin
-                Vconstrain iFile iField LT sConstrain
-            End
-            Else If (sFilterType = "LE") Begin
-                Vconstrain iFile iField LE sConstrain
-            End
-            Else Begin
-                Vconstrain iFile iField EQ sConstrain
-            End    
-        End
-        
-        
-       
-    End_Procedure
     
     //This function determines if the current field is a key field. (Primary key)
     Function IsKeyField Returns Boolean
@@ -184,8 +114,8 @@ Class cRestField is a cObject
         Get Data_Field to iField
         
         //Only fields with data binding can be key fields
-        If (hoDD <> 0 and iField <> 0) Begin
-            Get Key_Field_State of hoDD iField to bIsKeyField
+        If (hoDD <> 0) Begin
+            Get CompatibilityIsKeyField hoDD iField to bIsKeyField
             Function_Return bIsKeyField
         End
         
@@ -199,7 +129,7 @@ Class cRestField is a cObject
         Integer iFile iField
         String sFieldValue
         
-        Get Main_DD to hoDD
+        Get Server to hoDD
         Get Data_File to iFile
         Get Data_Field to iField
         
@@ -247,7 +177,7 @@ Class cRestField is a cObject
         Get Data_Field to iField
         
         If (hoDD <> 0 and iFile <> 0) Begin
-            Get File_Field_Status_Help of hoDD iFile iField to sHelp    
+            Get File_Field_Status_Help of hoDD iFile iField to sHelp 
         End
         
         Get psExampleValue to sExampleValue
@@ -263,24 +193,18 @@ Class cRestField is a cObject
     Function FieldValidationTable Returns Variant[][2]
         Integer iFile iField
         Variant[][2] avValidationTable
-        Handle hoValidationTable hoDD
+        Handle hoDD
         
         Get Server to hoDD
         Get Data_File to iFile
         Get Data_Field to iField
         
         //Fields that have no data binding cannot have a validation table
-        If (iFile = 0 or iField = 0) Begin
+        If (hoDD = 0 or iFile = 0 or iField = 0) Begin
             Function_Return avValidationTable
         End
         
-        Get File_Field_Table_Object of hoDD iFile iField to hoValidationTable
-        //If the field has no validation table just return a empty avValidationTable
-        If (hoValidationTable = 0) Begin
-            Function_Return avValidationTable
-        End
-        
-        Get TableData of hoValidationTable to avValidationTable
+        Get CompatibilityFieldValidationTable hoDD iFile iField to avValidationTable
         
         Function_Return avValidationTable
     End_Function
@@ -303,7 +227,7 @@ Class cRestField is a cObject
         End
         
         If (iFile <> 0 and iField <> 0) Begin
-           Get_Attribute DF_FIELD_INDEX of iFile iField to iIndex
+//           Get_Attribute DF_FIELD_INDEX of iFile iField to iIndex
         
             //Move (iIndex <> 0) to bFilterable 
         End
@@ -314,20 +238,17 @@ Class cRestField is a cObject
     
     //Checks if the current field is required.
     Function IsRequired Returns Boolean
-        Boolean bRequired
-        Handle hoDD hoFileDD
-        Integer iFile iField iDDOptions
+        Boolean bRequired bUseDDRequired
+        Handle hoDD
+        Integer iFile iField
         
         Get Main_DD to hoDD
         Get Data_File to iFile
         Get Data_Field to iField
+        Get pbUseDDRequired to bUseDDRequired
         
-        If ((hoDD <> 0) and (iFile <> 0)) Begin
-            Get Data_Set of hoDD iFile to hoFileDD   // Get the file's DDO
-            
-            // Field Options
-            Get File_Field_Options of hoDD iFile iField to iDDOptions
-            Move (IsFlagIn(DD_Required, iDDOptions)) to bRequired
+        If (bUseDDRequired and hoDD <> 0 and iFile <> 0 and iField <> 0) Begin
+            Get CompatibilityIsRequired hoDD iFile iField to bRequired
         End
         
         //If the DD did not flag it as required give the developers one more chance to override it
@@ -356,19 +277,18 @@ Class cRestField is a cObject
             
         // If the field name isnt
         If (psFieldName(Self) = "") Begin
-            Get File_Field_Label of hoDD iFile iField DD_LABEL_TAG to sFieldName
+            Get CompatibilityFieldName hoDD iFile iField to sFieldName
             Set psFieldName to sFieldName    
         End
         
-        Get_Attribute DF_FIELD_TYPE of iFile iField to eFieldType
+        Get CompatibilityFieldType hoDD iFile iField to eFieldType
         Set peFieldType to eFieldType
         
         // If we're dealing with a numeric type check the precision to check if it should show as integer or number.
-        If (eFieldType = DF_BCD) Begin
-            Get_Attribute DF_FIELD_PRECISION of iFile iField to iPrecision
-            Set piPrecision to iPrecision      
+        Get CompatibilityFieldPrecision hoDD iFile iField eFieldType to iPrecision
+        If (iPrecision >= 0) Begin
+            Set piPrecision to iPrecision
         End
-        
-        
     End_Procedure
+    
 End_Class
