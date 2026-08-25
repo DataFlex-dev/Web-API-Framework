@@ -31,37 +31,37 @@ Class cWebApiDDCompatibility_Mixin is a Mixin
 
     Function CompatibilityIsKeyField Handle hoDD Integer iField Returns Boolean
         Boolean bIsKeyField
-        
+
         Get Key_Field_State of hoDD iField to bIsKeyField
-        
+
         Function_Return bIsKeyField
     End_Function
-    
+
     Function CompatibilityFieldName Handle hoDD Integer iFile Integer iField Returns String
         String sFieldName
-        
+
         Get File_Field_Label of hoDD iFile iField DD_LABEL_TAG to sFieldName
-        
+
         Function_Return sFieldName
     End_Function
-    
+
     Function CompatibilityFieldType Handle hoDD Integer iFile Integer iField Returns Integer
         Integer eFieldType
-        
+
         Get_Attribute DF_FIELD_TYPE of iFile iField to eFieldType
-        
+
         Function_Return eFieldType
     End_Function
-    
+
     Function CompatibilityFieldPrecision Handle hoDD Integer iFile Integer iField Integer eFieldType Returns Integer
         Integer iPrecision
-        
+
         Move -1 to iPrecision
-        
+
         If (eFieldType = DF_BCD) Begin
             Get_Attribute DF_FIELD_PRECISION of iFile iField to iPrecision
         End
-        
+
         Function_Return iPrecision
     End_Function
 

@@ -26,28 +26,28 @@ Class cWebApiDDCompatibility_Mixin is a Mixin
 
     Function CompatibilityIsKeyField Handle hoDD Integer iField Returns Boolean
         String sPrimaryKey
-        
+
         Get Entity_Field_Attribute of hoDD iField "PrimaryKey" to sPrimaryKey
-        
+
         Function_Return (sPrimaryKey = "|CZ1")
     End_Function
-    
+
     Function CompatibilityFieldName Handle hoDD Integer iFile Integer iField Returns String
         String sFieldName
-        
+
         Get Entity_Field_Attribute of hoDD iField "Name" to sFieldName
-        
+
         Function_Return sFieldName
     End_Function
-    
+
     Function CompatibilityFieldType Handle hoDD Integer iFile Integer iField Returns Integer
         Integer eFieldType
-        
+
         Get Entity_Field_Type of hoDD iField to eFieldType
-        
+
         Function_Return eFieldType
     End_Function
-    
+
     Function CompatibilityFieldPrecision Handle hoDD Integer iFile Integer iField Integer eFieldType Returns Integer
         Function_Return -1
     End_Function

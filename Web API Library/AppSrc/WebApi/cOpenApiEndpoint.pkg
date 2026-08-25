@@ -2,21 +2,21 @@
 Use WebApi\cOpenApiRestField.pkg
 
 Class cOpenApiEndpoint is a cBaseRestDataset
-    
+
     Procedure Construct_Object
         Forward Send Construct_Object
-        
+
         Set pbReadOnly to True
         Set pbInheritSecurity to False
         Set psPath to "OpenApi"
-        
+
         Object oOpenApiField is a cOpenApiRestField
         End_Object
 
     End_Procedure
-    
+
     Procedure OnHttpGet tWebApiCallContext  ByRef webapicallcontext
-        
+
         //Just parse to the response body. The OpenApiField will do the rest
         Send CreateResponseBodyObject of webapicallcontext.hoIterator "OpenApi" (&webapicallcontext.hoResponseBody)
         Send CurrentRecordToResponseBody webapicallcontext.hoResponseBody webapicallcontext.hoIterator

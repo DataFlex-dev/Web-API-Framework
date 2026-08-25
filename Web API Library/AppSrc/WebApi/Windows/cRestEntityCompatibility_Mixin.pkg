@@ -16,42 +16,41 @@
     Function RetrieveServerRelatedField Returns Integer
         Handle hoDD hoServer
         Integer iFile iField iRelField
-        
+
         Get Main_DD to hoDD
         Get Server to hoServer
         Get Data_File to iFile
         Get Data_Field to iField
-        
+
         If (hoDD = 0 or hoServer = 0) Begin
             Function_Return 0
         End
-        
+
         Get_Attribute DF_FIELD_RELATED_FIELD of iFile iField to iRelField
-        
+
         Function_Return iRelField
     End_Function
-
 
     //Sets the Data_File and Data_Field of this object to the field that has a relation with the server.
     Procedure PrepareBinding
         Handle hoDD hoServer
         Integer iMainFile iServerFile iField iFieldCount iRelatedFile
-        
+
         Get Main_DD to hoDD
         Get Server to hoServer
-        
+
         If (hoDD = 0 or hoServer = 0) Begin
             Procedure_Return
         End
-        
+
         Get Main_File of hoDD to iMainFile
         Get Main_File of hoServer to iServerFile
         If (iMainFile = 0 or iServerFile = 0) Begin
             Procedure_Return
         End
-        
+
         Get_Attribute DF_FILE_NUMBER_FIELDS of iMainFile to iFieldCount
-        
+
         For iField from 1 to iFieldCount
             Get_Attribute DF_FIELD_RELATED_FILE of iMainFile iField to iRelatedFile
             If (iRelatedFile = iServerFile) Begin

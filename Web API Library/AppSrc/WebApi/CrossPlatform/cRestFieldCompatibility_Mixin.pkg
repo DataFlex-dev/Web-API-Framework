@@ -36,13 +36,10 @@
         Send Add_Value_Constraint of hoServer iFile iField eMode sConstrain
     End_Procedure
 
-    
     //Modifies the global buffer of the field, only really used to perform finds on the data dictionary
     Procedure SetFieldGlobalValue String sValue
         // Global values are no longer a thing, forward it to the local value
         Send SetFieldLocalValue sValue
     End_Procedure
-
-    
 
 End_Class

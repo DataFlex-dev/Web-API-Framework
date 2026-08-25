@@ -69,20 +69,17 @@
         End
     End_Procedure
 
-    
     //Modifies the global buffer of the field, only really used to perform finds on the data dictionary
     Procedure SetFieldGlobalValue String sValue
         Integer iField iFile
-        
+
         Get Data_Field to iField
         Get Data_File to iFile
-        
+
         //Only modify the global buffer if the field has data binding. Non data aware fields do not have to be set.
         If (iFile <> 0) Begin
-            Set_Field_Value iFile iField to sValue    
+            Set_Field_Value iFile iField to sValue
         End
     End_Procedure
-
-    
 
 End_Class
