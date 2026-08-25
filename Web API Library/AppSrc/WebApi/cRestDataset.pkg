@@ -1,5 +1,10 @@
 ﻿Use WebApi\cBaseRestDataset.pkg
 Use WebApi\cWebApiErrorHandler_Mixin.pkg
+#IFDEF IS$CROSS_PLATFORM
+Use WebApi\CrossPlatform\cWebApiDDCompatibility_Mixin.pkg
+#ELSE
+Use WebApi\Windows\cWebApiDDCompatibility_Mixin.pkg
+#ENDIF
 
 Struct tWebQueryParams
     String sKey
@@ -25,6 +30,8 @@ Class cRestDataset is a cBaseRestDataset
         //Determines what index will be used to perform finds in the dataset
         Property Integer piFindIndex 1
     End_Procedure
+
+    Import_Class_Protocol cWebApiDDCompatibility_Mixin
 
     { Visibility = Private }
     Procedure InitializeEndpointData
@@ -589,12 +596,8 @@ Class cRestDataset is a cBaseRestDataset
 
         Move (SizeOfArray(hoExposedDataObjects)-1) to iAmountOfDataObjects
 
-        // Remember the old SQL filter state
-//        If (SupportsSQLFilters(hoDD)) Begin
-//            Get pbUseDDSQLFilters of hoDD to webapicallcontext.bOldUseDDSQLFilters
-//            Get psSQLFilter of hoDD to webapicallcontext.sOldSQLFilter
-//            Set pbUseDDSQLFilters of hoDD to True
-//        End
+        // Remember the old runtime-specific query filter state
+        Send CompatibilityBeginQueryFilters hoDD (&webapicallcontext.sOldSQLFilter) (&webapicallcontext.bOldUseDDSQLFilters)
 
         //Reset all the current constrains to make room for the new ones
         Send Rebuild_Constraints of hoDD
@@ -652,11 +655,7 @@ Class cRestDataset is a cBaseRestDataset
         //Only clear the Main_DD if there is one.
         If (hoDD <> 0) Begin
             Send Clear of hoDD
-//            If (SupportsSQLFilters(hoDD)) Begin
-//                // Return the old filter
-//                Set psSQLFilter of hoDD to webapicallcontext.sOldSQLFilter
-//                Set pbUseDDSQLFilters of hoDD to webapicallcontext.bOldUseDDSQLFilters
-//            End
+            Send CompatibilityEndQueryFilters hoDD webapicallcontext.sOldSQLFilter webapicallcontext.bOldUseDDSQLFilters
         End
 
     End_Procedure
@@ -690,24 +689,28 @@ Class cRestDataset is a cBaseRestDataset
     //Get the table name for the main data dictionary
     { Visibility = Private }
     Function GetDatasetTableName Returns String
-        Handle hoDD
+        Handle hoDD hoServer
         Integer iMainFile
         String sTableName
         Boolean bUsePathAsTableName
 
         Get Main_DD to hoDD
+        Get Server to hoServer
         Get pbUsePathAsTableName to bUsePathAsTableName
 
-        // Implement a override to still use psPath
-
-        //If the endpoint is data aware and uses a data dictionary we use the name of the main dd to identify the table.
-        //Otherwise we just default to psPath
+        // Use the configured path for non-data-aware endpoints or when explicitly requested.
         If (hoDD <> 0 and not(bUsePathAsTableName)) Begin
-            Get Main_File of hoDD to iMainFile
+            If (hoServer = 0) Begin
+                Move hoDD to hoServer
+            End
 
-//            Get_Attribute DF_FILE_LOGICAL_NAME of iMainFile to sTableName
+            Get Main_File of hoServer to iMainFile
+            If (iMainFile <> 0) Begin
+                Get CompatibilityTableName hoServer iMainFile to sTableName
+            End
         End
-        Else Begin
+
+        If (sTableName = "") Begin
             Get psPath to sTableName
         End
 

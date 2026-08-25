@@ -1,0 +1,55 @@
+﻿Use System\Reflection.pkg
+Use System\Types.pkg
+
+Class cOpenApiCompatibility_Mixin is a Mixin
+
+    Procedure CompatibilityFieldTypeToOpenApiType Integer eDataflexFieldType String ByRef sFieldType String ByRef sFieldFormat Integer iPrecision
+
+        Move "" to sFieldType
+        Move "" to sFieldFormat
+
+        If (eDataflexFieldType = C_TypeString or eDataflexFieldType = C_TypeWstring) Begin
+            Move "string" to sFieldType
+        End
+        Else If (eDataflexFieldType = C_TypeDate) Begin
+            Move "string" to sFieldType
+            Move "date" to sFieldFormat
+        End
+        Else If (eDataflexFieldType = C_TypeDateTime) Begin
+            Move "string" to sFieldType
+            Move "date-time" to sFieldFormat
+        End
+        Else If (eDataflexFieldType = C_TypeTime or eDataflexFieldType = C_TypeTimeSpan) Begin
+            Move "string" to sFieldType
+        End
+        Else If (eDataflexFieldType = C_TypeBoolean or eDataflexFieldType = C_TypeBit) Begin
+            Move "boolean" to sFieldType
+        End
+        Else If (eDataflexFieldType = C_TypeNumber or eDataflexFieldType = C_TypeReal or ;
+                 eDataflexFieldType = C_TypeFloat or eDataflexFieldType = C_TypeCurrency or ;
+                 eDataflexFieldType = C_TypeDecimal) Begin
+            Move "number" to sFieldType
+        End
+        Else If (eDataflexFieldType = C_TypeLongPtr or eDataflexFieldType = C_TypeBigint or ;
+                 eDataflexFieldType = C_TypeShort or eDataflexFieldType = C_TypeUShort or ;
+                 eDataflexFieldType = C_TypeULong or eDataflexFieldType = C_TypeBiguint or ;
+                 eDataflexFieldType = C_TypeInteger) Begin
+            Move "integer" to sFieldType
+        End
+        Else If (eDataflexFieldType = C_TypeByte or eDataflexFieldType = C_TypeUByte or ;
+                 eDataflexFieldType = C_TypePointer or eDataflexFieldType = C_TypeRowID) Begin
+            Move "string" to sFieldType
+        End
+        Else If (eDataflexFieldType = C_TypeNone) Begin
+            Move "null" to sFieldType
+        End
+        Else Begin
+            Error DFERR_PROGRAM (SFormat("Unsupported CrossPlatform field type %1", eDataflexFieldType))
+        End
+    End_Procedure
+
+    Function CompatibilitySecurityInfoIsStruct Variant vSecurityInfo Returns Boolean
+        Function_Return (TypeOf(vSecurityInfo) = C_TypeStruct)
+    End_Function
+
+End_Class

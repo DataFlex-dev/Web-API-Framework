@@ -1,0 +1,41 @@
+﻿Class cOpenApiCompatibility_Mixin is a Mixin
+
+    Procedure CompatibilityFieldTypeToOpenApiType Integer eDataflexFieldType String ByRef sFieldType String ByRef sFieldFormat Integer iPrecision
+
+        Move "" to sFieldType
+        Move "" to sFieldFormat
+
+        If (eDataflexFieldType = DF_ASCII or eDataflexFieldType = DF_TEXT) Begin
+            Move "string" to sFieldType
+        End
+        Else If (eDataflexFieldType = DF_DATE) Begin
+            Move "string" to sFieldType
+            Move "date" to sFieldFormat
+        End
+        Else If (eDataflexFieldType = DF_DATETIME) Begin
+            Move "string" to sFieldType
+            Move "date-time" to sFieldFormat
+        End
+        Else If (eDataflexFieldType = DF_BINARY) Begin
+            Move "string" to sFieldType
+            Move "binary" to sFieldFormat
+        End
+        Else If (eDataflexFieldType = DF_BCD and iPrecision = 0) Begin
+            Move "integer" to sFieldType
+        End
+        Else If (eDataflexFieldType = DF_BCD) Begin
+            Move "number" to sFieldType
+        End
+        Else Begin
+            Error DFERR_PROGRAM (SFormat("Unsupported DataFlex field type %1", eDataflexFieldType))
+        End
+    End_Procedure
+
+    Function CompatibilitySecurityInfoIsStruct Variant vSecurityInfo Returns Boolean
+        Integer iVariantType
+
+        Get VariantType vSecurityInfo to iVariantType
+        Function_Return (iVariantType = OLE_VT_RECORD)
+    End_Function
+
+End_Class

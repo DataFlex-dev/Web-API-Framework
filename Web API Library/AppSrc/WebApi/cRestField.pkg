@@ -207,8 +207,8 @@ Class cRestField is a cObject
 
     //Checks if the field is fiterable
     Function IsFilterable Returns Boolean
-        Boolean bFilterable
-        Integer iFile iField iIndex
+        Boolean bFilterable bIsIndexed
+        Integer iFile iField
         Handle hoDD
 
         Get Main_DD to hoDD
@@ -222,10 +222,9 @@ Class cRestField is a cObject
             Function_Return False
         End
 
-        If (iFile <> 0 and iField <> 0) Begin
-//           Get_Attribute DF_FIELD_INDEX of iFile iField to iIndex
-
-            //Move (iIndex <> 0) to bFilterable
+        If (hoDD <> 0 and iFile <> 0 and iField <> 0) Begin
+            Get CompatibilityIsFieldIndexed hoDD iFile iField to bIsIndexed
+            Move (bFilterable and bIsIndexed) to bFilterable
         End
 
         //Returns false if the index is 0 and true if the index is not 0

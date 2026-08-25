@@ -9,6 +9,20 @@ Class cWebApiDDCompatibility_Mixin is a Mixin
 
         Function_Return sTableName
     End_Function
+    Function CompatibilityIsFieldIndexed Handle hoDD Integer iFile Integer iField Returns Boolean
+        Boolean bIsIndexed
+
+        Get IsFieldIndexed of hoDD iField to bIsIndexed
+
+        Function_Return bIsIndexed
+    End_Function
+
+    Procedure CompatibilityBeginQueryFilters Handle hoDD String ByRef sOldSQLFilter Boolean ByRef bOldUseDDSQLFilters
+    End_Procedure
+
+    Procedure CompatibilityEndQueryFilters Handle hoDD String sOldSQLFilter Boolean bOldUseDDSQLFilters
+    End_Procedure
+
     Function CompatibilityIsRequired Handle hoDD Integer iFile Integer iField Returns Boolean
         Boolean bRequired
 

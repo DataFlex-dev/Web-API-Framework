@@ -5,9 +5,10 @@ Use WebApi\cWebApi.pkg
 Use WebApi\cRestDataset.pkg
 
 #IFDEF IS$CROSS_PLATFORM
-//Use AppSrc_Server\WebUI\cWebServiceDispatcher.pkg
+Use WebApi\CrossPlatform\cOpenApiCompatibility_Mixin.pkg
 Use WebAppServer\cWebHttpHandler.pkg
 #ELSE
+Use WebApi\Windows\cOpenApiCompatibility_Mixin.pkg
 Use cWebHttpHandler.pkg
 #ENDIF
 
@@ -28,6 +29,8 @@ Class cOpenApiSpecification is a cObject
         Property String psCachedOpenApiSpec ""
     End_Procedure
 
+    Import_Class_Protocol cOpenApiCompatibility_Mixin
+
     { Visibility = Private }
     Function GetApiRoot Handle hoHttpApi Returns String
         String sApiRoot sServerName sSecureString sForwardedProto
@@ -38,16 +41,16 @@ Class cOpenApiSpecification is a cObject
 
         //If there is no psApiRoot we retrieve it from IIS
         If (sApiRoot = "") Begin
-//            Get ServerVariable of ghoWebServiceDispatcher "SERVER_NAME" to sServerName
-//            Get ServerVariable of ghoWebServiceDispatcher "URL" to sApiRoot
-//            Get ServerVariable of ghoWebServiceDispatcher "HTTP_X_FORWARDED_PROTO" to sForwardedProto
+            Get ServerVariable of hoHttpApi "SERVER_NAME" to sServerName
+            Get ServerVariable of hoHttpApi "URL" to sApiRoot
+            Get ServerVariable of hoHttpApi "HTTP_X_FORWARDED_PROTO" to sForwardedProto
 
             // Check for reverse proxy
             If (sForwardedProto <> "") Begin
                 Move (sForwardedProto + "://") to sSecureString
             End
             Else Begin
-//                Get ServerVariable of ghoWebServiceDispatcher "SERVER_PORT" to iServerPort
+                Get ServerVariable of hoHttpApi "SERVER_PORT" to iServerPort
                 // 443 is the default secure port
                 Move (iServerPort = 443) to bSecure
                 //Add http or https based on the SERVER_PORT setting
@@ -770,10 +773,10 @@ Class cOpenApiSpecification is a cObject
     Procedure GenerateSecurityInfo Handle hoOpenApiSpec
         Handle hoHttpApi hoComponentsJson hoSecuritySchemesJson hoCurrentAuthJson hoCurrentEndpointJson hoCurrentVerbJson hoPathsJson hoEndpointSecurityMember hoSecurityAuthMember hoAuthEmptyArrayJson
         Handle[] hoRouters hoDatasets hoAuthModifiers hoCurrentObjectAuthModifiers
-        Integer iSizeOfRouterArray iSizeOfDatasetArray iAmountOfAuthModifiers iRouterIndex iDatasetIndex iAuthModifierIndex iAmountOfSecuredEndpoints iEndpointIndex iVariantType
+        Integer iSizeOfRouterArray iSizeOfDatasetArray iAmountOfAuthModifiers iRouterIndex iDatasetIndex iAuthModifierIndex iAmountOfSecuredEndpoints iEndpointIndex
         String sSecuredEndpointName sSecuritySchemaName sSecurityType sSecurityScheme sAuthModifierName sEndpointPath
         tSecuredDataset[] currentSecuredDatasets
-        Boolean bHasComponentsJson bVerbExists bEndpointExists bIsNotCustom
+        Boolean bHasComponentsJson bVerbExists bEndpointExists bIsNotCustom bValidSecurityInfo
         Variant vSecurityInfo
 
         Get GetWebApiObject to hoHttpApi
@@ -807,22 +810,22 @@ Class cOpenApiSpecification is a cObject
             Get psSecuritySchemaName of hoAuthModifiers[iAuthModifierIndex] to sSecuritySchemaName
             Get pvSecurityInfo of hoAuthModifiers[iAuthModifierIndex] to vSecurityInfo
 
-            //Check if the variant is actually a struct
-//            Get VariantType vSecurityInfo to iVariantType
+            //Check if the security information is actually a struct
+            Get CompatibilitySecurityInfoIsStruct vSecurityInfo to bValidSecurityInfo
 
-//            If (sSecuritySchemaName = "" or not(iVariantType = OLE_VT_Record)) Begin
-//                Get Name of hoAuthModifiers[iAuthModifierIndex] to sAuthModifierName
-//                //Make sure we do not leak any memory
-//                Send Destroy of hoSecuritySchemesJson
-//                Send Destroy of hoComponentsJson
-//                Send Destroy of hoPathsJson
-//                Send Destroy of hoCurrentAuthJson
-//                Send Destroy of hoEndpointSecurityMember
-//                Send Destroy of hoSecurityAuthMember
-//                Send Destroy of hoAuthEmptyArrayJson
-//                //Maybe this should not be a blocking error
-//                Error DFERR_PROGRAM (SFormat("psSecuritySchemaName and pvSecurityInfo have to be set on object %1", sAuthModifierName))
-//            End
+            If (sSecuritySchemaName = "" or not(bValidSecurityInfo)) Begin
+                Get Name of hoAuthModifiers[iAuthModifierIndex] to sAuthModifierName
+                //Make sure we do not leak any memory
+                Send Destroy of hoSecuritySchemesJson
+                Send Destroy of hoComponentsJson
+                Send Destroy of hoPathsJson
+                Send Destroy of hoCurrentAuthJson
+                Send Destroy of hoEndpointSecurityMember
+                Send Destroy of hoSecurityAuthMember
+                Send Destroy of hoAuthEmptyArrayJson
+                //Maybe this should not be a blocking error
+                Error DFERR_PROGRAM (SFormat("psSecuritySchemaName and pvSecurityInfo have to be set on object %1", sAuthModifierName))
+            End
 
             //Start filling the JSON
             Send DataTypeToJson of hoCurrentAuthJson vSecurityInfo
@@ -1062,7 +1065,7 @@ Class cOpenApiSpecification is a cObject
                 Move "" to sFieldFormat
 
                 //Determine the field type and formatting
-                Send FieldTypeToOpenApiType eFieldType (&sFieldType) (&sFieldFormat) iPrecision
+                Send CompatibilityFieldTypeToOpenApiType eFieldType (&sFieldType) (&sFieldFormat) iPrecision
 
                 Send SetMemberValue of hoSchemaJson "type" jsonTypeString sFieldType
 
@@ -1152,7 +1155,7 @@ Class cOpenApiSpecification is a cObject
         Send SetMemberValue of hoParameterJson "name" jsonTypeString "Id"
         Send SetMemberValue of hoParameterJson "required" jsonTypeBoolean True
 
-        Send FieldTypeToOpenApiType eFieldType (&sFieldType) (&sFieldFormat) iPrecision
+        Send CompatibilityFieldTypeToOpenApiType eFieldType (&sFieldType) (&sFieldFormat) iPrecision
 
         Send SetMemberValue of hoSchemaJson "type" jsonTypeString sFieldType
 
@@ -1247,7 +1250,7 @@ Class cOpenApiSpecification is a cObject
         Send InitializeJsonType of hoNestedPropertiesObject jsonTypeObject
 
         //Determine the type for the OpenApi spec
-        Send FieldTypeToOpenApiType eFieldType (&sFieldType) (&sFieldFormat) iPrecision
+        Send CompatibilityFieldTypeToOpenApiType eFieldType (&sFieldType) (&sFieldFormat) iPrecision
 
         Send SetMemberValue of hoNestedPropertiesObject "type" jsonTypeString sFieldType
 
@@ -1371,32 +1374,6 @@ Class cOpenApiSpecification is a cObject
         End
     End_Procedure
 
-    //Helper function to map df field types to the ones used in the OpenApi specification
-    { Visibility = Private }
-    Procedure FieldTypeToOpenApiType Integer eDataflexFieldType String ByRef sFieldType String ByRef sFieldFormat Integer iPrecision
-
-//        If (eDataflexFieldType = DF_ASCII or eDataflexFieldType = DF_TEXT) Begin
-//            Move "string" to sFieldType
-//        End
-//        Else If (eDataflexFieldType = DF_DATE) Begin
-//            Move "string" to sFieldType
-//            Move "date" to sFieldFormat
-//        End
-//        Else If (eDataflexFieldType = DF_DATETIME) Begin
-//            Move "string" to sFieldType
-//            Move "date-time" to sFieldFormat
-//        End
-//        Else If (eDataflexFieldType = DF_BINARY) Begin
-//            Move "string" to sFieldType
-//            Move "binary" to sFieldFormat
-//        End
-//        Else If (eDataflexFieldType = DF_BCD and iPrecision = 0) Begin
-//            Move "integer" to sFieldType
-//        End
-//        Else If (eDataflexFieldType = DF_BCD) Begin
-//            Move "number" to sFieldType
-//        End
-    End_Procedure
 
     { Visibility = Private }
     Function EndpointToPath Handle hoEndpoint Boolean bIdRequired Returns String
