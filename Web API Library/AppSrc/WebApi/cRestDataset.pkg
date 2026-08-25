@@ -1,4 +1,5 @@
 ﻿Use WebApi\cBaseRestDataset.pkg
+Use WebApi\cWebApiErrorHandler_Mixin.pkg
 
 Struct tWebQueryParams
     String sKey
@@ -718,7 +719,7 @@ Class cRestDataset is a cBaseRestDataset
     Function DataDictionaryErrorMessage Returns String
         String sDDErrorMessage
 
-//        Get Error_Text LastErr to sDDErrorMessage
+        Get WebApiLastErrorMessage of Error_Object_Id to sDDErrorMessage
 
         Function_Return sDDErrorMessage
     End_Function

@@ -1,4 +1,11 @@
 ﻿
+#IFDEF IS$CROSS_PLATFORM
+Use WebApi\CrossPlatform\cWebApiErrorCompatibility_Mixin.pkg
+#ELSE
+Use WebApi\Windows\cWebApiErrorCompatibility_Mixin.pkg
+#ENDIF
+
+
 Class cWebApiErrorHandler_Mixin is a Mixin
 
     Procedure Define_cWebApiErrorHandler_Mixin
@@ -10,7 +17,10 @@ Class cWebApiErrorHandler_Mixin is a Mixin
         Property String[] pasErrorCallstack
         //When running in debug mode more details are returned in the response body
         Property Boolean pbDebugMode False
+        {Visibility = Private}
+        Property String psLastErrorMessage ""
     End_Procedure
+    Import_Class_Protocol cWebApiErrorCompatibility_Mixin
 
     Procedure Error_Report Integer ErrNum Integer Err_Line String sErrMsg
         Boolean bDebugMode
@@ -20,12 +30,14 @@ Class cWebApiErrorHandler_Mixin is a Mixin
         Get pbDebugMode to bDebugMode
         //If a error is reported we should remember that it happened.
         Set pbUnexpectedError to True
+        Set psLastErrorMessage to sErrMsg
         Send Error_Report of ghoErrorHandler ErrNum Err_Line sErrMsg
 
         // If we are running in the debugger forward it.
         If (IsDebuggerPresent() or bDebugMode) Begin
             Get pasErrorCallstack to asCallstack
 
+            CallStackDump sCallstack
             Move sCallstack to asCallstack[-1]
 
             Set pasErrorCallstack to asCallstack
@@ -40,6 +52,10 @@ Class cWebApiErrorHandler_Mixin is a Mixin
 
     //Should start trapping errors and mark itself as the error object
     Procedure StartErrorTracking
+        String[] asEmptyArray
+
+        Set pasErrorCallstack to asEmptyArray
+        Set psLastErrorMessage to ""
         Move Self to Error_Object_Id
     End_Procedure
 
@@ -50,8 +66,14 @@ Class cWebApiErrorHandler_Mixin is a Mixin
         //Reset variables
         Move ghoErrorHandler to Error_Object_Id
         Set pasErrorCallstack to asEmptyArray
+        Set psLastErrorMessage to ""
         Set pbUnexpectedError to False
     End_Procedure
+
+    { Visibility = Private }
+    Function WebApiLastErrorMessage Returns String
+        Function_Return (psLastErrorMessage(Self))
+    End_Function
 
     //Should return the error message when running in debug mode
     Function HttpErrorMessage Returns String
@@ -60,7 +82,7 @@ Class cWebApiErrorHandler_Mixin is a Mixin
 
         Get pbDebugMode to bDebugMode
         //Should return a vague error message when not running in debug mode. More details when running in debug mode
-        If (bDebugMode) Begin
+        If (bDebugMode or IsDebuggerPresent()) Begin
             Get DetailedErrorMessage to sErrorMessage
         End
         Else Begin
@@ -91,25 +113,8 @@ Class cWebApiErrorHandler_Mixin is a Mixin
     { Visibility = Private }
     Function ErrorDescription Integer iError String sMessage Returns String
         String sDescription
-        Boolean bAvailable
 
-        //  Fetch system error text
-//        Get Error_Text of Desktop iError to sDescription
-//        Get Error_Text_Available of Desktop iError to bAvailable
-
-        //  Trim both messages
-        Move (Trim(sDescription)) to sDescription
-        Move (Trim(sMessage)) to sMessage
-
-        //  Append message if needed
-        If (sMessage <> "") Begin
-            If (sDescription <> "" and bAvailable) Begin
-                Move (sDescription + " " + sMessage) to sDescription
-            End
-            Else Begin
-                Move sMessage to sDescription
-            End
-        End
+        Get CompatibilityErrorDescription iError sMessage to sDescription
 
         Function_Return sDescription
     End_Function

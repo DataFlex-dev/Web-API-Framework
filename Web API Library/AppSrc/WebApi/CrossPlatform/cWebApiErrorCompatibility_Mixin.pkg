@@ -1,0 +1,9 @@
+Class cWebApiErrorCompatibility_Mixin is a Mixin
+
+    // CrossPlatform runtime passes the useful error text to Error_Report. It
+    // does not expose the classic Desktop Error_Text messages.
+    Function CompatibilityErrorDescription Integer iError String sMessage Returns String
+        Function_Return (Trim(sMessage))
+    End_Function
+
+End_Class
