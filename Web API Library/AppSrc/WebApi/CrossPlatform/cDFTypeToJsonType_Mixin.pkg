@@ -1,0 +1,38 @@
+﻿Class cDFTypeToJsonType_Mixin is a Mixin
+
+    Function DFTypeToJsonType Integer eDataType Returns Integer
+        Integer eJsonType
+
+        Move jsonTypeNull to eJsonType
+
+        Case Begin
+            Case (eDataType = C_TypeString or eDataType = C_TypeWstring or ;
+                 eDataType = C_TypeDate or eDataType = C_TypeTime or ;
+                 eDataType = C_TypeDateTime or eDataType = C_TypeTimeSpan or ;
+                 eDataType = C_TypeByte or eDataType = C_TypeUByte or ;
+                 eDataType = C_TypePointer or eDataType = C_TypeRowID)
+                Move jsonTypeString to eJsonType
+                Case Break
+            Case (eDataType = C_TypeBoolean or eDataType = C_TypeBit)
+                Move jsonTypeBoolean to eJsonType
+                Case Break
+            Case (eDataType = C_TypeNumber or eDataType = C_TypeReal or ;
+                 eDataType = C_TypeFloat or eDataType = C_TypeCurrency or ;
+                 eDataType = C_TypeDecimal)
+                Move jsonTypeDouble to eJsonType
+                Case Break
+            Case (eDataType = C_TypeLongPtr or eDataType = C_TypeBigint or ;
+                 eDataType = C_TypeShort or eDataType = C_TypeUShort or ;
+                 eDataType = C_TypeULong or eDataType = C_TypeBiguint or ;
+                 eDataType = C_TypeInteger)
+                Move jsonTypeInteger to eJsonType
+                Case Break
+            Case (eDataType = C_TypeNone)
+                Move jsonTypeNull to eJsonType
+                Case Break
+        Case End
+
+        Function_Return eJsonType
+    End_Function
+
+End_Class

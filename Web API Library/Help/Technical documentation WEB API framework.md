@@ -5,6 +5,7 @@
 - [1 Introduction](#1-introduction)
   - [1.1 Prerequisites and setup](#11-prerequisites-and-setup)
   - [1.2 Supported DataFlex versions and compatibility](#12-supported-dataflex-versions-and-compatibility)
+  - [1.3 Runtime-specific behavior and current limitations](#13-runtime-specific-behavior-and-current-limitations)
 - [2 Example usage](#2-example-usage)
   - [2.1 Building a very basic REST service](#21-building-a-very-basic-rest-service)
   - [2.2 Adding information from a parent table to a endpoint](#22-adding-information-from-a-parent-table-to-a-endpoint)
@@ -40,8 +41,9 @@
   - [4.18 cWebApiModifierHost_Mixin](#418-cwebapimodifierhost_mixin)
   - [4.19 cWebApiRoutableHost_Mixin](#419-cwebapiroutablehost_mixin)
   - [4.20 cWebApiErrorHandler_Mixin](#420-cwebapierrorhandler_mixin)
-  - [4.21 cOpenApiSpecification](#421-copenapispecification)
-  - [4.22 cSwaggerUI](#422-cswaggerui)
+  - [4.21 Runtime compatibility mixins](#421-runtime-compatibility-mixins)
+  - [4.22 cOpenApiSpecification](#422-copenapispecification)
+  - [4.23 cSwaggerUI](#423-cswaggerui)
 - [5 HTTP operations and endpoint behavior](#5-http-operations-and-endpoint-behavior)
   - [5.1 cRestDataset operations](#51-crestdataset-operations)
   - [5.2 Fields and related records](#52-fields-and-related-records)
@@ -80,9 +82,9 @@ This document contains all the information regarding the implementation of the t
 
 Before building an API, make sure the following prerequisites are available:
 
-- A DataFlex workspace with Web UI classes and `cWebHttpHandler` available. DataFlex 25.0 or newer is required for DDO drag-and-drop.
+- A DataFlex workspace that targets either the traditional Windows runtime or the cross-platform runtime and provides the matching Web UI HTTP-handler classes.
 - The Web API Framework library attached through the package or workspace file that matches the DataFlex version.
-- A web application or Web HTTP handler where the root `cWebApi` object can be hosted.
+- A web application or Web HTTP handler where the root `cWebApi` object can be hosted. The framework selects the runtime-specific `cWebHttpHandler` package automatically.
 - Data dictionary classes for the tables exposed by `cRestDataset` endpoints.
 
 Optional dependencies are only needed for specific features:
@@ -95,20 +97,43 @@ Basic setup:
 
 1. Attach the Web API Framework `.sws` file that matches your workspace's DataFlex version.
 2. Create a root object that is a `cWebApi`.
-3. Register the JSON and/or XML iterators required by the application.
+3. Register `cJSONIterator`. On the traditional Windows runtime, `cXMLIterator` can also be registered.
 4. Add endpoint packages below the `cWebApi` object or one of its routers.
 5. Follow [Building a very basic REST service](#21-building-a-very-basic-rest-service) for a complete first endpoint.
 
 ### 1.2 Supported DataFlex versions and compatibility
 
-The repository currently provides package/workspace files for DataFlex 25.0 and 26.0:
+The repository provides package/workspace files for DataFlex 25.0 and 26.0. Runtime selection is separate from package format: the source uses `IS$CROSS_PLATFORM` at compile time to select the correct HTTP, JSON, data-dictionary, type-mapping, and error-handling implementation.
 
-| DataFlex version | File to use | Compatibility notes |
+| DataFlex version | File to use | Package notes |
 | --- | --- | --- |
-| 25.0 | `WebAPIFramework-25.0.sws` | Uses the legacy workspace format and `Config.ws`. Copy Swagger UI assets manually when using `cSwaggerUI`. |
-| 26.0 | `WebAPIFramework.sws` | Uses the JSON package format, declares the Web UI dependency, and installs the Swagger UI assets. The sample workspace targets `df:26.0`. |
+| 25.0 | `WebAPIFramework-25.0.sws` | Legacy workspace format using `Config.ws`. Copy Swagger UI assets manually when using `cSwaggerUI`. |
+| 26.0 | `WebAPIFramework.sws` | JSON package format targeting `df:26.0`; declares the Web UI dependency and installs Swagger UI assets. |
 
-Use the file that matches the DataFlex Studio version. The two package formats are not interchangeable. Most DataFlex versions that provide `cWebHttpHandler` should be able to run the framework, but only DataFlex 25.0 and newer support DDO drag-and-drop capabilities. Earlier versions are not individually validated. The code examples mention DataFlex 25.0 because that version introduced the DDO-explorer workflow used in the walkthrough; the same endpoint structure can also be created manually in DataFlex 26.0.
+Use the file that matches the DataFlex Studio version. The package formats are not interchangeable. The public framework classes and application-level endpoint code are shared between runtimes; application code should not import packages from `WebApi\Windows` or `WebApi\CrossPlatform` directly.
+
+Only DataFlex 25.0 and 26.0 are represented by workspace files in this repository. Earlier versions are not individually validated. DataFlex 25.0 or newer is required for the DDO drag-and-drop workflow used by the examples.
+
+### 1.3 Runtime-specific behavior and current limitations
+
+| Area | Traditional Windows runtime | Cross-platform runtime |
+| --- | --- | --- |
+| HTTP handler | Classic `cWebHttpHandler.pkg` | `WebAppServer\cWebHttpHandler.pkg` |
+| JSON | Supported through the classic JSON classes | Supported through `System\Json.pkg`; DataFlex types are mapped to the corresponding JSON value types |
+| XML | Supported through `cXMLIterator` | Not supported by the framework |
+| Data dictionaries | Classic file/DD APIs; filtering uses SQL filters when available and otherwise `VConstrain` | Entity/DD metadata APIs; filtering uses `Add_Value_Constraint` |
+| Unexpected error text | Combines the Desktop error description with the reported message when available | Uses the message supplied to `Error_Report`, because Desktop `Error_Text` messages are unavailable |
+
+The compatibility packages are internal mixins. `cRestDataset`, `cRestField`, `cRestEntity`, `cRestChildCollection`, `cJSONIterator`, `cOpenApiSpecification`, and `cWebApiErrorHandler_Mixin` select them automatically. Other runtime-neutral classes, including `cWebApi`, select the matching DataFlex framework package directly. See [Runtime compatibility mixins](#421-runtime-compatibility-mixins) for the mixin selection flow and per-mixin responsibilities.
+
+Current limitations and required configuration:
+
+- Register `cJSONIterator` for code that must compile and run on both runtimes. `cXMLIterator` is available only on the traditional Windows runtime.
+- The cross-platform DD API does not expose validation-table enumeration. Generated OpenAPI schemas therefore omit enums inferred from DD validation tables on that runtime.
+- Automatic numeric precision discovery is unavailable on the cross-platform runtime. Set `piPrecision` explicitly when application code relies on that metadata.
+- Related-parent reads and binding work on both runtimes. On the cross-platform runtime, `cRestEntity.SetFieldLocalValue` does not currently update and find the related parent record; do not rely on parent-entity writes there.
+
+Except for these differences, routing, modifiers, authentication hooks, JSON dataset CRUD, child and parent reads, filtering, pagination, error responses, and Swagger UI integration use the same framework API on both runtimes.
 
 ## 2 Example usage
 
@@ -152,16 +177,15 @@ If you now navigate to the WebOrder url and append /Api to the url you'll send a
 
 You'll see that if you send a request to this REST service now you receive no response. This is because there is no content inside of our REST service.
 
-Before we add any content we need to tell the cWebApi object what datatypes we want to support for our REST service. For example do we want JSON, XML or maybe we want both? To do this we use the AddIterator command inside of the cWebApi object. This procedure takes two parameters. The first being a reference to the class that it needs to use to build up the response in that specific data type. The second parameter is what accept-type/content-type it will be used for. Keep in mind that the first iterator you register to the cWebApi object will be the default. So if someone sends a request with a not supported accept-type or content-type it will default to the first iterator. This will look something like the following:
+Before adding endpoints, register the formats that the API supports. `AddIterator` takes a class reference and its `Accept`/`Content-Type` media type. The first registered iterator is the fallback for unsupported media types. JSON is the portable choice and works on both runtimes:
 
 ```dataflex
 Object oMyRestAPI is a cWebApi
     Send AddIterator (RefClass(cJSONIterator)) "application/json"
-    Send AddIterator (RefClass(cXMLIterator)) "application/xml"
 End_Object
 ```
 
-This basically means that whenever we receive a request with accept-type or content-type "application/json" we'll use the cJSONiterator class to handle this request. And the same goes for the cXMLiterator whenever we receive a request with "application/xml". And as previously mentioned, in this case the default is the cJSONIterator.
+This means that requests with an `Accept` or `Content-Type` of `application/json` use `cJSONIterator`. The first registered iterator is the fallback for unsupported media types. Applications running only on the traditional Windows runtime can additionally register `cXMLIterator` for `application/xml`.
 
 Now that the REST service knows what datatypes are supported. We can start adding our data. To make our cWebApi less cluttered we will create our endpoint in a separate file.
 
@@ -182,7 +206,6 @@ Go back to the cWebApi object and add the use statement to the new file inside o
 ```dataflex
 Object oMyRestAPI is a cWebApi
     Send AddIterator (RefClass(cJSONIterator)) "application/json"
-    Send AddIterator (RefClass(cXMLIterator)) "application/xml"
 
     Use MyFirstEndpoint.pkg
 End_Object
@@ -447,7 +470,6 @@ You can define endpoints inside of a router just like how you can define them in
 ```dataflex
 Object oMyRestAPI is a cWebApi
     Send AddIterator (RefClass(cJSONIterator)) "application/json"
-    Send AddIterator (RefClass(cXMLIterator)) "application/xml"
 
     Object oMyRouter is a cWebApiRouter
         Set psPath to "v1"
@@ -464,7 +486,6 @@ Right now if I want to reach the endpoint we created in the very basic REST serv
 ```dataflex
 Object oMyRestAPI is a cWebApi
     Send AddIterator (RefClass(cJSONIterator)) "application/json"
-    Send AddIterator (RefClass(cXMLIterator)) "application/xml"
 
     Object oMyRouter is a cWebApiRouter
         Set psPath to "v1"
@@ -485,7 +506,6 @@ It is also possible to nest routers inside of eachother. This can be useful if y
 ```dataflex
 Object oMyRestAPI is a cWebApi
     Send AddIterator (RefClass(cJSONIterator)) "application/json"
-    Send AddIterator (RefClass(cXMLIterator)) "application/xml"
 
     Object oMyRouter is a cWebApiRouter
         Set psPath to "v1"
@@ -581,7 +601,6 @@ By default the cWebApiAuthModifier secures all endpoints defined on the same lev
 ```dataflex
 Object oMyRestAPI is a cWebApi
     Send AddIterator (RefClass(cJSONIterator)) "application/json"
-    Send AddIterator (RefClass(cXMLIterator)) "application/xml"
     Object oMyAuthModifier is a cWebApiAuthModifier
     End_Object
     Object oMyRouter is a cWebApiRouter
@@ -597,7 +616,6 @@ In this example the OnAuth event will be called when a request is sent to either
 ```dataflex
 Object oMyRestAPI is a cWebApi
     Send AddIterator (RefClass(cJSONIterator)) "application/json"
-    Send AddIterator (RefClass(cXMLIterator)) "application/xml"
 
     Object oMyRouter is a cWebApiRouter
         Set psPath to "v1"
@@ -617,7 +635,6 @@ The OnAuth event will only be called when a request is being sent to the endpoin
 ```dataflex
 Object oMyRestAPI is a cWebApi
     Send AddIterator (RefClass(cJSONIterator)) "application/json"
-    Send AddIterator (RefClass(cXMLIterator)) "application/xml"
 
     Object oMyAuthModifier is a cWebApiAuthModifier
     End_Object
@@ -660,7 +677,7 @@ The first step that should be taken is to set the property psSecuritySchemaName 
 
 So for example if you were to implement username and password authentication using BasicAuth you would set the psSecuritySchemaName to basicAuth.
 
-The second step is to augment the OnDefineAuthSchema event. This event has one parameter which is called vSecurityStruct. You should move a struct inside of this variant that matches the schema described in the swagger documentation. For basicAuth the schema looks like the following:
+The second step is to augment `OnDefineAuthRules`. This event receives `vSecurityStruct` by reference. Move a struct into this variant that matches the schema described in the Swagger documentation. For Basic authentication, the schema looks like the following:
 
 We already defined basicAuth as the psSecuritySchemaName. So all that is left is to create a struct that has the following two members:
 
@@ -687,7 +704,7 @@ Procedure OnDefineAuthRules Variant  ByRef vSecurityStruct
 End_Procedure
 ```
 
-The OpenApi specification should now properly reflect the authentication/authorization mechanism.
+The OpenAPI specification should now reflect the authentication/authorization mechanism. OpenAPI generation validates this configuration: `psSecuritySchemaName` must not be empty and `vSecurityStruct` must contain a struct. Invalid configuration raises a program error on both runtimes.
 
 ![BasicAuth OpenAPI security schema](assets/basic-auth-openapi-schema.png)
 
@@ -847,7 +864,7 @@ The lifecycle consists of these stages:
 2. cWebApi starts request processing, fires OnHttpPreRequest, and runs pre-request modifier hooks.
 3. [cWebApiRouter](#42-cwebapirouter) or another routable object resolves the request path and selects an endpoint.
 4. The endpoint processes the request:
-   - [cRestDataset](#44-crestdataset) uses [cJSONIterator](#415-cjsoniterator) or [cXMLIterator](#416-cxmliterator) to parse request bodies and build responses.
+   - [cRestDataset](#44-crestdataset) uses [cJSONIterator](#415-cjsoniterator) to parse request bodies and build responses. The traditional Windows runtime can also use [cXMLIterator](#416-cxmliterator).
    - [cWebApiCustomEndpoint](#45-cwebapicustomendpoint) handles its response logic directly and does not use iterators.
 5. Post-request modifier hooks run before cWebApi sends the response.
 6. Unexpected errors are reported through [cWebApiErrorHandler_Mixin](#420-cwebapierrorhandler_mixin), which formats the error response.
@@ -874,11 +891,12 @@ Use this guide as a starting point when deciding which framework class to use.
 | Include related parent-table data | [cRestEntity](#411-crestentity) | Exposes related parent records as nested data. |
 | Include related child-table data | [cRestChildCollection](#410-crestchildcollection) | Exposes related child records as a nested collection. |
 | Use JSON with a dataset endpoint | [cJSONIterator](#415-cjsoniterator) | Used with [cRestDataset](#44-crestdataset); custom endpoints do not use this iterator. |
-| Use XML with a dataset endpoint | [cXMLIterator](#416-cxmliterator) | Used with [cRestDataset](#44-crestdataset); custom endpoints do not use this iterator. |
+| Use XML with a dataset endpoint | [cXMLIterator](#416-cxmliterator) | Traditional Windows runtime only; custom endpoints do not use this iterator. |
 | Add reusable request or response behavior | [cWebApiModifier](#412-cwebapimodifier) | Use [cWebApiAuthModifier](#413-cwebapiauthmodifier) when the behavior is authentication or authorization. |
+| Understand runtime-specific implementation | [Runtime compatibility mixins](#421-runtime-compatibility-mixins) | Internal framework extension points selected automatically at compile time; application code should not use them directly. |
 | Expose the OpenAPI specification | [cOpenApiEndpoint](#47-copenapiendpoint) | Included in [cWebApi](#41-cwebapi) by default. |
-| Render interactive API documentation | [cSwaggerUI](#422-cswaggerui) | Displays the specification served by [cOpenApiEndpoint](#47-copenapiendpoint). |
-| Customize OpenAPI generation | [cOpenApiSpecification](#421-copenapispecification) | Intended for framework-level OpenAPI customization. |
+| Render interactive API documentation | [cSwaggerUI](#423-cswaggerui) | Displays the specification served by [cOpenApiEndpoint](#47-copenapiendpoint). |
+| Customize OpenAPI generation | [cOpenApiSpecification](#422-copenapispecification) | Intended for framework-level OpenAPI customization. |
 
 ### Component overview
 
@@ -908,7 +926,7 @@ The components below are grouped by the role they play in the framework. Start w
 
 - [cBaseWebApiIterator](#414-cbasewebapiiterator) — Base contract for serializing and parsing data.
 - [cJSONIterator](#415-cjsoniterator) — Handles JSON request and response bodies.
-- [cXMLIterator](#416-cxmliterator) — Handles XML request and response bodies.
+- [cXMLIterator](#416-cxmliterator) — Handles XML request and response bodies on the traditional Windows runtime.
 
 **Modifiers**
 
@@ -921,11 +939,12 @@ The components below are grouped by the role they play in the framework. Start w
 - [cWebApiModifierHost_Mixin](#418-cwebapimodifierhost_mixin) — Provides modifier-host behavior.
 - [cWebApiRoutableHost_Mixin](#419-cwebapiroutablehost_mixin) — Provides nested routable behavior.
 - [cWebApiErrorHandler_Mixin](#420-cwebapierrorhandler_mixin) — Handles unexpected API errors.
+- [Runtime compatibility mixins](#421-runtime-compatibility-mixins) — Adapt shared framework classes to traditional Windows and cross-platform runtime APIs.
 
 **OpenAPI and user interface**
 
-- [cOpenApiSpecification](#421-copenapispecification) — Builds the OpenAPI JSON document.
-- [cSwaggerUI](#422-cswaggerui) — Renders an interactive Swagger UI.
+- [cOpenApiSpecification](#422-copenapispecification) — Builds the OpenAPI JSON document.
+- [cSwaggerUI](#423-cswaggerui) — Renders an interactive Swagger UI.
 
 ### 4.1 cWebApi
 
@@ -969,7 +988,7 @@ For complete setup, see [Building a very basic REST service](#21-building-a-very
 | psApiTitle | String | Property used to generate a title in the OpenApi specification. |  |
 | psApiDescription | String | Property used to generate a description in the OpenApi specification. |  |
 | psApiVersion | String | Property used to determine the version of the api. Will be used when generating the OpenApi specification. |  |
-| psApiRoot | String | Root path used when generating server URLs in the OpenAPI specification. |  |
+| psApiRoot | String | Optional root URL override used for server URLs in the OpenAPI specification. When empty, the framework derives the root from the current HTTP request and honors `HTTP_X_FORWARDED_PROTO`. |  |
 | pbInheritSecurity | Boolean | Property that determines if a object will inherit the auth modifiers of its parent. | [cWebApiModifierHost_Mixin](#418-cwebapimodifierhost_mixin) |
 | phoRoutables | Handle[] | Handle to all the child routables. | [cWebApiRoutableHost_Mixin](#419-cwebapiroutablehost_mixin) |
 | pasRoutables | String[] | Names of all the child routables. When searching for a routable we first search the string array if it exists. | [cWebApiRoutableHost_Mixin](#419-cwebapiroutablehost_mixin) |
@@ -1106,7 +1125,7 @@ This class defines the data that will be exposed within a REST api. This class h
 
 **Use when:** Building REST endpoints over database tables.
 
-**Extends:** [cBaseRestDataset](#43-cbaserestdataset)
+**Extends:** [cBaseRestDataset](#43-cbaserestdataset), [cWebApiDDCompatibility_Mixin](#421-runtime-compatibility-mixins)
 
 **See also:** [cRestField](#48-crestfield), [cRestEntity](#411-crestentity), [cRestChildCollection](#410-crestchildcollection), [cJSONIterator](#415-cjsoniterator), [cXMLIterator](#416-cxmliterator)
 
@@ -1153,7 +1172,7 @@ See [Building a very basic REST service](#21-building-a-very-basic-rest-service)
 | Server | Handle | The data dictionary to use as the server of this object. |  |
 | piLimitResults | Integer | Property that should be set after reading the url parameters. Determines how many results should be returned during a GET all request. |  |
 | piFindIndex | Integer | This property determines what index will be used for performing find operations on the data dictionary. |  |
-| pbUsePathAsTableName | Boolean | This property determines if the psPath should be used as table name in swagger. When this is set to false it will instead use the DF_FILE_LOGICAL_NAME of the table. |  |
+| pbUsePathAsTableName | Boolean | When `True`, uses `psPath` as the dataset name in responses and OpenAPI output. When `False`, uses the main data dictionary's runtime-specific table or entity name and falls back to `psPath` when no name is available. |  |
 | pbIgnoreID | Boolean | When true, GET requests are routed to OnHttpGet instead of OnHttpGetByID. | [cBaseRestDataset](#43-cbaserestdataset) |
 | pbGenerateDocumentation | Boolean | When false, this endpoint is omitted from the generated OpenAPI documentation. | [cBaseRestDataset](#43-cbaserestdataset) |
 | pbReadOnly | Boolean | Determines if a dataset is read only and should only allow GET operations. | [cBaseRestDataset](#43-cbaserestdataset) |
@@ -1199,7 +1218,7 @@ See [Building a very basic REST service](#21-building-a-very-basic-rest-service)
 
 **Extends:** [cBaseRestDataset](#43-cbaserestdataset)
 
-**See also:** [cRestDataset](#44-crestdataset), [cOpenApiEndpoint](#47-copenapiendpoint), [cOpenApiSpecification](#421-copenapispecification)
+**See also:** [cRestDataset](#44-crestdataset), [cOpenApiEndpoint](#47-copenapiendpoint), [cOpenApiSpecification](#422-copenapispecification)
 
 **Overview:**
 
@@ -1333,7 +1352,7 @@ The cWebApiLoginEndpoint only exposes the POST verb.
 
 **Extends:** [cBaseRestDataset](#43-cbaserestdataset)
 
-**See also:** [cOpenApiSpecification](#421-copenapispecification), [cSwaggerUI](#422-cswaggerui)
+**See also:** [cOpenApiSpecification](#422-copenapispecification), [cSwaggerUI](#423-cswaggerui)
 
 **Overview:**
 
@@ -1382,7 +1401,7 @@ This is a endpoint that only exposes the OpenApi specification. The cSwaggerUI c
 
 **Use when:** Selecting individual fields for a cRestDataset, cRestEntity, or cRestChildCollection.
 
-**Extends:** `cObject`, `cBaseDEO_Mixin`
+**Extends:** `cObject`, `cBaseDEO_Mixin`, [cWebApiDDCompatibility_Mixin](#421-runtime-compatibility-mixins), [cRestFieldCompatibility_Mixin](#421-runtime-compatibility-mixins)
 
 **See also:** [cRestDataset](#44-crestdataset), [cRestEntity](#411-crestentity), [cRestChildCollection](#410-crestchildcollection), [cOpenApiRestField](#49-copenapirestfield)
 
@@ -1436,7 +1455,7 @@ End_Object
 | pbFilterable | Boolean | This property determines if this field can be filtered through query parameters. |  |
 | pbShowDuringGetAll | Boolean | This property determines if the field will be shown during a GET all. Allows developers to have less detail during a GET all compared to a GET of a specific record. |  |
 | pbRequired | Boolean | This property determines if the field is required in the request body. This is used in the OpenApi specification. |  |
-| piPrecision | Integer | Precision used for numeric fields. |  |
+| piPrecision | Integer | Precision used for numeric field metadata. It is discovered from classic `DF_BCD` fields on the traditional Windows runtime; set it explicitly on the cross-platform runtime when needed. |  |
 
 
 #### Procedures/Functions
@@ -1444,19 +1463,18 @@ End_Object
 | Procedure/Function | Description | Return type | Inherited from |
 | --- | --- | --- | --- |
 | AppendToBody | This procedure appends data to the response body. It does this in combination with the appropriate iterator. Params:<br>- Handle hoIterator: The iterator to use. The iterator is responsible for putting the value of the current field inside of a response body.<br>- Handle hoResponseBody: The response body that is eventually sent back to the client. |  |  |
-| SetFieldGlobalValue | This procedure changes the value of the field in the global buffers. Calls Set_Field_Value to change the value. This is mainly used to perform finds. Params:<br>- String sValue: The value that the field should be changed to. |  |  |
-| SetFieldLocalValue | This procedure changes the value of the field in the local buffers. Calls File_Field_Changed_Value to change the value. This way the field itself is responsible for changing its value and not the cRestDataset. This is used when doing POST, PUT and PATCH requests. Params:<br>- String sValue: The value that the field should be changed to. |  |  |
-| AddConstrain | Adds a constrain to the current field if it is data aware. Params:<br>- String sConstrain: The constrain to apply to the field.<br>- String sFilterType: The filter type to use. Can be GE, GT, LT or LE. If nothing is specified will fall back to EQ. |  |  |
+| SetFieldGlobalValue | Sets the field value used for finds. The traditional Windows runtime writes the global record buffer; the cross-platform runtime forwards to `SetFieldLocalValue` because global buffers are not available. Params:<br>- String sValue: The value to set. |  | [cRestFieldCompatibility_Mixin](#421-runtime-compatibility-mixins) |
+| SetFieldLocalValue | Changes the local DD field value for POST, PUT, and PATCH requests. Params:<br>- String sValue: The value to set. |  |  |
+| AddConstrain | Adds a constraint to a data-aware field. The traditional Windows runtime uses a DD SQL filter when supported and otherwise `VConstrain`; the cross-platform runtime uses `Add_Value_Constraint`. Params:<br>- String sConstrain: The value to constrain.<br>- String sFilterType: `GE`, `GT`, `LT`, or `LE`; other values fall back to `EQ`. |  | [cRestFieldCompatibility_Mixin](#421-runtime-compatibility-mixins) |
 | IsKeyField | Checks if the current field is linked to the tables primary key. Returns true if this is the case otherwise returns false. | Boolean |  |
 | FieldValue | Retrieves the current value of the field. | String |  |
 | FieldName | Retrieves the name of the field. If psFieldName is set this will be used and is absolute. If it is not set and the field is data aware it will retrieve the field name from the table. | String |  |
 | FieldType | Retrieves the type of the field. For data aware fields this returns the field type from the table. For non data aware fields this returns peFieldType. | Integer |  |
 | FieldHelp | Retrieves the help information for the current field. If psExampleValue is set this will be absolute. For data aware fields the File_Field_Status_Help is called from the data dictionary. | String |  |
-| FieldValidationTable | Helper function that retrieves the validation table tied to the current field if there is one. | Variant[][2] |  |
-| IsFilterable | Returns if a field is filterable. This is done by retrieving pbFilterable and checking if it is false or true. If its set to true data aware fields will check if the current field is present in some kind of index. | Boolean |  |
-| IsRequired | Returns if a field is required. Data aware fields first check the required property of the data dictionary. If pbRequired is set to true this is absolute. | Boolean |  |
+| FieldValidationTable | Returns the validation table tied to the current field on the traditional Windows runtime. Returns an empty array on the cross-platform runtime because its DD API does not expose validation-table enumeration. | Variant[][2] |  |
+| IsFilterable | Returns `False` when `pbFilterable` is `False`. A data-aware field must also be part of an index reported by the runtime-specific DD compatibility layer. | Boolean |  |
+| IsRequired | Returns the DD `DD_Required` option for data-aware fields, falling back to `pbRequired`. | Boolean |  |
 | Construct_Object | Framework lifecycle procedure called during object construction. Do not call directly. |  |  |
-| AfterAttachDDO | Field Options If the DD did not flag it as required give the developers one more chance to override it Fired by the cBaseDeo interface. Sets default values. This way we only need to query database APIs once instead of for every single find. |  |  |
 
 ### 4.9 cOpenApiRestField
 
@@ -1466,7 +1484,7 @@ End_Object
 
 **Extends:** [cRestField](#48-crestfield)
 
-**See also:** [cRestField](#48-crestfield), [cOpenApiSpecification](#421-copenapispecification)
+**See also:** [cRestField](#48-crestfield), [cOpenApiSpecification](#422-copenapispecification)
 
 **Overview:**
 
@@ -1483,7 +1501,7 @@ Subclass of the cRestField. It's only purpose is returning the OpenApi specifica
 | pbShowDuringGetAll | Boolean | This property determines if the field will be shown during a GET all. Allows developers to have less detail during a GET all compared to a GET of a specific record. | [cRestField](#48-crestfield) |
 | psFieldName | String | The name of the field is shown in the response body. | [cRestField](#48-crestfield) |
 | peFieldType | Integer | This property determines the field type of the current field. | [cRestField](#48-crestfield) |
-| piPrecision | Integer | Precision used for numeric fields. | [cRestField](#48-crestfield) |
+| piPrecision | Integer | Precision used for numeric field metadata. Set it explicitly on the cross-platform runtime when needed. | [cRestField](#48-crestfield) |
 | psExampleValue | String | This property determines what the example value is for the field. This will be shown in the OpenApi specification. | [cRestField](#48-crestfield) |
 
 
@@ -1494,18 +1512,17 @@ Subclass of the cRestField. It's only purpose is returning the OpenApi specifica
 | Construct_Object | Framework lifecycle procedure called during object construction. Do not call directly. |  |  |
 | OnSetCalculatedValue | Sets the value of a calculated field while generating the OpenAPI response. |  |  |
 | AppendToBody | This procedure appends data to the response body. It does this in combination with the appropriate iterator. Params:<br>- Handle hoIterator: The iterator to use. The iterator is responsible for putting the value of the current field inside of a response body.<br>- Handle hoResponseBody: The response body that is eventually sent back to the client. |  | [cRestField](#48-crestfield) |
-| SetFieldGlobalValue | This procedure changes the value of the field in the global buffers. Calls Set_Field_Value to change the value. This is mainly used to perform finds. Params:<br>- String sValue: The value that the field should be changed to. |  | [cRestField](#48-crestfield) |
-| SetFieldLocalValue | This procedure changes the value of the field in the local buffers. Calls File_Field_Changed_Value to change the value. This way the field itself is responsible for changing its value and not the cRestDataset. This is used when doing POST, PUT and PATCH requests. Params:<br>- String sValue: The value that the field should be changed to. |  | [cRestField](#48-crestfield) |
-| AddConstrain | Adds a constrain to the current field if it is data aware. Params:<br>- String sConstrain: The constrain to apply to the field.<br>- String sFilterType: The filter type to use. Can be GE, GT, LT or LE. If nothing is specified will fall back to EQ. |  | [cRestField](#48-crestfield) |
+| SetFieldGlobalValue | Sets the field value used for finds. The traditional Windows runtime writes the global record buffer; the cross-platform runtime forwards to `SetFieldLocalValue` because global buffers are not available. Params:<br>- String sValue: The value to set. |  | [cRestField](#48-crestfield) |
+| SetFieldLocalValue | Changes the local DD field value for POST, PUT, and PATCH requests. Params:<br>- String sValue: The value to set. |  | [cRestField](#48-crestfield) |
+| AddConstrain | Adds a runtime-appropriate constraint to a data-aware field. Params:<br>- String sConstrain: The value to constrain.<br>- String sFilterType: `GE`, `GT`, `LT`, or `LE`; other values fall back to `EQ`. |  | [cRestField](#48-crestfield) |
 | IsKeyField | Checks if the current field is linked to the tables primary key. Returns true if this is the case otherwise returns false. | Boolean | [cRestField](#48-crestfield) |
 | FieldValue | Retrieves the current value of the field. | String | [cRestField](#48-crestfield) |
 | FieldName | Retrieves the name of the field. If psFieldName is set this will be used and is absolute. If it is not set and the field is data aware it will retrieve the field name from the table. | String | [cRestField](#48-crestfield) |
 | FieldType | Retrieves the type of the field. For data aware fields this returns the field type from the table. For non data aware fields this returns peFieldType. | Integer | [cRestField](#48-crestfield) |
 | FieldHelp | Retrieves the help information for the current field. If psExampleValue is set this will be absolute. For data aware fields the File_Field_Status_Help is called from the data dictionary. | String | [cRestField](#48-crestfield) |
-| FieldValidationTable | Helper function that retrieves the validation table tied to the current field if there is one. | Variant[][2] | [cRestField](#48-crestfield) |
-| IsFilterable | Returns if a field is filterable. This is done by retrieving pbFilterable and checking if it is false or true. If its set to true data aware fields will check if the current field is present in some kind of index. | Boolean | [cRestField](#48-crestfield) |
-| IsRequired | Returns if a field is required. Data aware fields first check the required property of the data dictionary. If pbRequired is set to true this is absolute. | Boolean | [cRestField](#48-crestfield) |
-| AfterAttachDDO | Field Options If the DD did not flag it as required give the developers one more chance to override it Fired by the cBaseDeo interface. Sets default values. This way we only need to query database APIs once instead of for every single find. |  | [cRestField](#48-crestfield) |
+| FieldValidationTable | Returns the field validation table on the traditional Windows runtime and an empty array on the cross-platform runtime. | Variant[][2] | [cRestField](#48-crestfield) |
+| IsFilterable | Returns `False` when `pbFilterable` is `False`. A data-aware field must also be indexed according to the runtime-specific DD compatibility layer. | Boolean | [cRestField](#48-crestfield) |
+| IsRequired | Returns the DD `DD_Required` option for data-aware fields, falling back to `pbRequired`. | Boolean | [cRestField](#48-crestfield) |
 
 ### 4.10 cRestChildCollection
 
@@ -1513,7 +1530,7 @@ Subclass of the cRestField. It's only purpose is returning the OpenApi specifica
 
 **Use when:** Including child-table data in GET responses.
 
-**Extends:** `cObject`, `cBaseDEO_Mixin`
+**Extends:** `cObject`, `cBaseDEO_Mixin`, [cWebApiDDCompatibility_Mixin](#421-runtime-compatibility-mixins)
 
 **See also:** [cRestDataset](#44-crestdataset), [cRestField](#48-crestfield), [cRestEntity](#411-crestentity), [cJSONIterator](#415-cjsoniterator), [cXMLIterator](#416-cxmliterator)
 
@@ -1565,15 +1582,14 @@ See [Adding information from a child table to a endpoint](#23-adding-information
 | IsFilterable | Returns false since the framework does not support constrains on child tables. | Boolean |  |
 | IsRequired | Returns false since the framework does not support posting of child records. | Boolean |  |
 | Construct_Object | Framework lifecycle procedure called during object construction. Do not call directly. |  |  |
-| AfterAttachDDO | Lifecycle hook called after the data dictionary object is attached. |  |  |
 
 ### 4.11 cRestEntity
 
 **Purpose:** Exposes related parent-table data as a nested object in a REST response.
 
-**Use when:** Including parent-table data or accepting a related record key during writes.
+**Use when:** Including parent-table data. Related-key writes are currently supported only on the traditional Windows runtime.
 
-**Extends:** `cObject`, `cBaseDEO_Mixin`
+**Extends:** `cObject`, `cBaseDEO_Mixin`, [cWebApiDDCompatibility_Mixin](#421-runtime-compatibility-mixins), [cRestEntityCompatibility_Mixin](#421-runtime-compatibility-mixins)
 
 **See also:** [cRestDataset](#44-crestdataset), [cRestField](#48-crestfield), [cRestChildCollection](#410-crestchildcollection), [cJSONIterator](#415-cjsoniterator), [cXMLIterator](#416-cxmliterator)
 
@@ -1587,11 +1603,9 @@ The second option is to define cRestFields inside of this object with entry_item
 
 When the iterator sees this object, it knows how to treat it differently than cRestFields and structure it differently. The way it is structured is dependant on the type of iterator.
 
-These fields are only used when sending GET requests. The values exposed by this object are omitted during POST, PUT, PATCH and DELETE requests. They are read only.
+Fields nested inside `cRestEntity` are used only for GET responses; clients do not send the nested object during POST, PUT, or PATCH requests.
 
-This class behaves differently on POST, PUT and PATCH requests. During POST, PUT or PATCH requests it expects the foreign key used to link the two tables.
-
-For example if we take the inventory table and the vendor table from the WebOrder database, If we have a cRestEntity object that represents the vendor table, whenever we make a POST request the body expects the Vendor_ID field instead of the nested object entirely.
+On the traditional Windows runtime, write requests can instead provide the foreign key that links the two tables. For example, an inventory request supplies `Vendor_ID` rather than the nested vendor object. Related-key writes through `cRestEntity` are not currently implemented on the cross-platform runtime.
 
 #### Usage example
 
@@ -1622,14 +1636,13 @@ See [Adding information from a parent table to a endpoint](#22-adding-informatio
 | Procedure/Function | Description | Return type | Inherited from |
 | --- | --- | --- | --- |
 | AppendToBody | This procedure appends data to the response body. It does this in combination with the appropriate iterator. For example, with a JSON iterator this procedure would create a nested JSON object inside of the current JSON object. It would then fill the JSON object by looping over the appropriate records and getting the field values from the nested cRestFields inside of this object. Params:<br>- Handle hoIterator: The iterator to use. The iterator is responsible for parsing the data and getting it to the response body.<br>- Handle hoResponseBody: The response body that is eventually sent back to the client. |  |  |
-| SetFieldLocalValue | Sets the value of the related field between the main data dictionary of the dataset and the server of this object. Params:<br>- String sValue: The value to set. |  |  |
-| PrepareBinding | Simulates setting the entry_item command. This sets the data_file and data_field to the field of the main data dictionary that relates to the server set to this object. |  |  |
+| SetFieldLocalValue | Sets and finds the related parent value on the traditional Windows runtime. The cross-platform implementation currently resolves the relation but does not update or find the parent record; treat related entities as read-only there. Params:<br>- String sValue: The value to set. |  |  |
+| PrepareBinding | Simulates setting the `Entry_Item` command by binding to the main data-dictionary field related to this object's server. |  | [cRestEntityCompatibility_Mixin](#421-runtime-compatibility-mixins) |
 | SchemaName | Returns the name of this entity. Either returns psNodeName if it is set. Otherwise will retrieve the table name of the server. | String |  |
 | IsFilterable | Returns false since the framework does not support constrains on parent tables. | Boolean |  |
 | IsRequired | Returns false since the framework does not support required fields on parent tables. | Boolean |  |
-| RetrieveServerRelatedField | Helper function that retrieves the field from the main table that is linked to this cRestEntity's server. | Integer |  |
+| RetrieveServerRelatedField | Retrieves the field from the main table that is linked to this `cRestEntity` server. | Integer | [cRestEntityCompatibility_Mixin](#421-runtime-compatibility-mixins) |
 | Construct_Object | Framework lifecycle procedure called during object construction. Do not call directly. |  |  |
-| AfterAttachDDO | Lifecycle hook called after the data dictionary object is attached. |  |  |
 | End_Construct_Object | Completes framework initialization after construction. Do not call directly. |  |  |
 
 ### 4.12 cWebApiModifier
@@ -1699,8 +1712,8 @@ A subclass of the cWebApiModifier that implements extra functionality to allow i
 
 | Property | Type | Description | Inherited from |
 | --- | --- | --- | --- |
-| psSecuritySchemaName | String | Property used during generation of the OpenApi specification. This ia a mandatory property if the developer opts into generating the OpenApi specification. |  |
-| pvSecurityInfo | Variant | This should be filled with a struct that matches the security schema of the used authentication scheme. These schemas can be found in the OpenApi documentation on the swagger website. |  |
+| psSecuritySchemaName | String | Name of the OpenAPI security schema. Required when this modifier is included in generated OpenAPI documentation. |  |
+| pvSecurityInfo | Variant | Struct matching the selected OpenAPI security schema. OpenAPI generation rejects a non-struct value. |  |
 
 
 #### Procedures/Functions
@@ -1742,7 +1755,7 @@ This class covers the shared functionality for each iterator. It's meant as a ba
 | Procedure/Function | Description | Return type | Inherited from |
 | --- | --- | --- | --- |
 | ModifyResponseBody | This procedure is used to build up the response body back to the client. The values needed for this procedure to work are retrieved from the cRestField, cRestChildCollection and cRestEntity if they are declared. Params:<br>- Handle hoResponseBody: The response body that is eventually sent back to the client. The values are appended to this body.<br>- Variant vValue: The value that should be appended to the responsebody. Because this value could be of any type variant is used.<br>- String sDataType: The datatype that vValue has. This is used to sow the correct data type in the response body. For example, in a JSON response passing "integer" as a datatype causes jsonTypeInteger to be used when appending members.<br>- String sFieldName: The name of the current field. |  |  |
-| ParseRequestBody | This function is used to parse the request body into a data type that is easily understandable by DataFlex as a key-value pair. Because DataFlex does not have hashmaps a struct of type tRESTRequestBodyStruct is returned. Params:<br>- Handle hoRequestBody: The request body that is send from the client. This will be parsed into a tRESTRequestBodyStruct[]. | tRESTRequestBody[] |  |
+| ParseRequestBody | Parses the request body into a DataFlex key-value array. Returns `tRESTRequestBody[]`. | tRESTRequestBody[] |  |
 | PrepareForTransfer | This procedure prepares the response body to be returned to the client. This should be augmented in sub classes to stringify their structures so that it can be sent over http. Params:<br>- tWebApiCallContext webapicallcontext: Provides the iterator with all information. This includes a handle to the response body, status codes and potential error messages |  |  |
 | CreateResponseBodyArray | This function creates an array of a certain datatype. Should be augmented inside of the sub classes. Params:<br>- String sTableName: The table name, will be used to name the array. | Handle |  |
 | CreateResponseBodyObject | This function creates an object of a certain datatype. Should be augmented inside of sub classes. Params:<br>- String sTableName: The table name, will be used to name the object. | Handle |  |
@@ -1758,13 +1771,15 @@ This class covers the shared functionality for each iterator. It's meant as a ba
 
 **Use when:** JSON is the request or response format for a [cRestDataset](#44-crestdataset). [cWebApiCustomEndpoint](#45-cwebapicustomendpoint) does not use this iterator.
 
-**Extends:** [cBaseWebApiIterator](#414-cbasewebapiiterator)
+**Extends:** [cBaseWebApiIterator](#414-cbasewebapiiterator), [cDFTypeToJsonType_Mixin](#421-runtime-compatibility-mixins)
 
 **See also:** [cXMLIterator](#416-cxmliterator), [cBaseWebApiIterator](#414-cbasewebapiiterator), [cRestDataset](#44-crestdataset)
 
 **Overview:**
 
 This iterator is used by cRestDataset endpoints to retrieve and build data into a JSON format. It works in collaboration with cRestFields, cRestChildCollections and cRestEntity's to build up a response back to the client. It can also be used to parse a JSON request body to a datatype that is easily useable in DataFlex code. This is the tRESTRequestBody struct.
+
+This class keeps the same public API on both runtimes. The traditional Windows build uses the classic JSON implementation; the cross-platform build uses `System\Json.pkg` and maps DataFlex runtime types to JSON string, Boolean, integer, double, or null values.
 
 When it runs into a cRestField it will create a regular JSON member. When it runs into a cRestChildCollection it will create a JSON array. When it runs into a cRestEntity it will create a nested JSON object.
 
@@ -1787,15 +1802,15 @@ When it runs into a cRestField it will create a regular JSON member. When it run
 | ModifyResponseBody | This procedure is used to build up the response body back to the client. The values needed for this procedure to work are retrieved from the cRestField, cRestChildCollection and cRestEntity if they are declared. Params:<br>- Handle hoResponseBody: The response body that is eventually sent back to the client. The values are appended to this body.<br>- Variant vValue: The value that should be appended to the responsebody. Because this value could be of any type variant is used.<br>- String sDataType: The datatype that vValue has. This is used to sow the correct data type in the response body. For example, in a JSON response passing "integer" as a datatype causes jsonTypeInteger to be used when appending members.<br>- String sFieldName: The name of the current field. |  |  |
 | AppendToResponseArray | This procedure allows an object to be appended to an array of a certain datatype. Should be augmented inside of sub classes. Params:<br>- Handle hoNestedObject: The object that should be appended to the array.<br>- Handle hoResponseArray: The array that the object should be appended to. |  |  |
 | AppendNestedObject | Procedure AppendNestedObject exposed by the cJSONIterator class. |  |  |
-| ParseRequestBody | This function is used to parse the request body into a data type that is easily understandable by DataFlex as a key-value pair. Because DataFlex does not have hashmaps a struct of type tRESTRequestBodyStruct is returned. Params:<br>- Handle hoRequestBody: The request body that is send from the client. This will be parsed into a tRESTRequestBodyStruct[]. | tRESTRequestBody[] |  |
+| ParseRequestBody | Parses the JSON request body into a DataFlex key-value array. Returns `tRESTRequestBody[]`. | tRESTRequestBody[] |  |
 | GenerateErrorResponse | This procedure formulates an error response back to the client. Uses the status code and error message to parse into a response object. Errors are formatted according to the following RFC: https://www.rfc-editor.org/rfc/rfc9457.html Params:<br>- tWebApiCallContext webapicallcontext: Provides this method all information related to the request. Including a handle to the response body, status codes and potential error messages |  |  |
 | SetContentType | This procedure sets the content-type for the http request that will be send back to the client. Uses the psMessageType property to determine what to set in the header. |  | [cBaseWebApiIterator](#414-cbasewebapiiterator) |
 
 ### 4.16 cXMLIterator
 
-**Purpose:** Serializes REST responses to XML and parses XML request bodies for [cRestDataset](#44-crestdataset) endpoints.
+**Purpose:** Serializes REST responses to XML and parses XML request bodies for [cRestDataset](#44-crestdataset) endpoints on the traditional Windows runtime.
 
-**Use when:** XML is the request or response format for a [cRestDataset](#44-crestdataset). [cWebApiCustomEndpoint](#45-cwebapicustomendpoint) does not use this iterator.
+**Use when:** XML is required by a traditional Windows-runtime application. The cross-platform runtime does not support `cXMLIterator`; use [cJSONIterator](#415-cjsoniterator) there. [cWebApiCustomEndpoint](#45-cwebapicustomendpoint) does not use this iterator.
 
 **Extends:** [cBaseWebApiIterator](#414-cbasewebapiiterator)
 
@@ -1827,7 +1842,7 @@ When it runs into a cRestField it will create an XML node. When it runs into a c
 | ModifyResponseBody | This procedure is used to build up the response body back to the client. The values needed for this procedure to work are retrieved from the cRestField, cRestChildCollection and cRestEntity if they are declared. Params:<br>- Handle hoResponseBody: The response body that is eventually sent back to the client. The values are appended to this body.<br>- Variant vValue: The value that should be appended to the responsebody. Because this value could be of any type variant is used.<br>- String sDataType: The datatype that vValue has. This is used to sow the correct data type in the response body. For example, in a JSON response passing "integer" as a datatype causes jsonTypeInteger to be used when appending members.<br>- String sFieldName: The name of the current field. |  |  |
 | AppendToResponseArray | This procedure allows an object to be appended to an array of a certain datatype. Should be augmented inside of sub classes. Params:<br>- Handle hoNestedObject: The object that should be appended to the array.<br>- Handle hoResponseArray: The array that the object should be appended to. |  |  |
 | AppendNestedObject | Adds a nested object to the main response body under a specified field name |  |  |
-| ParseRequestBody | This function is used to parse the request body into a data type that is easily understandable by DataFlex as a key-value pair. Because DataFlex does not have hashmaps a struct of type tRESTRequestBodyStruct is returned. Params:<br>- Handle hoRequestBody: The request body that is send from the client. This will be parsed into a tRESTRequestBodyStruct[]. | tRESTRequestBody[] |  |
+| ParseRequestBody | Parses the XML request body into a DataFlex key-value array. Returns `tRESTRequestBody[]`. | tRESTRequestBody[] |  |
 | GenerateErrorResponse | This procedure formulates an error response back to the client. Uses the status code and error message to parse into a response object. Errors are formatted according to the following RFC: https://www.rfc-editor.org/rfc/rfc9457.html Params:<br>- tWebApiCallContext webapicallcontext: Provides this method all information related to the request. Including a handle to the response body, status codes and potential error messages |  |  |
 | SetContentType | This procedure sets the content-type for the http request that will be send back to the client. Uses the psMessageType property to determine what to set in the header. |  | [cBaseWebApiIterator](#414-cbasewebapiiterator) |
 
@@ -1921,13 +1936,15 @@ This mixin has all the functionality needed for the routing logic of the framewo
 
 **Use when:** Configuring error reporting and debug behavior for the API.
 
-**Extends:** `Mixin`
+**Extends:** `Mixin`, [cWebApiErrorCompatibility_Mixin](#421-runtime-compatibility-mixins)
 
 **See also:** [cWebApi](#41-cwebapi), [cWebApiModifier](#412-cwebapimodifier)
 
 **Overview:**
 
 This mixin is used to handle unexpected errors that might occur during a http call to the service. Incase one of these unexpected errors might occur the server will return a generic error telling the client "Something went wrong on the server". If you want more details on what went wrong you can toggle pbDebugMode to true. This will instead return the callstack when a unexpected error occurs.
+
+Runtime-specific error lookup is internal. The traditional Windows runtime combines the Desktop error description with the message passed to `Error_Report`; the cross-platform runtime uses the supplied message because Desktop `Error_Text` is unavailable. Client behavior remains the same: production responses are generic, while `pbDebugMode` includes captured call stacks.
 
 #### Properties
 
@@ -1947,19 +1964,42 @@ This mixin is used to handle unexpected errors that might occur during a http ca
 | DetailedErrorMessage | Helper function that combines pasErrorCallstack into a singular string that can be returned to the client. | String |  |
 | Define_cWebApiErrorHandler_Mixin | Initializes this mixin during framework object construction. Do not call directly. |  |  |
 
-### 4.21 cOpenApiSpecification
+### 4.21 Runtime compatibility mixins
+
+**Purpose:** Keeps the public Web API Framework classes the same on the traditional Windows runtime and the cross-platform runtime.
+
+**Overview:**
+
+The two runtimes provide similar functionality through different DataFlex packages and APIs. In particular, they differ in how they expose data-dictionary metadata and constraints, table relationships, JSON value types, OpenAPI type and security metadata, and error descriptions. Calling either runtime API directly from the main framework classes would prevent those classes from compiling on the other runtime.
+
+The compatibility layer isolates those differences. Each compatibility mixin has a Windows implementation under `WebApi\Windows` and a cross-platform implementation under `WebApi\CrossPlatform`. Both implementations expose the same class protocol. `IS$CROSS_PLATFORM` selects the correct package at compile time, after which the framework uses the shared protocol without further runtime checks.
+
+The compatibility layer consists of:
+
+- `cWebApiDDCompatibility_Mixin` for dataset names, indexed-field detection, query-filter state, and data-dictionary field metadata.
+- `cRestFieldCompatibility_Mixin` for field constraints and field-buffer behavior.
+- `cRestEntityCompatibility_Mixin` for table relationships and entity binding.
+- `cDFTypeToJsonType_Mixin` for mapping DataFlex types to JSON types.
+- `cWebApiErrorCompatibility_Mixin` for obtaining useful runtime error descriptions.
+- `cOpenApiCompatibility_Mixin` for OpenAPI field types and security metadata.
+
+These mixins are internal. Applications use the same public framework classes on both runtimes and should not import compatibility packages directly. The runtime-specific limitations described in [section 1.3](#13-runtime-specific-behavior-and-current-limitations) still apply.
+
+### 4.22 cOpenApiSpecification
 
 **Purpose:** Builds the OpenAPI JSON document from the configured API structure.
 
 **Use when:** Inspecting or extending the framework's OpenAPI generation internals.
 
-**Extends:** `cObject`
+**Extends:** `cObject`, [cOpenApiCompatibility_Mixin](#421-runtime-compatibility-mixins)
 
-**See also:** [cOpenApiEndpoint](#47-copenapiendpoint), [cSwaggerUI](#422-cswaggerui), [cOpenApiRestField](#49-copenapirestfield)
+**See also:** [cOpenApiEndpoint](#47-copenapiendpoint), [cSwaggerUI](#423-cswaggerui), [cOpenApiRestField](#49-copenapirestfield)
 
 **Overview:**
 
 This class is responsible for building the OpenApi specification in JSON format. This is done by iterating through the existing structure and parsing the info of the objects into a JSON file using Direct_Output. Each object in the framework maps to a different part of the OpenApi specification. This class is created after the cWebApi finishes initializing. It's main procedure will be called and after it is done generating the OpenApi specification it will be destroyed again.
+
+When `psApiRoot` is empty, the framework derives the server URL from the current request; setting it provides an explicit override. The compatibility layer maps each runtime's field types and security-info variants into the same OpenAPI representation. Cross-platform DD validation tables still cannot be enumerated, so their inferred enum values are omitted.
 
 This class is considered private.
 
@@ -1978,7 +2018,7 @@ This class is considered private.
 | ParseCustomField | This procedure parses a custom defined field. Params:<br>- tFieldDefinition currentField: The information of the current field. It is up to developers to implement this and add the right information.<br>- Handle hoPropertiesJson: Handle to the properties part of the OpenApi specification. |  |  |
 | Construct_Object | Framework lifecycle procedure called during object construction. Do not call directly. |  |  |
 
-### 4.22 cSwaggerUI
+### 4.23 cSwaggerUI
 
 **Purpose:** Renders an interactive Swagger UI for the generated OpenAPI specification.
 
@@ -1986,7 +2026,7 @@ This class is considered private.
 
 **Extends:** `cWebBaseControl`
 
-**See also:** [cOpenApiEndpoint](#47-copenapiendpoint), [cOpenApiSpecification](#421-copenapispecification)
+**See also:** [cOpenApiEndpoint](#47-copenapiendpoint), [cOpenApiSpecification](#422-copenapispecification)
 
 **Overview:**
 
@@ -2034,15 +2074,17 @@ Exposed components determine what a request can read or write:
 | `cRestField` | Included in responses by default. | Accepted by `POST`, `PUT`, and `PATCH` by default. |
 | `pbReadOnly = True` | Included in responses. | Ignored for `POST`, `PUT`, and `PATCH`. |
 | `pbWriteOnly = True` | Omitted from responses. | Accepted in request bodies. |
-| `pbRequired = True` | No direct effect on responses. | Marked as required in the generated request schema and required-field checks. |
-| `cRestEntity` | Parent-table data is returned as a nested object. | Writes use the related parent key rather than the nested object. |
+| `pbRequired = True` | No direct effect on responses. | Marked as required in the generated request schema. Data-aware fields also honor the DD `DD_Required` option. |
+| `cRestEntity` | Parent-table data is returned as a nested object. | Related-parent writes are supported on the traditional Windows runtime. Treat related entities as read-only on the cross-platform runtime. |
 | `cRestChildCollection` | Child-table data is returned as a nested array. | Omitted from `POST`, `PUT`, `PATCH`, and `DELETE`; child collections are read-only. |
 
 Parent-table fields do not require a `cRestEntity`. A `cRestField` can be placed directly under a `cRestDataset` when a flat response is preferred. Use `cRestEntity` when the nested object makes the response easier to understand.
 
 ### 5.3 Filtering and pagination
 
-`cRestDataset` reads query parameters before executing `GET` requests. A field can be used as a filter only when its `pbFilterable` property is `True`. Without an operator, filtering uses equality. The supported comparison operators are `(GE)`, `(GT)`, `(LE)`, and `(LT)`.
+`cRestDataset` reads query parameters before executing `GET` requests. A field can be used as a filter only when `pbFilterable` is `True`; data-aware fields must also be indexed. Without an operator, filtering uses equality. The supported comparison operators are `(GE)`, `(GT)`, `(LE)`, and `(LT)`.
+
+On the traditional Windows runtime, the framework temporarily enables DD SQL filters when supported and restores the previous SQL filter and `pbUseDDSQLFilters` state after the request. The cross-platform runtime applies value constraints directly and requires no equivalent filter-state change.
 
 The `limit` and `offset` query parameters control pagination. `piLimitResults` supplies the endpoint's default limit; a `limit` query parameter overrides it.
 
@@ -2111,22 +2153,27 @@ This struct contains all the information of the current http request. This struc
 
 | Member name | Type | Description |
 | --- | --- | --- |
-| hoApi | Handle | Handle to the cWebApi object. |
-| hoDataset | Handle | Handle to the cRestDataset object used inside of the call. |
-| hoRouters | Handle[] | Handle to all the routers used inside of the request. |
-| hoResponseBody | Handle | Handle to the response body of the current request. |
-| hoIterator | Handle | Handle to the iterator used during the current request. |
-| hoModifiers | Handle[] | Handle to the iterator used inside of the current request. |
-| bErr | Boolean | Boolean that is set to true if something has gone wrong during the request pipeline. The actual error sent back to the client is made up of a combination of the iStatusCode, sShortStatusMessage and sErrorMessage variables. |
-| bIsCustom | Boolean | Boolean that is set to true if the request is send towards a custom endpoint. If this is set to true the iterator classes will not be used to formulate a response back to the client. |
-| iStatusCode | Integer | Status code of the current request. |
-| sShortStatusMessage | String | Short status message to compliment the status code. For example "OK" or "Forbidden" |
-| sErrorMessage | String | A longer error message displayed in the error response that the client receives. |
-| sPath | String | The request path of the current request. |
-| sVerb | String | The verb of the current request. |
-| sContentType | String | The content-type of the current request if applicable. |
-| sAcceptType | String | The accept-type of the current request if applicable. |
-| sMainTableName | String | The name of the main table used in the endpoint that is handling the current request. |
+| hoApi | Handle | Handle to the `cWebApi` object. |
+| hoDataset | Handle | Handle to the dataset handling the request. |
+| hoRouter | Handle[] | Routers traversed while resolving the request. |
+| requestBodyParts | tRESTRequestBody[] | Parsed request-body fields. |
+| hoResponseBody | Handle | Response body being built. |
+| hoIterator | Handle | Iterator selected for the request and response media type. |
+| hoModifiers | Handle[] | Modifiers active for the request. |
+| bErr | Boolean | Set when request processing fails. The response uses `iStatusCode`, `sShortStatusMessage`, and `sErrorMessage`. |
+| bIsCustom | Boolean | Set for a custom endpoint, disabling normal iterator response handling. |
+| sPath | String | Request path. |
+| sVerb | String | HTTP verb. |
+| sContentType | String | Request `Content-Type`. |
+| sAcceptType | String | Request `Accept` type. |
+| sMainTableName | String | Dataset name used for the request. |
+| iLimit | Integer | Effective result limit for a collection request. |
+| iOffset | Integer | Number of matching records skipped before returning results. |
+| sOldSQLFilter | String | Internal snapshot of the traditional runtime's previous DD SQL filter. |
+| bOldUseDDSQLFilters | Boolean | Internal snapshot of the traditional runtime's previous `pbUseDDSQLFilters` state. |
+| iStatusCode | Integer | HTTP status code. |
+| sShortStatusMessage | String | Short status text such as `OK` or `Forbidden`. |
+| sErrorMessage | String | Detailed error text included when appropriate. |
 
 #### 6.1.3 tSecuredDataset
 
@@ -2144,7 +2191,7 @@ The cWebApiAuthModifier maintains a list of this struct to determine what endpoi
 
 #### 6.1.4 oneOf
 
-This struct is used to parse validation tables into the OpenApi specification.
+This struct represents validation-table choices in the OpenAPI specification. Cross-platform data dictionaries do not expose validation-table enumeration, so values cannot be inferred there.
 
 #### Members
 

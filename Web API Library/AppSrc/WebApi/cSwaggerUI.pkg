@@ -1,14 +1,14 @@
 ﻿Use cWebBaseControl.pkg
 
 Class cSwaggerUI is a cWebBaseControl
-    
+
     Procedure Construct_Object
         Forward Send Construct_Object
-        
+
         //Url of the OpenApi specification. This is needed to fetch the OpenApi specification.
         { WebProperty = Client }
         Property String psOpenApiUrl ""
-    
+
         Set psJSClass to "df.SwaggerUI"
         Set pbShowLabel to False
     End_Procedure

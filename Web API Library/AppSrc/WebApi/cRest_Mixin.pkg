@@ -1,17 +1,16 @@
 ﻿Class cRest_Mixin is a Mixin
-    
+
     Procedure Define_cRest_Mixin
         Property String psPath
     End_Procedure
-     
-    // Locate_Server and Server are used so that child objects can resolve 
+
+    // Locate_Server and Server are used so that child objects can resolve
     // that a server does not exit.
     { Visibility=Private }
     Function Locate_Server Returns Integer
         Function_Return (Server(Self))
     End_Function
-    
-    
+
     { Visibility=Private }
     Function Server Returns Handle
         Function_Return 0

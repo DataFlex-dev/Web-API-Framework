@@ -28,7 +28,7 @@ Struct tWebApiCallContext
     Handle hoResponseBody
     Handle hoIterator
     Handle[] hoModifiers
-    
+
     //Properties that determine the status of the request
     Boolean bErr
     //Is set to true whenever a custom endpoint is used. This disables iterator logic for the current request.
@@ -38,14 +38,14 @@ Struct tWebApiCallContext
     String sVerb
     String sContentType
     String sAcceptType
-    
+
     //Useful information in the current request
     String sMainTableName
     Integer iLimit
     Integer iOffset
     String sOldSQLFilter
     Boolean bOldUseDDSQLFilters
-    
+
     //Status codes and potential error messages
     Integer iStatusCode
     String sShortStatusMessage

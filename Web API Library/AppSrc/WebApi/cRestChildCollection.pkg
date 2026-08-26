@@ -1,111 +1,122 @@
-﻿Use UI
+﻿#IFDEF IS$CROSS_PLATFORM
+Use Db\cBaseDEO.pkg
+Use WebApi\CrossPlatform\cWebApiDDCompatibility_Mixin.pkg
+#ELSE
 Use cBaseDEO.pkg
+Use WebApi\Windows\cWebApiDDCompatibility_Mixin.pkg
+#ENDIF
 
 //Class used to refer to data in a child table
 { DataAware = True }
 { CompositeClass=cRestField }
 Class cRestChildCollection is a cObject
-    
+
     Import_Class_Protocol cBaseDEO_Mixin
-    
+    Import_Class_Protocol cWebApiDDCompatibility_Mixin
+
     Procedure Construct_Object
         Forward Send Construct_Object
-        
+
         { Visibility=Private }
         Property Boolean pbDataBindable False
-        
+
         Send Define_cBaseDEO_Mixin
-        
+
         Property String psNodeName
-        
+        Property Handle Server
+
         Property Boolean pbReadOnly True
         Property Integer piLimitResult 0
         Property Integer piFindIndex 1
 
     End_Procedure
-    
+
     //This procedure should be called from within cRestDataset to append data to the json
     //This way the cRestChildCollection is responsible for retrieving and setting the value and not the cRestDataset
     /* This procedure can have different flows depending on the value of peDisplayType.
-    
+
     1. The iterator should instantiate a nested array.
-    
+
     2. The Main_DD has a record in the buffer. The related field should be found and a find should be performed based on the value of that field
-    
+
     3. For each record a new nested object should be instantiated
-    
+
     4. After instantiating the record
-    
+
     */
     Procedure AppendToBody Handle hoResponseBody Handle hoIterator
         Handle hoNestedArray hoNestedObject hoChild hoServer
         Integer iChildCount iIndex iLimit iRecordsRetrieved iFindIndex
         String sNodeName
-        
+
         Get Server to hoServer
         Get SchemaName to sNodeName
         Get Child_Count to iChildCount
         Get piLimitResult to iLimit
         Get piFindIndex to iFindIndex
-        
+
         //Create nested object
         Send CreateResponseBodyArray of hoIterator sNodeName (&hoNestedArray)
-        
+
         //Start finding the child records
         Send Find of hoServer FIRST_RECORD iFindIndex
-        
+
         While ( (Found) and not(Err) and ((iLimit = 0) or (iLimit > 0 and iRecordsRetrieved < iLimit)) )
             //When we find a record create a new nested object
             Send CreateResponseBodyObject of hoIterator sNodeName (&hoNestedObject)
-            
+
             //Loop through this objects children and append their values to the nested object
             For iIndex from 0 to (iChildCount - 1)
                 Get ChildByIndex iIndex to hoChild
                 Send AppendToBody of hoChild hoNestedObject hoIterator
             Loop
-            
+
             //Add the nested object to the nested array
             Send AppendToResponseArray of hoIterator hoNestedObject hoNestedArray
-            
+
             Increment iRecordsRetrieved
             //Keep finding child records
-            Send Find of hoServer NEXT_RECORD iFindIndex 
+            Send Find of hoServer NEXT_RECORD iFindIndex
         Loop
-        
+
         Send AppendNestedObject of hoIterator hoNestedArray hoResponseBody sNodeName
     End_Procedure
-    
+
     Function SchemaName Returns String
         Function_Return (psNodeName(Self))
     End_Function
-    
+
     Function FieldName Returns String
         //Just return a empty string so we know we dont have to do anything with this field
         Function_Return ""
     End_Function
-    
+
     Function IsFilterable Returns Boolean
         Function_Return False
     End_Function
-    
+
     Function IsRequired Returns Boolean
         Function_Return False
     End_Function
-    
-    Procedure AfterAttachDDO
+
+    { Visibility=Private }
+    Procedure InitializeDefaults
         Integer iFile
         Handle hoServer
         String sTableName
-        
-        Get Server to hoServer        
-        Get Main_File of hoServer to iFile
-        
-        If (hoServer = 0 and iFile = 0) ;
+
+        Get Server to hoServer
+        If (hoServer = 0) ;
             Procedure_Return
-            
+
+        Get Main_File of hoServer to iFile
+        If (iFile = 0) ;
+            Procedure_Return
+
         If (psNodeName(Self) = "") Begin
-            Get_Attribute DF_FILE_LOGICAL_NAME of iFile to sTableName
-            Set psNodeName to sTableName   
+            Get CompatibilityTableName hoServer iFile to sTableName
+            Set psNodeName to sTableName
         End
     End_Procedure
+
 End_Class

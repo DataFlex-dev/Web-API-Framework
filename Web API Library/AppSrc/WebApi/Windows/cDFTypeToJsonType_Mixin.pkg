@@ -1,0 +1,20 @@
+﻿Class cDFTypeToJsonType_Mixin is a Mixin
+
+    Function DFTypeToJsonType Integer eDataType Returns Integer
+        Integer eJsonType
+
+        Move jsonTypeNull to eJsonType
+
+        Case Begin
+            Case (eDataType = typeASCII or eDataType = typeDate or eDataType = DF_TEXT)
+                Move jsonTypeString to eJsonType
+                Case Break
+            Case (eDataType = DF_BCD)
+                Move jsonTypeDouble to eJsonType
+                Case Break
+        Case End
+
+        Function_Return eJsonType
+    End_Function
+
+End_Class

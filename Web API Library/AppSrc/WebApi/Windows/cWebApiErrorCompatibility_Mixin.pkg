@@ -1,0 +1,25 @@
+Class cWebApiErrorCompatibility_Mixin is a Mixin
+
+    Function CompatibilityErrorDescription Integer iError String sMessage Returns String
+        String sDescription
+        Boolean bAvailable
+
+        Get Error_Text of Desktop iError to sDescription
+        Get Error_Text_Available of Desktop iError to bAvailable
+
+        Move (Trim(sDescription)) to sDescription
+        Move (Trim(sMessage)) to sMessage
+
+        If (sMessage <> "") Begin
+            If (sDescription <> "" and bAvailable) Begin
+                Move (sDescription + " " + sMessage) to sDescription
+            End
+            Else Begin
+                Move sMessage to sDescription
+            End
+        End
+
+        Function_Return sDescription
+    End_Function
+
+End_Class
