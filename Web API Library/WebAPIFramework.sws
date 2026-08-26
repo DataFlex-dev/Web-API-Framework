@@ -1,6 +1,6 @@
 {
     "dependencies": [
-        "DataFlex-dev/Web UI#~1.0.0"
+        "DataFlex-dev/Web UI#^1.0.0"
     ],
     "description": "Library that allows you to easily create REST APIs in DataFlex.",
     "df": 26.0,

@@ -5,10 +5,11 @@ Class cWebApiDDCompatibility_Mixin is a Mixin
     Function CompatibilityTableName Handle hoServer Integer iFile Returns String
         String sTableName
 
-        Get Entity_Attribute of hoServer "Name" to sTableName
+        Get TableDbName of hoServer to sTableName
 
         Function_Return sTableName
     End_Function
+
     Function CompatibilityIsFieldIndexed Handle hoDD Integer iFile Integer iField Returns Boolean
         Boolean bIsIndexed
 
@@ -39,17 +40,17 @@ Class cWebApiDDCompatibility_Mixin is a Mixin
     End_Function
 
     Function CompatibilityIsKeyField Handle hoDD Integer iField Returns Boolean
-        String sPrimaryKey
+        Boolean bIsKeyField
 
-        Get Entity_Field_Attribute of hoDD iField "PrimaryKey" to sPrimaryKey
+        Get IsPrimaryKeyField of hoDD iField to bIsKeyField
 
-        Function_Return (sPrimaryKey = "|CZ1" or Lowercase(sPrimaryKey)="on")
+        Function_Return bIsKeyField
     End_Function
 
     Function CompatibilityFieldName Handle hoDD Integer iFile Integer iField Returns String
         String sFieldName
 
-        Get Entity_Field_Attribute of hoDD iField "Name" to sFieldName
+        Get FieldName of hoDD iField to sFieldName
 
         Function_Return sFieldName
     End_Function
@@ -57,13 +58,17 @@ Class cWebApiDDCompatibility_Mixin is a Mixin
     Function CompatibilityFieldType Handle hoDD Integer iFile Integer iField Returns Integer
         Integer eFieldType
 
-        Get Entity_Field_Type of hoDD iField to eFieldType
+        Get FieldType of hoDD iField to eFieldType
 
         Function_Return eFieldType
     End_Function
 
     Function CompatibilityFieldPrecision Handle hoDD Integer iFile Integer iField Integer eFieldType Returns Integer
-        Function_Return -1
+        Integer iPrecision
+
+        Get FieldPrecision of hoDD iField to iPrecision
+
+        Function_Return iPrecision
     End_Function
 
 End_Class
