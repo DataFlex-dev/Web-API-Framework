@@ -27,8 +27,6 @@ Class cRestField is a cObject
         Property Boolean pbWriteOnly False
         //Determines if this field is required in the request body
         Property Boolean pbRequired False
-        //Determines if this field should use the DD_Required flag
-        Property Boolean pbUseDDRequired False
         //Determines if this field is shown during a GET all call.
         Property Boolean pbShowDuringGetAll True
         //Determines the field name in request en response bodies.
@@ -233,16 +231,15 @@ Class cRestField is a cObject
 
     //Checks if the current field is required.
     Function IsRequired Returns Boolean
-        Boolean bRequired bUseDDRequired
+        Boolean bRequired
         Handle hoDD
         Integer iFile iField
 
         Get Main_DD to hoDD
         Get Data_File to iFile
         Get Data_Field to iField
-        Get pbUseDDRequired to bUseDDRequired
 
-        If (bUseDDRequired and hoDD <> 0 and iFile <> 0 and iField <> 0) Begin
+        If (hoDD <> 0 and iFile <> 0 and iField <> 0) Begin
             Get CompatibilityIsRequired hoDD iFile iField to bRequired
         End
 

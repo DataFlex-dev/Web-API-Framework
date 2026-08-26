@@ -1455,7 +1455,6 @@ End_Object
 | pbFilterable | Boolean | This property determines if this field can be filtered through query parameters. |  |
 | pbShowDuringGetAll | Boolean | This property determines if the field will be shown during a GET all. Allows developers to have less detail during a GET all compared to a GET of a specific record. |  |
 | pbRequired | Boolean | This property determines if the field is required in the request body. This is used in the OpenApi specification. |  |
-| pbUseDDRequired | Boolean | When `True`, a data-aware field reads the DD `DD_Required` option. `pbRequired` remains an explicit fallback. |  |
 | piPrecision | Integer | Precision used for numeric field metadata. It is discovered from classic `DF_BCD` fields on the traditional Windows runtime; set it explicitly on the cross-platform runtime when needed. |  |
 
 
@@ -1474,7 +1473,7 @@ End_Object
 | FieldHelp | Retrieves the help information for the current field. If psExampleValue is set this will be absolute. For data aware fields the File_Field_Status_Help is called from the data dictionary. | String |  |
 | FieldValidationTable | Returns the validation table tied to the current field on the traditional Windows runtime. Returns an empty array on the cross-platform runtime because its DD API does not expose validation-table enumeration. | Variant[][2] |  |
 | IsFilterable | Returns `False` when `pbFilterable` is `False`. A data-aware field must also be part of an index reported by the runtime-specific DD compatibility layer. | Boolean |  |
-| IsRequired | Returns the DD `DD_Required` option when `pbUseDDRequired` is `True`, falling back to `pbRequired`. | Boolean |  |
+| IsRequired | Returns the DD `DD_Required` option for data-aware fields, falling back to `pbRequired`. | Boolean |  |
 | Construct_Object | Framework lifecycle procedure called during object construction. Do not call directly. |  |  |
 
 ### 4.9 cOpenApiRestField
@@ -1499,7 +1498,6 @@ Subclass of the cRestField. It's only purpose is returning the OpenApi specifica
 | pbReadOnly | Boolean | Read only fields are only retrieved during GET requests and are omitted during other types of requests. | [cRestField](#48-crestfield) |
 | pbWriteOnly | Boolean | Write only fields are only used inside of POST, PUT and PATCH requests but are never returned in the response body. | [cRestField](#48-crestfield) |
 | pbRequired | Boolean | This property determines if the field is required in the request body. This is used in the OpenApi specification. | [cRestField](#48-crestfield) |
-| pbUseDDRequired | Boolean | When `True`, reads the DD `DD_Required` option before falling back to `pbRequired`. | [cRestField](#48-crestfield) |
 | pbShowDuringGetAll | Boolean | This property determines if the field will be shown during a GET all. Allows developers to have less detail during a GET all compared to a GET of a specific record. | [cRestField](#48-crestfield) |
 | psFieldName | String | The name of the field is shown in the response body. | [cRestField](#48-crestfield) |
 | peFieldType | Integer | This property determines the field type of the current field. | [cRestField](#48-crestfield) |
@@ -1524,7 +1522,7 @@ Subclass of the cRestField. It's only purpose is returning the OpenApi specifica
 | FieldHelp | Retrieves the help information for the current field. If psExampleValue is set this will be absolute. For data aware fields the File_Field_Status_Help is called from the data dictionary. | String | [cRestField](#48-crestfield) |
 | FieldValidationTable | Returns the field validation table on the traditional Windows runtime and an empty array on the cross-platform runtime. | Variant[][2] | [cRestField](#48-crestfield) |
 | IsFilterable | Returns `False` when `pbFilterable` is `False`. A data-aware field must also be indexed according to the runtime-specific DD compatibility layer. | Boolean | [cRestField](#48-crestfield) |
-| IsRequired | Returns the DD `DD_Required` option when enabled, falling back to `pbRequired`. | Boolean | [cRestField](#48-crestfield) |
+| IsRequired | Returns the DD `DD_Required` option for data-aware fields, falling back to `pbRequired`. | Boolean | [cRestField](#48-crestfield) |
 
 ### 4.10 cRestChildCollection
 
@@ -2076,7 +2074,7 @@ Exposed components determine what a request can read or write:
 | `cRestField` | Included in responses by default. | Accepted by `POST`, `PUT`, and `PATCH` by default. |
 | `pbReadOnly = True` | Included in responses. | Ignored for `POST`, `PUT`, and `PATCH`. |
 | `pbWriteOnly = True` | Omitted from responses. | Accepted in request bodies. |
-| `pbRequired = True` | No direct effect on responses. | Marked as required in the generated request schema and required-field checks. |
+| `pbRequired = True` | No direct effect on responses. | Marked as required in the generated request schema. Data-aware fields also honor the DD `DD_Required` option. |
 | `cRestEntity` | Parent-table data is returned as a nested object. | Related-parent writes are supported on the traditional Windows runtime. Treat related entities as read-only on the cross-platform runtime. |
 | `cRestChildCollection` | Child-table data is returned as a nested array. | Omitted from `POST`, `PUT`, `PATCH`, and `DELETE`; child collections are read-only. |
 

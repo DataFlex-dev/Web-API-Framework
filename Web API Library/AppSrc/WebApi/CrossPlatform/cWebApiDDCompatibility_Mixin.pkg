@@ -1,4 +1,4 @@
-Use Db\cDD_Required_mixin.pkg
+﻿Use Db\cDD_Required_mixin.pkg
 
 Class cWebApiDDCompatibility_Mixin is a Mixin
 
@@ -43,7 +43,7 @@ Class cWebApiDDCompatibility_Mixin is a Mixin
 
         Get Entity_Field_Attribute of hoDD iField "PrimaryKey" to sPrimaryKey
 
-        Function_Return (sPrimaryKey = "|CZ1")
+        Function_Return (sPrimaryKey = "|CZ1" or Lowercase(sPrimaryKey)="on")
     End_Function
 
     Function CompatibilityFieldName Handle hoDD Integer iFile Integer iField Returns String
