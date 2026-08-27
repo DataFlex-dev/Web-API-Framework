@@ -16,16 +16,6 @@ Class cDDPSchemaEndpoint is a cBaseRestDataset
         Set pbAllowDelete to False
     End_Procedure
 
-    { Visibility = Private }
-    // Maps a DataFlex field type + precision to a lowercase schema type string.
-    Function DDPTypeString Integer eType Integer iPrecision Returns String
-        If (eType = DF_BCD) Begin
-            If (iPrecision) Function_Return "decimal"
-            Function_Return "integer"
-        End
-        If (eType = DF_DATE) Function_Return "date"
-        Function_Return "string"
-    End_Function
 
     { MethodType = Event }
     // GET /ddp/v1/schema
@@ -37,7 +27,7 @@ Class cDDPSchemaEndpoint is a cBaseRestDataset
     // }
     Procedure OnHttpGet tWebApiCallContext ByRef webapicallcontext
         tDDPDataDictPair[] aDataDicts
-        Handle hoTable hFile hoDD
+        Handle hoTable hoDD
         Integer iIndex iField iFieldCount eType iPrecision
         String sFieldName sTypeStr
 
@@ -48,17 +38,16 @@ Class cDDPSchemaEndpoint is a cBaseRestDataset
 
         For iIndex from 0 to (SizeOfArray(aDataDicts) - 1)
             Move aDataDicts[iIndex].hoDD to hoDD
-            Get Main_File of hoDD to hFile
 
             Get Create (RefClass(cJsonObject)) to hoTable
             Send InitializeJsonType of hoTable jsonTypeObject
 
-            Get_Attribute DF_FILE_NUMBER_FIELDS of hFile to iFieldCount
+            Delegate Get FieldCount hoDD to iFieldCount
             For iField from 1 to iFieldCount
-                Get_Attribute DF_FIELD_NAME      of hFile iField to sFieldName
-                Get_Attribute DF_FIELD_TYPE      of hFile iField to eType
-                Get_Attribute DF_FIELD_PRECISION of hFile iField to iPrecision
-                Get DDPTypeString eType iPrecision to sTypeStr
+                Delegate Get FieldName hoDD iField to sFieldName
+                Delegate Get FieldType hoDD iField to eType
+                Delegate Get FieldPrecision hoDD iField to iPrecision
+                Delegate Get DDPTypeString eType iPrecision to sTypeStr
                 Send SetMemberValue of hoTable sFieldName jsonTypeString sTypeStr
             Loop
 

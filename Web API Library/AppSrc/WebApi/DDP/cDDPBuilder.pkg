@@ -149,47 +149,9 @@ Class cDDPBuilder_Mixin is a Mixin
     // The optional hoOptParentDD parameter prevents infinite recursion when
     // clearing bidirectional relationships ΓÇö it skips re-clearing the caller.
     Procedure ClearRelationShipsOnDD Handle hoDD Handle hoOptParentDD
-        Handle hFile
-
-        // Disable SQL filter mode and clear any accumulated SQL filter string.
-        Set pbUseDDSQLFilters of hoDD to False
-        Set psSQLFilter of hoDD to ""
-
-        // Remove the constrain-file relationship (child-to-parent scope lock).
-        Set Constrain_File of hoDD to 0
-
-        // Drain all client files (1-to-N child file references) from this DD.
-        // Index 0 is used repeatedly because Remove_Client_File shifts the array down.
-        While (Client_File_Count(hoDD))
-            Get Client_File of hoDD 0 to hFile
-            Send Remove_Client_File of hoDD hFile
-        Loop
-
-        // Drain all server files (N-to-1 parent file references) from this DD.
-        While (Server_File_Count(hoDD))
-            Get Server_File of hoDD 0 to hFile
-            Send Remove_Server_File of hoDD hFile
-        Loop
-
-        // Recursively clear any data-set client DDs (child DDOs), skipping
-        // the optional parent to avoid cycling back up the chain.
-        While (Data_Set_Client_Count(hoDD))
-            Get Data_Set_Client of hoDD 0 to hFile
-            If (num_arguments <= 1 or hoOptParentDD <> hFile) ;
-                Send ClearRelationShipsOnDD hFile hoDD
-            Send Detach_Client of hoDD hFile
-        Loop
-
-        // Recursively clear any data-set server DDs (parent DDOs).
-        While (Data_Set_Server_Count(hoDD))
-            Get Data_Set_Server of hoDD 0 to hFile
-            If (num_arguments <= 1 or hoOptParentDD <> hFile) ;
-                Send ClearRelationShipsOnDD hFile hoDD
-            Send Detach_Server of hoDD hFile
-        Loop
-
-        // Zero the record buffer so there is no stale data after cleanup.
-        Send Clear of hoDD
+        // Relationship cleanup is runtime-specific. The compatibility layer
+        // removes Classic DDO links or resets cross-platform constraints.
+        Send DDPClearRelations hoDD hoOptParentDD
     End_Procedure
 
     // Wires up the live DD relationships described by a tDDPTableQuery tree so
@@ -205,8 +167,7 @@ Class cDDPBuilder_Mixin is a Mixin
         // and set the DDO_Server pointer so the DataFlex DD layer tracks the
         // relationship and auto-reads parent buffers during navigation.
         For iIndex from 0 to (SizeOfArray(query.aParents) - 1)
-            Send Add_Server_File of query.hoDD (Main_File(query.aParents[iIndex].hoDD))
-            Set DDO_Server of query.hoDD to query.aParents[iIndex].hoDD
+            Send DDPLink query.hoDD query.aParents[iIndex].hoDD False False
 
             // Recurse so grandparent chains are linked up as well.
             Get QueryLinkUp query.aParents[iIndex] to oResult
@@ -218,10 +179,7 @@ Class cDDPBuilder_Mixin is a Mixin
         // navigation on the child is automatically scoped to the current parent
         // record ΓÇö without this, Request_Read on the child would scan the whole table.
         For iIndex from 0 to (SizeOfArray(query.aChilds) - 1)
-            Send Add_Client_File of query.hoDD (Main_File(query.aChilds[iIndex].hoDD))
-            Send Add_Server_File of query.aChilds[iIndex].hoDD (Main_File(query.hoDD))
-            Set DDO_Server of query.aChilds[iIndex].hoDD to query.hoDD
-            Set Constrain_File of query.aChilds[iIndex].hoDD to (Main_File(query.hoDD))
+            Send DDPLink query.aChilds[iIndex].hoDD query.hoDD True True
 
             // Recurse into the child's own children.
             Get QueryLinkUp query.aChilds[iIndex] to oResult
@@ -409,7 +367,8 @@ Class cDDPBuilder_Mixin is a Mixin
     // supplied, constraints on FK fields that are physically stored in the
     // parent table are redirected to the parent's field instead.
     Function AddConstrainsToCurrentSet Handle hoMainDD tDDPTableQuery query tDDPTableQuery optParent Returns tDDPBuilderResult
-        Integer iIndex iRelatedField
+        Integer iIndex iField iFieldCount iRelatedField
+        Boolean bRelated bRedirected
         tDDPBuilderResult oResult
 
         If (num_arguments > 2) Begin
@@ -418,13 +377,19 @@ Class cDDPBuilder_Mixin is a Mixin
             // parent. If so, apply the constraint to the parent field so the
             // DD layer evaluates it in the correct table scope.
             For iIndex from 0 to (SizeOfArray(query.aConstrains) - 1)
-                Get IsParentFieldRelated query.hoDD query.aConstrains[iIndex].hField optParent.hoDD to iRelatedField
-                If (iRelatedField) Begin
-                    // Constraint field is a FK to the parent ΓÇö apply it there.
-                    Get AddConstrain hoMainDD optParent.hoDD iRelatedField query.aConstrains[iIndex].eMode query.aConstrains[iIndex].aParams[0] to oResult
-                    If (oResult.iErr) Function_Return oResult
-                End
-                Else Begin
+                Move False to bRedirected
+                Get FieldCount optParent.hoDD to iFieldCount
+                For iField from 1 to iFieldCount
+                    Get FieldRelation optParent.hoDD query.hoDD iField (&iRelatedField) to bRelated
+                    If (bRelated and iRelatedField = query.aConstrains[iIndex].hField) Begin
+                        // Constraint field is a FK to the parent - apply it there.
+                        Get AddConstrain hoMainDD optParent.hoDD iField query.aConstrains[iIndex].eMode query.aConstrains[iIndex].aParams[0] to oResult
+                        If (oResult.iErr) Function_Return oResult
+                        Move True to bRedirected
+                        Break
+                    End
+                Loop
+                If (not(bRedirected)) Begin
                     // Constraint belongs directly on this table.
                     Get AddConstrain hoMainDD query.hoDD query.aConstrains[iIndex].hField query.aConstrains[iIndex].eMode query.aConstrains[iIndex].aParams[0] to oResult
                     If (oResult.iErr) Function_Return oResult
@@ -432,7 +397,7 @@ Class cDDPBuilder_Mixin is a Mixin
             Loop
         End
         Else Begin
-            // Main table ΓÇö apply all constraints directly without FK redirect.
+            // Main table - apply all constraints directly without FK redirect.
             For iIndex from 0 to (SizeOfArray(query.aConstrains) - 1)
                 Get AddConstrain hoMainDD query.hoDD query.aConstrains[iIndex].hField query.aConstrains[iIndex].eMode query.aConstrains[iIndex].aParams[0] to oResult
                 If (oResult.iErr) Function_Return oResult
@@ -521,12 +486,12 @@ Class cDDPBuilder_Mixin is a Mixin
         // DataFlex Request_Read mode constant for a GE (first-in-range) find.
         Send Clear of query.hoDD
         Send Set_Constrains_To_Buffers query
-        Send Request_Read of query.hoDD (eMode - 1) iMainFile iIndex
+        Send DDPRequestRead query.hoDD (eMode - 1) iMainFile iIndex
 
         // Skip the first iOffset rows before beginning collection.
         While (Found and query.iOffset)
             Decrement query.iOffset
-            Send Request_Read of query.hoDD NEXT_RECORD iMainFile iIndex
+            Send DDPRequestRead query.hoDD NEXT_RECORD iMainFile iIndex
         Loop
 
         While (Found and query.iLimit)
@@ -558,7 +523,7 @@ Class cDDPBuilder_Mixin is a Mixin
             Send AddMember of hoJson hoRow
             Send Destroy of hoRow
             Decrement query.iLimit
-            Send Request_Read of query.hoDD NEXT_RECORD iMainFile iIndex
+            Send DDPRequestRead query.hoDD NEXT_RECORD iMainFile iIndex
         Loop
 
         // Clean up any temporary index created for custom ordering.
@@ -618,12 +583,12 @@ Class cDDPBuilder_Mixin is a Mixin
 
         Send Clear of query.hoDD
         Send Set_Constrains_To_Buffers query
-        Send Request_Read of query.hoDD (eMode - 1) iMainFile iIndex
+        Send DDPRequestRead query.hoDD (eMode - 1) iMainFile iIndex
 
         // Skip the first iOffset rows before beginning collection.
         While (Found and query.iOffset)
             Decrement query.iOffset
-            Send Request_Read of query.hoDD NEXT_RECORD iMainFile iIndex
+            Send DDPRequestRead query.hoDD NEXT_RECORD iMainFile iIndex
         Loop
 
         While (Found and query.iLimit)
@@ -656,7 +621,7 @@ Class cDDPBuilder_Mixin is a Mixin
             Send AddMember of hoMain hoRow
             Send Destroy of hoRow
             Decrement query.iLimit
-            Send Request_Read of query.hoDD NEXT_RECORD iMainFile iIndex
+            Send DDPRequestRead query.hoDD NEXT_RECORD iMainFile iIndex
         Loop
 
         // Assemble the final response object: one key per table, each mapped
@@ -797,12 +762,12 @@ Class cDDPBuilder_Mixin is a Mixin
 
         Send Clear of query.hoDD
         Send Set_Constrains_To_Buffers query
-        Send Request_Read of query.hoDD (eMode - 1) iMainFile iIndex
+        Send DDPRequestRead query.hoDD (eMode - 1) iMainFile iIndex
 
         // Skip the first iOffset rows before beginning collection.
         While (Found and query.iOffset)
             Decrement query.iOffset
-            Send Request_Read of query.hoDD NEXT_RECORD iMainFile iIndex
+            Send DDPRequestRead query.hoDD NEXT_RECORD iMainFile iIndex
         Loop
 
         While (Found and query.iLimit)
@@ -850,7 +815,7 @@ Class cDDPBuilder_Mixin is a Mixin
                 // Clear resets the child buffer; the scoped find then reads from
                 // the beginning of the current parent's child range.
                 Send Clear of query.aChilds[iRelatedIndex].hoDD
-                Send Request_Read of query.aChilds[iRelatedIndex].hoDD (eMode - 1) hChildFile aChildIndexes[iRelatedIndex]
+                Send DDPRequestRead query.aChilds[iRelatedIndex].hoDD (eMode - 1) hChildFile aChildIndexes[iRelatedIndex]
 
                 While (Found)
                     Move (GetRowID(hChildFile)) to riChildRowID
@@ -866,12 +831,12 @@ Class cDDPBuilder_Mixin is a Mixin
                         Send Destroy of hoRelatedJson
                     End
 
-                    Send Request_Read of query.aChilds[iRelatedIndex].hoDD NEXT_RECORD hChildFile aChildIndexes[iRelatedIndex]
+                    Send DDPRequestRead query.aChilds[iRelatedIndex].hoDD NEXT_RECORD hChildFile aChildIndexes[iRelatedIndex]
                 Loop
             Loop
 
             Decrement query.iLimit
-            Send Request_Read of query.hoDD NEXT_RECORD iMainFile iIndex
+            Send DDPRequestRead query.hoDD NEXT_RECORD iMainFile iIndex
         Loop
 
         // Assemble the response object.
@@ -939,7 +904,7 @@ Class cDDPBuilder_Mixin is a Mixin
         Get Create iDDClass to DDDef.hoDD
         If (not(IsObjectValidDataDictionary(Self, DDDef.hoDD))) Begin
             Send Destroy of DDDef.hoDD
-            Error DFERR_PROGRAM "To expose class is not a valid Data Dictionary."
+            Error DFERR_PROGRAM "The exposed class is not a valid Data Dictionary."
             Procedure_Return
         End
 
@@ -947,7 +912,7 @@ Class cDDPBuilder_Mixin is a Mixin
         Get NameOfDD DDDef.hoDD to DDDef.sDisplayName
         If (SizeOfString(DDDef.sDisplayName) = 0) Begin
             Send Destroy of DDDef.hoDD
-            Error DFERR_PROGRAM "To expose class does not have a valid name."
+            Error DFERR_PROGRAM "The exposed class does not have a valid name."
             Procedure_Return
         End
 
@@ -1124,8 +1089,7 @@ Class cDDPBuilder_Mixin is a Mixin
         Get DDParents record.hoDD to aSchemaParents
         For iParentIdx from 0 to (SizeOfArray(aSchemaParents) - 1)
             If (aSchemaParents[iParentIdx] <> 0) Begin
-                Send Add_Server_File of record.hoDD (Main_File(aSchemaParents[iParentIdx]))
-                Set DDO_Server of record.hoDD to aSchemaParents[iParentIdx]
+                Send DDPLink record.hoDD aSchemaParents[iParentIdx] False False
             End
         Loop
 
@@ -1143,10 +1107,7 @@ Class cDDPBuilder_Mixin is a Mixin
             Loop
 
             If (not(bAlreadyWired)) Begin
-                Get Main_File of record.hoDD to hDirectParentFile
-                Send Add_Client_File of record.hoDD hChildFile
-                Send Add_Server_File of record.aChilds[iIndex].hoDD hDirectParentFile
-                Set DDO_Server of record.aChilds[iIndex].hoDD to record.hoDD
+                Send DDPLink record.aChilds[iIndex].hoDD record.hoDD True False
             End
 
             Get SaveLinkUp record.aChilds[iIndex] to oResult
@@ -1176,21 +1137,21 @@ Class cDDPBuilder_Mixin is a Mixin
     // DD pending layer, NOT the physical buffer). We look up FK values from aFields rather
     // than Get_Field_Value because the physical buffer is still zeroed after Clear.
     Procedure FindSchemaParentsFromBuffer Handle hoDD tDDPSaveField[] aFields
-        Handle hFile hParentFile
-        Integer iField iFieldCount iRelatedFile iRelatedField iPrimaryIndex iParent iAF
+        Handle hParentFile
+        Integer iField iFieldCount iRelatedField iPrimaryIndex iParent iAF
+        Boolean bRelated
         Handle[] aParents
         String sFKValue
 
-        Get Main_File of hoDD to hFile
-        Get_Attribute DF_FILE_NUMBER_FIELDS of hFile to iFieldCount
+        Get FieldCount hoDD to iFieldCount
         Get DDParents hoDD to aParents
 
         For iParent from 0 to (SizeOfArray(aParents) - 1)
             If (aParents[iParent] <> 0) Begin
                 Get Main_File of aParents[iParent] to hParentFile
                 For iField from 1 to iFieldCount
-                    Get_Attribute DF_FIELD_RELATED_FILE of hFile iField to iRelatedFile
-                    If (iRelatedFile = hParentFile) Begin
+                    Get FieldRelation hoDD aParents[iParent] iField (&iRelatedField) to bRelated
+                    If (bRelated) Begin
                         Move "" to sFKValue
                         For iAF from 0 to (SizeOfArray(aFields) - 1)
                             If (aFields[iAF].hField = iField) Begin
@@ -1199,10 +1160,9 @@ Class cDDPBuilder_Mixin is a Mixin
                             End
                         Loop
                         If (sFKValue <> "" and sFKValue <> "0") Begin
-                            Get_Attribute DF_FIELD_RELATED_FIELD of hFile iField to iRelatedField
-                            Set_Field_Value hParentFile iRelatedField to sFKValue
+                            Send DDPSetFieldValue aParents[iParent] hParentFile iRelatedField sFKValue
                             Get PrimaryDDIndex aParents[iParent] to iPrimaryIndex
-                            Send Request_Find of aParents[iParent] EQ hParentFile iPrimaryIndex
+                            Send DDPRequestFind aParents[iParent] EQ hParentFile iPrimaryIndex
                         End
                         Break
                     End
@@ -1231,7 +1191,7 @@ Class cDDPBuilder_Mixin is a Mixin
         // Request_Validate and Request_Save operate on the correct dirty set.
         Get Main_File of record.hoDD to hFile
         For iIndex from 0 to (SizeOfArray(record.aFields) - 1)
-            Set File_Field_Changed_Value of record.hoDD hFile record.aFields[iIndex].hField to record.aFields[iIndex].sValue
+            Send DDPSetChangedValue record.hoDD hFile record.aFields[iIndex].hField record.aFields[iIndex].sValue
         Loop
 
         // Find parent records before Request_Validate so the parent buffers are populated.
@@ -1242,7 +1202,7 @@ Class cDDPBuilder_Mixin is a Mixin
         Get Request_Validate of record.hoDD to bErr
         If (bErr) Begin
             Move DDPERR_VALIDATION_FAILED to oResult.iErr
-            Get Error_Text LastErr to oResult.sError
+            Get DDPErrorText "Validation failed." to oResult.sError
             Function_Return oResult
         End
 
@@ -1250,7 +1210,7 @@ Class cDDPBuilder_Mixin is a Mixin
         Move (Err) to bErr
         If (bErr) Begin
             Move DDPERR_SAVE_FAILED to oResult.iErr
-            Get Error_Text LastErr to oResult.sError
+            Get DDPErrorText "Save failed." to oResult.sError
             Function_Return oResult
         End
 
@@ -1317,17 +1277,15 @@ Class cDDPBuilder_Mixin is a Mixin
     // Returns the 1-based field numbers that make up the primary index of hoDD.
     // Used in ExecuteDeleteRecord to identify which supplied fields are PK fields.
     Function GetPrimaryKeyFields Handle hoDD Returns Integer[]
-        Handle hFile
         Integer iPrimaryIndex iSegmentCount iSegment iField
         Integer[] aFields
 
-        Get Main_File of hoDD to hFile
         Get PrimaryDDIndex hoDD to iPrimaryIndex
         If (not(iPrimaryIndex)) Function_Return aFields
 
-        Get_Attribute DF_INDEX_NUMBER_SEGMENTS of hFile iPrimaryIndex to iSegmentCount
+        Get IndexSegmentCount hoDD iPrimaryIndex to iSegmentCount
         For iSegment from 1 to iSegmentCount
-            Get_Attribute DF_INDEX_SEGMENT_FIELD of hFile iPrimaryIndex iSegment to iField
+            Get IndexSegmentField hoDD iPrimaryIndex iSegment to iField
             Move iField to aFields[-1]
         Loop
 
@@ -1391,8 +1349,7 @@ Class cDDPBuilder_Mixin is a Mixin
         Get DDParents record.hoDD to aParents
         For iIndex from 0 to (SizeOfArray(aParents) - 1)
             If (aParents[iIndex] <> 0) Begin
-                Send Add_Server_File of record.hoDD (Main_File(aParents[iIndex]))
-                Set DDO_Server of record.hoDD to aParents[iIndex]
+                Send DDPLink record.hoDD aParents[iIndex] False False
             End
         Loop
 
@@ -1401,9 +1358,7 @@ Class cDDPBuilder_Mixin is a Mixin
             Get DDChilds record.hoDD to aChilds
             For iIndex from 0 to (SizeOfArray(aChilds) - 1)
                 If (aChilds[iIndex] <> 0) Begin
-                    Send Add_Client_File of record.hoDD (Main_File(aChilds[iIndex]))
-                    Send Add_Server_File of aChilds[iIndex] (Main_File(record.hoDD))
-                    Set DDO_Server of aChilds[iIndex] to record.hoDD
+                    Send DDPLink aChilds[iIndex] record.hoDD True False
                 End
             Loop
         End
@@ -1458,14 +1413,14 @@ Class cDDPBuilder_Mixin is a Mixin
         For iIndex from 0 to (SizeOfArray(record.aFields) - 1)
             For iPKIndex from 0 to (SizeOfArray(aPKFields) - 1)
                 If (record.aFields[iIndex].hField = aPKFields[iPKIndex]) Begin
-                    Set_Field_Value hFile record.aFields[iIndex].hField to record.aFields[iIndex].sValue
+                    Send DDPSetFieldValue record.hoDD hFile record.aFields[iIndex].hField record.aFields[iIndex].sValue
                     Break
                 End
             Loop
         Loop
 
         Send Rebuild_Constraints of record.hoDD
-        Send Find of record.hoDD EQ (PrimaryDDIndex(Self, record.hoDD))
+        Send DDPRequestFind record.hoDD EQ hFile (PrimaryDDIndex(Self, record.hoDD))
         If (not(Found) or Err) Begin
             Move DDPERR_RECORD_NOT_FOUND to oResult.iErr
             Move "Record not found." to oResult.sError
@@ -1482,7 +1437,7 @@ Class cDDPBuilder_Mixin is a Mixin
                 End
             Loop
             If (not(bPKFound)) Begin
-                Get_Field_Value hFile record.aFields[iIndex].hField to sCurrentValue
+                Move (DDPGetFieldValue(Self, record.hoDD, hFile, record.aFields[iIndex].hField)) to sCurrentValue
                 If (sCurrentValue <> record.aFields[iIndex].sValue) Begin
                     Move DDPERR_RECORD_CHANGED to oResult.iErr
                     Move "Record has been modified since it was last read." to oResult.sError
@@ -1498,12 +1453,12 @@ Class cDDPBuilder_Mixin is a Mixin
         Send SerializeBufferToJson hoJson serialQuery
 
         // Validate the delete through the DD layer (checks referential integrity rules).
-        Get Validate_Delete of record.hoDD to bErr
+        Get DDPValidateDelete record.hoDD to bErr
         If (bErr) Begin
             Send Destroy of hoJson
             Move 0 to hoJson
             Move DDPERR_VALIDATION_FAILED to oResult.iErr
-            Get Error_Text LastErr to oResult.sError
+            Get DDPErrorText "Delete validation failed." to oResult.sError
             Function_Return oResult
         End
 
@@ -1513,7 +1468,7 @@ Class cDDPBuilder_Mixin is a Mixin
             Send Destroy of hoJson
             Move 0 to hoJson
             Move DDPERR_DELETE_FAILED to oResult.iErr
-            Get Error_Text LastErr to oResult.sError
+            Get DDPErrorText "Delete failed." to oResult.sError
             Function_Return oResult
         End
 
@@ -1596,8 +1551,7 @@ Class cDDPBuilder_Mixin is a Mixin
         Get DDParents record.hoDD to aParents
         For iIndex from 0 to (SizeOfArray(aParents) - 1)
             If (aParents[iIndex] <> 0) Begin
-                Send Add_Server_File of record.hoDD (Main_File(aParents[iIndex]))
-                Set DDO_Server of record.hoDD to aParents[iIndex]
+                Send DDPLink record.hoDD aParents[iIndex] False False
             End
         Loop
 
@@ -1650,14 +1604,14 @@ Class cDDPBuilder_Mixin is a Mixin
         For iIndex from 0 to (SizeOfArray(record.aFields) - 1)
             For iPKIndex from 0 to (SizeOfArray(aPKFields) - 1)
                 If (record.aFields[iIndex].hField = aPKFields[iPKIndex]) Begin
-                    Set_Field_Value hFile record.aFields[iIndex].hField to record.aFields[iIndex].sValue
+                    Send DDPSetFieldValue record.hoDD hFile record.aFields[iIndex].hField record.aFields[iIndex].sValue
                     Break
                 End
             Loop
         Loop
 
         Send Rebuild_Constraints of record.hoDD
-        Send Find of record.hoDD EQ (PrimaryDDIndex(Self, record.hoDD))
+        Send DDPRequestFind record.hoDD EQ hFile (PrimaryDDIndex(Self, record.hoDD))
         If (not(Found) or Err) Begin
             Move DDPERR_RECORD_NOT_FOUND to oResult.iErr
             Move "Record not found." to oResult.sError
@@ -1674,14 +1628,14 @@ Class cDDPBuilder_Mixin is a Mixin
                 End
             Loop
             If (not(bPKFound)) Begin
-                Set File_Field_Changed_Value of record.hoDD hFile record.aFields[iIndex].hField to record.aFields[iIndex].sValue
+                Send DDPSetChangedValue record.hoDD hFile record.aFields[iIndex].hField record.aFields[iIndex].sValue
             End
         Loop
 
         Get Request_Validate of record.hoDD to bErr
         If (bErr) Begin
             Move DDPERR_VALIDATION_FAILED to oResult.iErr
-            Get Error_Text LastErr to oResult.sError
+            Get DDPErrorText "Validation failed." to oResult.sError
             Function_Return oResult
         End
 
@@ -1689,7 +1643,7 @@ Class cDDPBuilder_Mixin is a Mixin
         Move (Err) to bErr
         If (bErr) Begin
             Move DDPERR_UPDATE_FAILED to oResult.iErr
-            Get Error_Text LastErr to oResult.sError
+            Get DDPErrorText "Update failed." to oResult.sError
             Function_Return oResult
         End
 

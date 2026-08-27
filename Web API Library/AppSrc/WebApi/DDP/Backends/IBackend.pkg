@@ -6,6 +6,23 @@ Register_Procedure Set !1 !3 !4 !5 !6 !7 !8 !9 Value
 #ENDCOMMAND
 
 Register_Function DDByName String sTable Returns Handle
+Register_Function FieldCount Handle hoDD Returns Integer
+Register_Function FieldName Handle hoDD Integer iField Returns String
+Register_Function FieldType Handle hoDD Integer iField Returns Integer
+Register_Function FieldPrecision Handle hoDD Integer iField Returns Integer
+Register_Function FieldRelation Handle hoDD Handle hoParentDD Integer iField Integer ByRef iRelatedField Returns Boolean
+Register_Function IndexSegmentCount Handle hoDD Integer iIndex Returns Integer
+Register_Function IndexSegmentField Handle hoDD Integer iIndex Integer iSegment Returns Integer
+Register_Function DDPTypeString Integer eType Integer iPrecision Returns String
+Register_Procedure DDPLink Handle hoDD Handle hoRelated Boolean bClient Boolean bConstrain
+Register_Procedure DDPClearRelations Handle hoDD Handle hoOptParentDD
+Register_Procedure DDPRequestRead Handle hoDD Integer eMode Handle hFile Integer iIndex
+Register_Procedure DDPRequestFind Handle hoDD Integer eMode Handle hFile Integer iIndex
+Register_Procedure DDPSetFieldValue Handle hoDD Handle hFile Integer iField String sValue
+Register_Procedure DDPSetChangedValue Handle hoDD Handle hFile Integer iField String sValue
+Register_Function DDPGetFieldValue Handle hoDD Handle hFile Integer iField Returns String
+Register_Function DDPValidateDelete Handle hoDD Returns Boolean
+Register_Function DDPErrorText String sFallback Returns String
 
 Struct tDDPBuilderResult
     { Name="err" }

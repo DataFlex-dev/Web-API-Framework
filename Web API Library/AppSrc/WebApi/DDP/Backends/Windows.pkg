@@ -143,32 +143,6 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Function_Return False
     End_Function
 
-    // Searches hoDD's field list for a field whose DF_FIELD_RELATED_FILE equals
-    // hoParentDD's main file and whose DF_FIELD_RELATED_FIELD equals iField.
-    // Returns the 1-based local field number, or 0 if no such FK column exists.
-    // Used during flat/flatlinked serialisation to locate the FK column that
-    // links a child record back to its parent.
-    Function IsParentFieldRelated Handle hoParentDD Integer iField Handle hoDD Returns Integer
-        Integer iIndex iFieldCount iTestField
-        Handle hParentFile hFile hTestFile
-
-        // A DD cannot be a parent of itself.
-        If (hoParentDD = hoDD) Function_Return 0
-
-        Get Main_File of hoDD to hFile
-        Get Main_File of hoParentDD to hParentFile
-        Get_Attribute DF_FILE_NUMBER_FIELDS of hFile to iFieldCount
-        For iIndex from 1 to iFieldCount
-            Get_Attribute DF_FIELD_RELATED_FILE of hFile iIndex to hTestFile
-            If (hTestFile = hParentFile) Begin
-                Get_Attribute DF_FIELD_RELATED_FIELD of hFile iIndex to iTestField
-                If (iTestField = iField) Begin
-                    Function_Return iIndex
-                End
-            End
-        Loop
-        Function_Return 0
-    End_Function
 
     // Event hook raised after a DD is successfully validated and exposed.
     { MethodType=Event }
@@ -376,12 +350,80 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         String sFieldName
         Get Main_File of hoDD to hFile
         Get_Attribute DF_FILE_NUMBER_FIELDS of hFile to iFieldCount
-        If (iField >= iFieldCount) Begin
+        If (iField < 1 or iField > iFieldCount) Begin
             Function_Return ""
         End
         Get_Attribute DF_FIELD_NAME of hFile iField to sFieldName
         Function_Return sFieldName
     End_Function
+    // DDP field metadata, relation, and index operations.
+    Function FieldType Handle hoDD Integer iField Returns Integer
+        Handle hFile
+        Integer eType
+
+        Get Main_File of hoDD to hFile
+        Get_Attribute DF_FIELD_TYPE of hFile iField to eType
+        Function_Return eType
+    End_Function
+
+    Function FieldPrecision Handle hoDD Integer iField Returns Integer
+        Handle hFile
+        Integer iPrecision
+
+        Get Main_File of hoDD to hFile
+        Get_Attribute DF_FIELD_PRECISION of hFile iField to iPrecision
+        Function_Return iPrecision
+    End_Function
+
+    // Finds the parent field related to iField on hoDD.
+    Function FieldRelation Handle hoDD Handle hoParentDD Integer iField Integer ByRef iRelatedField Returns Boolean
+        Handle hFile hParentFile hRelatedFile
+
+        Move 0 to iRelatedField
+        If (not(hoDD) or not(hoParentDD) or hoDD = hoParentDD or iField < 1) ;
+            Function_Return False
+
+        Get Main_File of hoDD to hFile
+        Get Main_File of hoParentDD to hParentFile
+        Get_Attribute DF_FIELD_RELATED_FILE of hFile iField to hRelatedFile
+        If (hRelatedFile <> hParentFile) Function_Return False
+
+        Get_Attribute DF_FIELD_RELATED_FIELD of hFile iField to iRelatedField
+        Function_Return True
+    End_Function
+
+    Function IndexSegmentCount Handle hoDD Integer iIndex Returns Integer
+        Handle hFile
+        Integer iSegmentCount
+
+        If (not(hoDD) or iIndex < 1) Function_Return 0
+
+        Get Main_File of hoDD to hFile
+        Get_Attribute DF_INDEX_NUMBER_SEGMENTS of hFile iIndex to iSegmentCount
+        Function_Return iSegmentCount
+    End_Function
+
+    Function IndexSegmentField Handle hoDD Integer iIndex Integer iSegment Returns Integer
+        Handle hFile
+        Integer iField
+
+        If (not(hoDD) or iIndex < 1 or iSegment < 1) Function_Return 0
+
+        Get Main_File of hoDD to hFile
+        Get_Attribute DF_INDEX_SEGMENT_FIELD of hFile iIndex iSegment to iField
+        Function_Return iField
+    End_Function
+
+    // Converts a backend field type and precision to the DDP schema type.
+    Function DDPTypeString Integer eType Integer iPrecision Returns String
+        If (eType = DF_BCD) Begin
+            If (iPrecision > 0) Function_Return "decimal"
+            Function_Return "integer"
+        End
+        If (eType = DF_DATE) Function_Return "date"
+        Function_Return "string"
+    End_Function
+
 
     // Case-sensitive linear scan for a field by name. Sets iOptField (optional third
     // argument) to the 1-based field number when found. Used during query parsing to
@@ -547,4 +589,83 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         End
         Function_Return oResult
     End_Function
+    // DDP runtime operations for the Classic data dictionary API.
+    Procedure DDPLink Handle hoDD Handle hoRelated Boolean bClient Boolean bConstrain
+        If (bClient) ;
+            Send Add_Client_File of hoRelated (Main_File(hoDD))
+        Send Add_Server_File of hoDD (Main_File(hoRelated))
+        Set DDO_Server of hoDD to hoRelated
+        If (bConstrain) ;
+            Set Constrain_File of hoDD to (Main_File(hoRelated))
+    End_Procedure
+
+    Procedure DDPClearRelations Handle hoDD Handle hoOptParentDD
+        Handle hFile
+
+        Set pbUseDDSQLFilters of hoDD to False
+        Set psSQLFilter of hoDD to ""
+        Set Constrain_File of hoDD to 0
+
+        While (Client_File_Count(hoDD))
+            Get Client_File of hoDD 0 to hFile
+            Send Remove_Client_File of hoDD hFile
+        Loop
+
+        While (Server_File_Count(hoDD))
+            Get Server_File of hoDD 0 to hFile
+            Send Remove_Server_File of hoDD hFile
+        Loop
+
+        While (Data_Set_Client_Count(hoDD))
+            Get Data_Set_Client of hoDD 0 to hFile
+            If (num_arguments <= 1 or hoOptParentDD <> hFile) ;
+                Send DDPClearRelations hFile hoDD
+            Send Detach_Client of hoDD hFile
+        Loop
+
+        While (Data_Set_Server_Count(hoDD))
+            Get Data_Set_Server of hoDD 0 to hFile
+            If (num_arguments <= 1 or hoOptParentDD <> hFile) ;
+                Send DDPClearRelations hFile hoDD
+            Send Detach_Server of hoDD hFile
+        Loop
+
+        Send Clear of hoDD
+    End_Procedure
+
+    Procedure DDPRequestRead Handle hoDD Integer eMode Handle hFile Integer iIndex
+        Send Request_Read of hoDD eMode hFile iIndex
+    End_Procedure
+
+    Procedure DDPRequestFind Handle hoDD Integer eMode Handle hFile Integer iIndex
+        Send Request_Find of hoDD eMode hFile iIndex
+    End_Procedure
+
+    Procedure DDPSetFieldValue Handle hoDD Handle hFile Integer iField String sValue
+        Set_Field_Value hFile iField to sValue
+    End_Procedure
+
+    Procedure DDPSetChangedValue Handle hoDD Handle hFile Integer iField String sValue
+        Set File_Field_Changed_Value of hoDD hFile iField to sValue
+    End_Procedure
+
+    Function DDPGetFieldValue Handle hoDD Handle hFile Integer iField Returns String
+        String sValue
+        Get_Field_Value hFile iField to sValue
+        Function_Return sValue
+    End_Function
+
+    Function DDPValidateDelete Handle hoDD Returns Boolean
+        Boolean bError
+        Get Validate_Delete of hoDD to bError
+        Function_Return bError
+    End_Function
+
+    Function DDPErrorText String sFallback Returns String
+        String sError
+        Get Error_Text LastErr to sError
+        If (Trim(sError) = "") Move sFallback to sError
+        Function_Return sError
+    End_Function
+
 End_Class

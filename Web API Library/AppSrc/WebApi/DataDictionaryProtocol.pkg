@@ -1,11 +1,11 @@
-Use WebApi\cWebApiModifier.pkg
+﻿Use WebApi\cWebApiModifier.pkg
 Use WebApi\cWebApiRouter.pkg
 
 Use WebApi\DDP\Backends\IBackend.pkg
-#IFDEF IS$TECHSTACK
+#IFDEF IS$CROSS_PLATFORM
 Use WebApi\DDP\Backends\Main.pkg
 #ELSE
-Use WebApi\DDP\Backends\Classic.pkg
+Use WebApi\DDP\Backends\Windows.pkg
 #ENDIF
 
 Use WebApi\DDP\cDDPIterator.pkg
@@ -22,11 +22,11 @@ Use WebApi\DDP\v1\cDDPSchemaEndpoint.pkg
 // Root handler for the Data Dictionary Protocol. Mount this at /ddp inside a cWebApi.
 //
 // URL layout:
-//   GET  /ddp/v1             — protocol version + list of exposed tables
-//   POST /ddp/v1/query       — execute a DDP query (nested, flat, or flatlinked)
-//   POST /ddp/v1/delete      — delete a record identified by the request body (stub)
-//   POST /ddp/v1/store       — create a new record (stub)
-//   PUT|PATCH /ddp/v1/update — update an existing record identified by the request body (stub)
+//   GET  /ddp/v1             - protocol version + list of exposed tables
+//   POST /ddp/v1/query       - execute a DDP query (nested, flat, or flatlinked)
+//   POST /ddp/v1/delete      - delete a record identified by the request body (stub)
+//   POST /ddp/v1/store       - create a new record (stub)
+//   PUT|PATCH /ddp/v1/update - update an existing record identified by the request body (stub)
 //
 // Expose data dictionaries with Send Expose (RefClass(cMyDataDictionary)).
 // Only exposed tables can be queried.
@@ -87,7 +87,7 @@ Class cWebAPIDataDictionaryProtocol is a cWebApiRouter
 
     { Visibility = Private }
     // Try versioned sub-routers first (e.g. path contains "v1"). When no child path
-    // segment matches — meaning the request is for /ddp itself — fall back to handling
+    // segment matches - meaning the request is for /ddp itself - fall back to handling
     // the request at this level via OnHttpRequest (currently OPTIONS-only).
     Procedure RouteRequest tWebApiCallContext ByRef webapicallcontext
         Integer iIndex
@@ -102,7 +102,7 @@ Class cWebAPIDataDictionaryProtocol is a cWebApiRouter
             Send RouteRequest of hoRoutables[iIndex] (&webapicallcontext)
         End
         Else Begin
-            // No versioned sub-path matched — handle at the protocol root (OPTIONS etc.).
+            // No versioned sub-path matched - handle at the protocol root (OPTIONS etc.).
             Move Self to webapicallcontext.hoDataset
         End
     End_Procedure

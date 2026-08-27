@@ -1,12 +1,17 @@
-Use WebApi\cWebApiRouter.pkg
+﻿Use WebApi\cWebApiRouter.pkg
 Use WebApi\cWebApiModifierHost_Mixin.pkg
+
+#IFDEF IS$CROSS_PLATFORM
+Use WebAppServer\cWebComponent.pkg
+#ELSE
 Use cWebComponent.pkg
+#ENDIF
 
 Use WebApi\DDP\cDDPBuilder.pkg
 
 // Root DDP endpoint mixin. Mounted at /ddp and handles:
-//   GET  /ddp       — protocol version + list of exposed tables
-//   OPTIONS /ddp    — CORS preflight and capability discovery
+//   GET  /ddp       - protocol version + list of exposed tables
+//   OPTIONS /ddp    - CORS preflight and capability discovery
 //
 // All query, find, delete, and save operations are handled by the versioned
 // sub-endpoints under /ddp/v1/. This mixin therefore disables POST/PUT/PATCH/DELETE
@@ -19,7 +24,7 @@ Class cDDPDataSet_Mixin is a cWebComponent
         // When True the endpoint accepts only GET requests; all mutating verbs are blocked.
         Property Boolean pbReadOnly False
 
-        // The root /ddp endpoint does not handle any data verbs — all operations
+        // The root /ddp endpoint does not handle any data verbs - all operations
         // including GET live on the versioned sub-routers (e.g. /ddp/v1).
         // Only OPTIONS is available here for CORS capability discovery.
         Property Boolean pbAllowRead False
@@ -94,7 +99,7 @@ Class cDDPDataSet_Mixin is a cWebComponent
     End_Procedure
 
     { MethodType = Event }
-    // Stub — GET at the root /ddp path is not active (pbAllowRead = False).
+    // Stub - GET at the root /ddp path is not active (pbAllowRead = False).
     // Protocol info is served at /ddp/v1 by cDDPV1Router.
     Procedure OnHttpGet tWebApiCallContext ByRef webapicallcontext
     End_Procedure
@@ -120,7 +125,7 @@ Class cDDPDataSet_Mixin is a cWebComponent
     End_Procedure
 
     { Visibility = Private }
-    // OPTIONS /ddp — responds with the verbs available on this endpoint.
+    // OPTIONS /ddp - responds with the verbs available on this endpoint.
     // Handles both CORS preflight (Access-Control-Request-Method present) and
     // plain capability discovery (returns Allow header).
     Procedure OnHttpOptions tWebApiCallContext ByRef webapicallcontext

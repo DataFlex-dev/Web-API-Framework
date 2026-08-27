@@ -1,0 +1,263 @@
+﻿Use WebApi\DDP\Backends\IBackend.pkg
+Use Db\cDataDictionary.pkg
+
+Struct tDDPClassicFileInfo
+    Handle hFile
+    tDDPFileDD[] aParents
+    tDDPFileDD[] aChilds
+End_Struct
+
+Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
+    Procedure Define_DDP_Backend_Mixin
+        Property tDDPClassicFileInfo[] paFileInfo
+    End_Procedure
+
+    Procedure End_Define_DDP_Backend_Mixin
+    End_Procedure
+
+    { Visibility = Private }
+    Function IsNumeric String sNumber Returns Boolean
+    End_Function
+
+    { Visibility = Private }
+    Function IsOptDottedNumeric String sNumber Returns Boolean
+    End_Function
+
+    Function IsObjectValidDataDictionary Handle hoDD Returns Boolean
+    End_Function
+
+    Function NameOfDD Handle hoDD Returns String
+    End_Function
+
+    Function LoweredNameOfDD Handle hoDD Returns String
+    End_Function
+
+    Function IsValidIndexForDD Handle hoDD Integer iIndex Returns Boolean
+    End_Function
+
+    Function IsDDRelated Handle hoDD Handle hoTest Boolean ByRef bOptParent Returns Boolean
+    End_Function
+
+
+    { MethodType = Event }
+    Procedure OnExposeDD tDDPDataDictPair Def
+    End_Procedure
+
+    Function DFTypeToJson Integer eType Integer iPrecision Returns Integer
+    End_Function
+
+    Procedure SerializeField Handle hoJson tDDPTableQuery query Handle iFile Integer iField Boolean bForceField
+    End_Procedure
+
+    Procedure SerializeBufferToJson Handle hoJson tDDPTableQuery query
+    End_Procedure
+
+    Procedure StoreDDFileLayout Handle hoDD
+    End_Procedure
+
+    Function DDParents Handle hoDD Returns Handle[]
+    End_Function
+
+    Function DDChilds Handle hoDD Returns Handle[]
+    End_Function
+
+    Function DriverIndex String sDriver Returns Integer
+    End_Function
+
+    Function PrimaryDDIndex Handle hoDD Returns Integer
+        Integer iIndexCount
+
+        If (not(hoDD)) Function_Return 0
+
+        Get Entity_Index_Count of hoDD to iIndexCount
+        If (iIndexCount > 0) Function_Return 1
+        Function_Return 0
+    End_Function
+
+    Function FieldCount Handle hoDD Returns Integer
+        Integer iFieldCount
+
+        If (not(hoDD)) Function_Return 0
+
+        Get Entity_Field_Count of hoDD to iFieldCount
+        Function_Return iFieldCount
+    End_Function
+
+    Function FieldName Handle hoDD Integer iField Returns String
+        Integer iFieldCount
+        String sFieldName
+
+        Get FieldCount hoDD to iFieldCount
+        If (iField < 1 or iField > iFieldCount) Function_Return ""
+
+        Get Entity_Field_Attribute of hoDD (iField - 1) C_DbFieldAttribute_DbName to sFieldName
+        Function_Return sFieldName
+    End_Function
+    // DDP field metadata, relation, and index operations.
+    Function FieldType Handle hoDD Integer iField Returns Integer
+        Integer iFieldCount eType
+
+        Get FieldCount hoDD to iFieldCount
+        If (iField < 1 or iField > iFieldCount) Function_Return C_TypeNone
+
+        Get Entity_Field_Type of hoDD (iField - 1) to eType
+        Function_Return eType
+    End_Function
+
+    Function FieldPrecision Handle hoDD Integer iField Returns Integer
+        Integer iFieldCount iSeparator iPrecision
+        String sSize
+
+        Get FieldCount hoDD to iFieldCount
+        If (iField < 1 or iField > iFieldCount) Function_Return 0
+
+        Move 0 to iPrecision
+        Get Entity_Field_Attribute of hoDD (iField - 1) C_DbFieldAttribute_Size to sSize
+        Move (Pos(".", sSize)) to iSeparator
+        If (iSeparator > 0) ;
+            Move (Trim(Right(sSize, Length(sSize) - iSeparator))) to iPrecision
+
+        Function_Return iPrecision
+    End_Function
+
+    // Finds the parent field related to iField on hoDD.
+    Function FieldRelation Handle hoDD Handle hoParentDD Integer iField Integer ByRef iRelatedField Returns Boolean
+        Handle hParentEntity hForeignEntity
+        Integer iRelationCount iSegmentCount iRelation iSegment iLocalField
+
+        Move 0 to iRelatedField
+        If (not(hoDD) or not(hoParentDD) or hoDD = hoParentDD or iField < 1) ;
+            Function_Return False
+
+        Get Entity_StructHandle of hoParentDD to hParentEntity
+        Get Entity_Relation_Count of hoDD to iRelationCount
+        Decrement iRelationCount
+        For iRelation from 0 to iRelationCount
+            Get Entity_Relation_Segment_Count of hoDD iRelation to iSegmentCount
+            Decrement iSegmentCount
+            For iSegment from 0 to iSegmentCount
+                Get Entity_Relation_Segment_Local_Field of hoDD iRelation iSegment to iLocalField
+                If (iLocalField = (iField - 1)) Begin
+                    Get Entity_Relation_Segment_Foreign_Entity of hoDD iRelation iSegment to hForeignEntity
+                    If (hForeignEntity = hParentEntity) Begin
+                        Get Entity_Relation_Segment_Foreign_Field of hoDD iRelation iSegment to iRelatedField
+                        Increment iRelatedField
+                        Function_Return True
+                    End
+                End
+            Loop
+        Loop
+
+        Function_Return False
+    End_Function
+
+    Function IndexSegmentCount Handle hoDD Integer iIndex Returns Integer
+        Integer iIndexCount iSegmentCount
+
+        If (not(hoDD) or iIndex < 1) Function_Return 0
+
+        Get Entity_Index_Count of hoDD to iIndexCount
+        If (iIndex > iIndexCount) Function_Return 0
+
+        Decrement iIndex
+        Get Entity_Index_Segment_Count of hoDD iIndex to iSegmentCount
+        Function_Return iSegmentCount
+    End_Function
+
+    Function IndexSegmentField Handle hoDD Integer iIndex Integer iSegment Returns Integer
+        Integer iIndexCount iSegmentCount iField
+
+        If (not(hoDD) or iIndex < 1 or iSegment < 1) Function_Return 0
+
+        Get Entity_Index_Count of hoDD to iIndexCount
+        If (iIndex > iIndexCount) Function_Return 0
+
+        Decrement iIndex
+        Get Entity_Index_Segment_Count of hoDD iIndex to iSegmentCount
+        If (iSegment > iSegmentCount) Function_Return 0
+
+        Decrement iSegment
+        Get Entity_Index_Segment_Field of hoDD iIndex iSegment to iField
+        Increment iField
+        Function_Return iField
+    End_Function
+
+    // Converts a backend field type and precision to the DDP schema type.
+    Function DDPTypeString Integer eType Integer iPrecision Returns String
+        If (eType = C_TypeDate) Function_Return "date"
+
+        If (eType = C_TypeNumber) Begin
+            If (iPrecision > 0) Function_Return "decimal"
+            Function_Return "integer"
+        End
+
+        If (eType = C_TypeReal or eType = C_TypeFloat or ;
+            eType = C_TypeCurrency or eType = C_TypeDecimal) ;
+            Function_Return "decimal"
+
+        If (eType = C_TypeLongPtr or eType = C_TypeBigint or ;
+            eType = C_TypeShort or eType = C_TypeUShort or ;
+            eType = C_TypeULong or eType = C_TypeBiguint or ;
+            eType = C_TypeInteger) ;
+            Function_Return "integer"
+
+        Function_Return "string"
+    End_Function
+
+
+    Function IsField Handle hoDD String sFieldName Integer ByRef iOptField Returns Boolean
+    End_Function
+
+    Function CreateIndex Handle hoDD tDDPOrder[] aOrder Returns Handle
+    End_Function
+
+    Procedure DeleteIndex Handle hoDD Integer iIndex
+    End_Procedure
+
+    Procedure Set_Constrains_To_Buffers tDDPTableQuery query
+    End_Procedure
+
+    Function AddConstrain Handle hoMainDD Handle hoDD Handle hField Integer eConstrain String sFilter Returns tDDPBuilderResult
+    End_Function
+    // DDP runtime operations for the cross-platform data dictionary API.
+    Procedure DDPLink Handle hoDD Handle hoRelated Boolean bClient Boolean bConstrain
+        If (bConstrain) ;
+            Set Constrain_File of hoDD to (Main_File(hoRelated))
+    End_Procedure
+
+    Procedure DDPClearRelations Handle hoDD Handle hoOptParentDD
+        Set Constrain_File of hoDD to 0
+        Send Clear of hoDD
+    End_Procedure
+
+    Procedure DDPRequestRead Handle hoDD Integer eMode Handle hFile Integer iIndex
+        Send Find of hoDD eMode iIndex
+    End_Procedure
+
+    Procedure DDPRequestFind Handle hoDD Integer eMode Handle hFile Integer iIndex
+        Send Find of hoDD eMode iIndex
+    End_Procedure
+
+    Procedure DDPSetFieldValue Handle hoDD Handle hFile Integer iField String sValue
+        Set Field_Current_Value of hoDD iField to sValue
+    End_Procedure
+
+    Procedure DDPSetChangedValue Handle hoDD Handle hFile Integer iField String sValue
+        Set Field_Changed_Value of hoDD iField to sValue
+    End_Procedure
+
+    Function DDPGetFieldValue Handle hoDD Handle hFile Integer iField Returns String
+        String sValue
+        Get Field_Current_Value of hoDD iField to sValue
+        Function_Return sValue
+    End_Function
+
+    Function DDPValidateDelete Handle hoDD Returns Boolean
+        Function_Return (not(Can_Delete(hoDD)))
+    End_Function
+
+    Function DDPErrorText String sFallback Returns String
+        Function_Return sFallback
+    End_Function
+
+End_Class
