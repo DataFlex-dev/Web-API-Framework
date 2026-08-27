@@ -1,8 +1,8 @@
-Use WebApi\cBaseRestDataset.pkg
+﻿Use WebApi\cBaseRestDataset.pkg
 Use WebApi\DDP\Backends\IBackend.pkg
 Use WebApi\DDP\cDDPBuilder.pkg
 
-// Handles POST /ddp/v1/query — executes a DDP query described by the JSON request body.
+// Handles POST /ddp/v1/query - executes a DDP query described by the JSON request body.
 // Builder and backend logic live on the parent cWebAPIDataDictionaryProtocol object;
 // Delegate Send/Get walks up the parent chain to reach them without explicit wiring.
 Class cDDPQueryEndpoint is a cBaseRestDataset
@@ -27,9 +27,9 @@ Class cDDPQueryEndpoint is a cBaseRestDataset
     // Expects a JSON body whose top-level keys are table names and whose values are
     // table query objects (see DataDictionaryProtocol.md for the full schema).
     // The DDPStyle header controls the response shape:
-    //   nested     — related tables embedded inside each row (default)
-    //   flat       — positionally-aligned parallel arrays
-    //   flatlinked — deduplicated parallel arrays joined by FK fields
+    //   nested     - related tables embedded inside each row (default)
+    //   flat       - positionally-aligned parallel arrays
+    //   flatlinked - deduplicated parallel arrays joined by FK fields
     Procedure OnHttpPost tWebApiCallContext ByRef webapicallcontext
         String sStyle
         tDDPBuilderContext ctx
@@ -120,7 +120,7 @@ Class cDDPQueryEndpoint is a cBaseRestDataset
                     Send Destroy of hoQueryResult
             Case End
             If (oResult.iErr) Begin
-                If (hoQueryResult) Send Destroy of hoQueryResult
+                If (hoQueryResult <> 0) Send Destroy of hoQueryResult
                 Delegate Send DestroyQuery oQuery
                 Move True to webapicallcontext.bErr
                 Move C_WEBAPI_NOTALLOWED to webapicallcontext.iStatusCode

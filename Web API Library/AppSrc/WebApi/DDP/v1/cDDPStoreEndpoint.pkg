@@ -107,7 +107,7 @@ Class cDDPStoreEndpoint is a cBaseRestDataset
             Delegate Send DestroySaveQuery oQuery
 
             If (oResult.iErr) Begin
-                If (hoSavedRecord) Send Destroy of hoSavedRecord
+                If (hoSavedRecord <> 0) Send Destroy of hoSavedRecord
                 Move True to webapicallcontext.bErr
                 Move 422 to webapicallcontext.iStatusCode
                 If (oResult.iErr = DDPERR_VALIDATION_FAILED) Begin

@@ -104,7 +104,7 @@ Class cDDPUpdateEndpoint is a cBaseRestDataset
             Delegate Send DestroyUpdateQuery oQuery
 
             If (oResult.iErr) Begin
-                If (hoUpdatedRecord) Send Destroy of hoUpdatedRecord
+                If (hoUpdatedRecord <> 0) Send Destroy of hoUpdatedRecord
                 Move True to webapicallcontext.bErr
                 If (oResult.iErr = DDPERR_RECORD_NOT_FOUND) Begin
                     Move C_WEBAPI_NOTFOUND to webapicallcontext.iStatusCode

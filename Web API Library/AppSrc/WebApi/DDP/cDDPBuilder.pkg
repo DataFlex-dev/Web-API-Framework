@@ -201,7 +201,7 @@ Class cDDPBuilder_Mixin is a Mixin
         // Resolve the table name to an exposed DD handle. Lookup is
         // case-insensitive because Expose lowercases names on registration.
         Get DDByName sDDName to table.hoDD
-        If (not(table.hoDD)) Begin
+        If (table.hoDD = 0) Begin
             Move DDPERR_UNKOWN_TABLE to oResult.iErr
             Move (SFormat("'%1', not known.", sDDName)) to oResult.sError
             Function_Return oResult
@@ -281,7 +281,7 @@ Class cDDPBuilder_Mixin is a Mixin
             If (eType = jsonTypeObject) Begin
                 // Nested object ΓÇö must be a related table name.
                 Get DDByName sKey to oTable.hoDD
-                If (not(oTable.hoDD)) Begin
+                If (oTable.hoDD = 0) Begin
                     Move DDPERR_UNKOWN_TABLE to oResult.iErr
                     Move (SFormat("'%1', not known.", sKey)) to oResult.sError
                     Function_Return oResult
@@ -653,7 +653,7 @@ Class cDDPBuilder_Mixin is a Mixin
         Integer iMainFile iIndex
         tDDPBuilderResult oResult
 
-        If (hoResult) Begin
+        If (hoResult <> 0) Begin
             Send Destroy of hoResult
             Move 0 to hoResult
         End
@@ -669,7 +669,7 @@ Class cDDPBuilder_Mixin is a Mixin
         Integer iMainFile iIndex
         tDDPBuilderResult oResult
 
-        If (hoResult) Begin
+        If (hoResult <> 0) Begin
             Send Destroy of hoResult
             Move 0 to hoResult
         End
@@ -869,7 +869,7 @@ Class cDDPBuilder_Mixin is a Mixin
     Function ExecuteFindFlatLinked tDDPBuilderContext ByRef ctx tDDPQuery query Handle ByRef hoResult Returns tDDPBuilderResult
         tDDPBuilderResult oResult
 
-        If (hoResult) Begin
+        If (hoResult <> 0) Begin
             Send Destroy of hoResult
             Move 0 to hoResult
         End
@@ -881,8 +881,8 @@ Class cDDPBuilder_Mixin is a Mixin
 
     // Tears down all live DD relationships established by QueryLinkUp so the
     // shared DD objects are clean for the next request.
-    Procedure DestroyQuery tDDPQuery ByRef query
-        If (query.oMain.hoDD) Send ClearRelationShipsOnDD query.oMain.hoDD
+    Procedure DestroyQuery tDDPQuery query
+        If (query.oMain.hoDD <> 0) Send ClearRelationShipsOnDD query.oMain.hoDD
     End_Procedure
 
     // Registers a data dictionary class as an exposed DDP resource.
@@ -994,7 +994,7 @@ Class cDDPBuilder_Mixin is a Mixin
         Handle hoChildArray hoChildElement hoChildDD
 
         Get DDByName sDDName to record.hoDD
-        If (not(record.hoDD)) Begin
+        If (record.hoDD = 0) Begin
             Move DDPERR_UNKOWN_TABLE to oResult.iErr
             Move (SFormat("'%1', not known.", sDDName)) to oResult.sError
             Function_Return oResult
@@ -1007,7 +1007,7 @@ Class cDDPBuilder_Mixin is a Mixin
             If (eType = jsonTypeArray or eType = jsonTypeObject) Begin
                 // Nested table ΓÇö must be an exposed child of this table.
                 Get DDByName sKey to hoChildDD
-                If (not(hoChildDD)) Begin
+                If (hoChildDD = 0) Begin
                     Move DDPERR_UNKOWN_TABLE to oResult.iErr
                     Move (SFormat("'%1', not known.", sKey)) to oResult.sError
                     Function_Return oResult
@@ -1226,7 +1226,7 @@ Class cDDPBuilder_Mixin is a Mixin
 
             Get ExecuteSaveRecord record.aChilds[iChildIdx] (&hoChildJson) to oResult
             If (oResult.iErr) Begin
-                If (hoChildJson) Send Destroy of hoChildJson
+                If (hoChildJson <> 0) Send Destroy of hoChildJson
                 Function_Return oResult
             End
 
@@ -1255,7 +1255,7 @@ Class cDDPBuilder_Mixin is a Mixin
     Function ExecuteStore tDDPSaveQuery query Handle ByRef hoResult Returns tDDPBuilderResult
         tDDPBuilderResult oResult
 
-        If (hoResult) Begin
+        If (hoResult <> 0) Begin
             Send Destroy of hoResult
             Move 0 to hoResult
         End
@@ -1266,7 +1266,7 @@ Class cDDPBuilder_Mixin is a Mixin
 
     // Tears down all live DD relationships established by SaveLinkUp.
     Procedure DestroySaveQuery tDDPSaveQuery ByRef query
-        If (query.oMain.hoDD) Send ClearRelationShipsOnDD query.oMain.hoDD
+        If (query.oMain.hoDD <> 0) Send ClearRelationShipsOnDD query.oMain.hoDD
     End_Procedure
 
     // ---------------------------------------------------------------------------
@@ -1302,7 +1302,7 @@ Class cDDPBuilder_Mixin is a Mixin
         tDDPDeleteField oField
 
         Get DDByName sDDName to record.hoDD
-        If (not(record.hoDD)) Begin
+        If (record.hoDD = 0) Begin
             Move DDPERR_UNKOWN_TABLE to oResult.iErr
             Move (SFormat("'%1', not known.", sDDName)) to oResult.sError
             Function_Return oResult
@@ -1479,7 +1479,7 @@ Class cDDPBuilder_Mixin is a Mixin
     Function ExecuteDelete tDDPDeleteQuery query Handle ByRef hoResult Returns tDDPBuilderResult
         tDDPBuilderResult oResult
 
-        If (hoResult) Begin
+        If (hoResult <> 0) Begin
             Send Destroy of hoResult
             Move 0 to hoResult
         End
@@ -1490,7 +1490,7 @@ Class cDDPBuilder_Mixin is a Mixin
 
     // Tears down all live DD relationships established by DeleteLinkUp.
     Procedure DestroyDeleteQuery tDDPDeleteQuery ByRef query
-        If (query.oMain.hoDD) Send ClearRelationShipsOnDD query.oMain.hoDD
+        If (query.oMain.hoDD <> 0) Send ClearRelationShipsOnDD query.oMain.hoDD
     End_Procedure
 
     // ---------------------------------------------------------------------------
@@ -1508,7 +1508,7 @@ Class cDDPBuilder_Mixin is a Mixin
         tDDPUpdateField oField
 
         Get DDByName sDDName to record.hoDD
-        If (not(record.hoDD)) Begin
+        If (record.hoDD = 0) Begin
             Move DDPERR_UNKOWN_TABLE to oResult.iErr
             Move (SFormat("'%1', not known.", sDDName)) to oResult.sError
             Function_Return oResult
@@ -1660,7 +1660,7 @@ Class cDDPBuilder_Mixin is a Mixin
     Function ExecuteUpdate tDDPUpdateQuery query Handle ByRef hoResult Returns tDDPBuilderResult
         tDDPBuilderResult oResult
 
-        If (hoResult) Begin
+        If (hoResult <> 0) Begin
             Send Destroy of hoResult
             Move 0 to hoResult
         End
@@ -1671,7 +1671,7 @@ Class cDDPBuilder_Mixin is a Mixin
 
     // Tears down all live DD relationships established by UpdateLinkUp.
     Procedure DestroyUpdateQuery tDDPUpdateQuery ByRef query
-        If (query.oMain.hoDD) Send ClearRelationShipsOnDD query.oMain.hoDD
+        If (query.oMain.hoDD <> 0) Send ClearRelationShipsOnDD query.oMain.hoDD
     End_Procedure
 
     // Looks up a DD handle by its underlying file handle (file number).

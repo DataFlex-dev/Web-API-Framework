@@ -183,7 +183,7 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
 
         // Suppress the field only when it is a FK to an already-included parent
         // and the caller has not overridden that behaviour.
-        If (not(iRelatedFile and parentQuery.hoDD) or bForceField) Begin
+        If (iRelatedFile = 0 or parentQuery.hoDD = 0 or bForceField) Begin
             Get_Field_Value iFile iField to sValue
             Get_Attribute DF_FIELD_TYPE of iFile iField to eType
             Get_Attribute DF_FIELD_PRECISION of iFile iField to iPrecision
@@ -380,7 +380,7 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Handle hFile hParentFile hRelatedFile
 
         Move 0 to iRelatedField
-        If (not(hoDD) or not(hoParentDD) or hoDD = hoParentDD or iField < 1) ;
+        If (hoDD = 0 or hoParentDD = 0 or hoDD = hoParentDD or iField < 1) ;
             Function_Return False
 
         Get Main_File of hoDD to hFile
@@ -396,7 +396,7 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Handle hFile
         Integer iSegmentCount
 
-        If (not(hoDD) or iIndex < 1) Function_Return 0
+        If (hoDD = 0 or iIndex < 1) Function_Return 0
 
         Get Main_File of hoDD to hFile
         Get_Attribute DF_INDEX_NUMBER_SEGMENTS of hFile iIndex to iSegmentCount
@@ -407,7 +407,7 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Handle hFile
         Integer iField
 
-        If (not(hoDD) or iIndex < 1 or iSegment < 1) Function_Return 0
+        If (hoDD = 0 or iIndex < 1 or iSegment < 1) Function_Return 0
 
         Get Main_File of hoDD to hFile
         Get_Attribute DF_INDEX_SEGMENT_FIELD of hFile iIndex iSegment to iField

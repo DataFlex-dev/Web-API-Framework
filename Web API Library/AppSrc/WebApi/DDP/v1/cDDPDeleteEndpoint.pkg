@@ -112,7 +112,7 @@ Class cDDPDeleteEndpoint is a cBaseRestDataset
             Delegate Send DestroyDeleteQuery oQuery
 
             If (oResult.iErr) Begin
-                If (hoDeletedRecord) Send Destroy of hoDeletedRecord
+                If (hoDeletedRecord <> 0) Send Destroy of hoDeletedRecord
                 Move True to webapicallcontext.bErr
                 If (oResult.iErr = DDPERR_RECORD_NOT_FOUND) Begin
                     Move C_WEBAPI_NOTFOUND to webapicallcontext.iStatusCode
