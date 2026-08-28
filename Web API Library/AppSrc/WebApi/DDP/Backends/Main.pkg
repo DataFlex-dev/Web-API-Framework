@@ -133,12 +133,13 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
     End_Function
 
     Procedure SerializeField Handle hoJson tDDPTableQuery query Handle iFile Integer iField Boolean bForceField
-        Integer iParent iRelatedField eType iPrecision
+        Integer iParent iRelatedField eType iPrecision iEntityField
         Boolean bRelated
         String sName
         Variant vValue
 
-        If (iField < 1 or iField > FieldCount(Self, query.hoDD)) ;
+        Move (iField - 1) to iEntityField
+        If (iEntityField < 0 or iEntityField >= FieldCount(Self, query.hoDD)) ;
             Procedure_Return
 
         If (not(bForceField)) Begin
@@ -151,7 +152,7 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Get FieldName query.hoDD iField to sName
         Get FieldType query.hoDD iField to eType
         Get FieldPrecision query.hoDD iField to iPrecision
-        Get Entity_Field_Value of query.hoDD (iField - 1) to vValue
+        Get Entity_Field_Value of query.hoDD iEntityField to vValue
         Send SetMemberValue of hoJson sName (DFTypeToJson(Self, eType, iPrecision)) vValue
     End_Procedure
 
@@ -325,35 +326,38 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
     End_Function
 
     Function FieldName Handle hoDD Integer iField Returns String
-        Integer iFieldCount
+        Integer iFieldCount iEntityField
         String sFieldName
 
         Get FieldCount hoDD to iFieldCount
-        If (iField < 1 or iField > iFieldCount) Function_Return ""
+        Move (iField - 1) to iEntityField
+        If (iEntityField < 0 or iEntityField >= iFieldCount) Function_Return ""
 
-        Get Entity_Field_Attribute of hoDD (iField - 1) C_DbFieldAttribute_DbName to sFieldName
+        Get Entity_Field_Attribute of hoDD iEntityField C_DbFieldAttribute_DbName to sFieldName
         Function_Return sFieldName
     End_Function
-    // DDP field metadata, relation, and index operations.
+    // DDP field handles are 1-based; Entity field indexes are 0-based.
     Function FieldType Handle hoDD Integer iField Returns Integer
-        Integer iFieldCount eType
+        Integer iFieldCount iEntityField eType
 
         Get FieldCount hoDD to iFieldCount
-        If (iField < 1 or iField > iFieldCount) Function_Return C_TypeNone
+        Move (iField - 1) to iEntityField
+        If (iEntityField < 0 or iEntityField >= iFieldCount) Function_Return C_TypeNone
 
-        Get Entity_Field_Type of hoDD (iField - 1) to eType
+        Get Entity_Field_Type of hoDD iEntityField to eType
         Function_Return eType
     End_Function
 
     Function FieldPrecision Handle hoDD Integer iField Returns Integer
-        Integer iFieldCount iSeparator iPrecision
+        Integer iFieldCount iEntityField iSeparator iPrecision
         String sSize
 
         Get FieldCount hoDD to iFieldCount
-        If (iField < 1 or iField > iFieldCount) Function_Return 0
+        Move (iField - 1) to iEntityField
+        If (iEntityField < 0 or iEntityField >= iFieldCount) Function_Return 0
 
         Move 0 to iPrecision
-        Get Entity_Field_Attribute of hoDD (iField - 1) C_DbFieldAttribute_Size to sSize
+        Get Entity_Field_Attribute of hoDD iEntityField C_DbFieldAttribute_Size to sSize
         Move (Pos(".", sSize)) to iSeparator
         If (iSeparator > 0) ;
             Move (Trim(Right(sSize, Length(sSize) - iSeparator))) to iPrecision
@@ -364,10 +368,15 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
     // Finds the parent field related to iField on hoDD.
     Function FieldRelation Handle hoDD Handle hoParentDD Integer iField Integer ByRef iRelatedField Returns Boolean
         Handle hParentEntity hForeignEntity
-        Integer iRelationCount iSegmentCount iRelation iSegment iLocalField
+        Integer iFieldCount iRelationCount iSegmentCount iRelation iSegment iLocalField iEntityField
 
         Move 0 to iRelatedField
-        If (hoDD = 0 or hoParentDD = 0 or hoDD = hoParentDD or iField < 1) ;
+        If (hoDD = 0 or hoParentDD = 0 or hoDD = hoParentDD) ;
+            Function_Return False
+
+        Get FieldCount hoDD to iFieldCount
+        Move (iField - 1) to iEntityField
+        If (iEntityField < 0 or iEntityField >= iFieldCount) ;
             Function_Return False
 
         Get Entity_StructHandle of hoParentDD to hParentEntity
@@ -378,7 +387,7 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
             Decrement iSegmentCount
             For iSegment from 0 to iSegmentCount
                 Get Entity_Relation_Segment_Local_Field of hoDD iRelation iSegment to iLocalField
-                If (iLocalField = (iField - 1)) Begin
+                If (iLocalField = iEntityField) Begin
                     Get Entity_Relation_Segment_Foreign_Entity of hoDD iRelation iSegment to hForeignEntity
                     If (hForeignEntity = hParentEntity) Begin
                         Get Entity_Relation_Segment_Foreign_Field of hoDD iRelation iSegment to iRelatedField
@@ -524,7 +533,8 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         End
 
         Get FieldCount hoDD to iFieldCount
-        If (hField < 1 or hField > iFieldCount) Begin
+        Move (hField - 1) to iField
+        If (iField < 0 or iField >= iFieldCount) Begin
             Move DDPERR_INVALID_FIELD to oResult.iErr
             Move "Invalid constrain field." to oResult.sError
             Function_Return oResult
@@ -556,7 +566,7 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Case End
 
         Move sFilter to vValue
-        Send Add_Value_Constraint of hoDD hoDD (hField - 1) eDbConstrain vValue
+        Send Add_Value_Constraint of hoDD hoDD iField eDbConstrain vValue
         Function_Return oResult
     End_Function
     // DDP runtime operations for the cross-platform data dictionary API.
@@ -603,20 +613,31 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
     End_Procedure
 
     Procedure DDPSetFieldValue Handle hoDD Handle hFile Integer iField String sValue
-        If (iField < 1 or iField > FieldCount(Self, hoDD)) Procedure_Return
-        Set Field_Current_Value of hoDD (iField - 1) to sValue
+        Integer iFieldCount iEntityField
+
+        Get FieldCount Self hoDD to iFieldCount
+        Move (iField - 1) to iEntityField
+        If (iEntityField < 0 or iEntityField >= iFieldCount) Procedure_Return
+        Set Field_Current_Value of hoDD iEntityField to sValue
     End_Procedure
 
     Procedure DDPSetChangedValue Handle hoDD Handle hFile Integer iField String sValue
-        If (iField < 1 or iField > FieldCount(Self, hoDD)) Procedure_Return
-        Set Field_Changed_Value of hoDD (iField - 1) to sValue
+        Integer iFieldCount iEntityField
+
+        Get FieldCount Self hoDD to iFieldCount
+        Move (iField - 1) to iEntityField
+        If (iEntityField < 0 or iEntityField >= iFieldCount) Procedure_Return
+        Set Field_Changed_Value of hoDD iEntityField to sValue
     End_Procedure
 
     Function DDPGetFieldValue Handle hoDD Handle hFile Integer iField Returns String
+        Integer iFieldCount iEntityField
         String sValue
 
-        If (iField < 1 or iField > FieldCount(Self, hoDD)) Function_Return ""
-        Get Field_Current_Value of hoDD (iField - 1) to sValue
+        Get FieldCount Self hoDD to iFieldCount
+        Move (iField - 1) to iEntityField
+        If (iEntityField < 0 or iEntityField >= iFieldCount) Function_Return ""
+        Get Field_Current_Value of hoDD iEntityField to sValue
         Function_Return sValue
     End_Function
 

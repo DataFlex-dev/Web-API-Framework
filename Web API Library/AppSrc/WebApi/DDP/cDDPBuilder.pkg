@@ -265,9 +265,9 @@ Class cDDPBuilder_Mixin is a Mixin
         tDDPOrder oOrder
         tDDPConstrain oConstrain
         tDDPTableQuery oTable oEmptyTable
-        Boolean bParent bIsOrdering
+        Boolean bParent bIsOrdering bResolved
         Handle hoMemberTable
-        Integer iParamIndex
+        Integer eResolvedMode
 
         // Walk remaining JSON members; skip the two reserved keys already handled.
         // Members are either nested table queries (objects) or field constraints/
@@ -325,7 +325,8 @@ Class cDDPBuilder_Mixin is a Mixin
 
                 // Parse the key into a field handle and constraint mode.
                 // DetermineFieldAndConstrainMode also signals ordering directives.
-                If (not(DetermineFieldAndConstrainMode(Self, table.hoDD, sKey, &oConstrain.hField, &oConstrain.eMode, &bIsOrdering))) Begin
+                Get DetermineFieldAndConstrainMode table.hoDD sKey (&iField) (&eResolvedMode) (&bIsOrdering) to bResolved
+                If (not(bResolved)) Begin
                     Move DDPERR_INVALID_CONSTRAIN to oResult.iErr
                     Move (SFormat("Invalid parameter field '%1' in '%2'.", sKey, sDDName)) to oResult.sError
                     Function_Return oResult
@@ -336,7 +337,7 @@ Class cDDPBuilder_Mixin is a Mixin
                     // Ordering directive (_di suffix). Normalise the value to
                     // lowercase so "ASC"/"asc" are treated the same.
                     Move (Lowercase(sValue)) to sValue
-                    Move oConstrain.hField to oOrder.hField
+                    Move iField to oOrder.hField
                     If (sValue = "asc") Begin
                         Move DDPOrder_ASC to oOrder.eMode
                     End
@@ -351,8 +352,8 @@ Class cDDPBuilder_Mixin is a Mixin
                     Move oOrder to table.aOrder[-1]
                 End
                 Else Begin
-                    // Regular filter constraint ΓÇö store the value string for later
-                    // application via AddConstrain / Set_Constrains_To_Buffers.
+                    Move iField to oConstrain.hField
+                    Move eResolvedMode to oConstrain.eMode
                     Move sValue to oConstrain.aParams[0]
                     Move oConstrain to table.aConstrains[-1]
                 End
