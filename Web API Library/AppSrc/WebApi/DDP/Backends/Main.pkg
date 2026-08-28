@@ -1,45 +1,224 @@
 ﻿Use WebApi\DDP\Backends\IBackend.pkg
 Use Db\cDataDictionary.pkg
+Use Db\cDbQuery.pkg
+
+
+Function DDPParseISODate Global String sValue Date ByRef dValue Returns Boolean
+    Integer iPosition iYear iMonth iDay
+    String sCharacter
+
+    If (Length(sValue) <> 10 or Mid(sValue, 1, 5) <> "-" or Mid(sValue, 1, 8) <> "-") ;
+        Function_Return False
+
+    For iPosition from 1 to 10
+        If (iPosition <> 5 and iPosition <> 8) Begin
+            Move (Mid(sValue, 1, iPosition)) to sCharacter
+            If (Pos(sCharacter, "0123456789") = 0) Function_Return False
+        End
+    Loop
+
+    Move (Left(sValue, 4)) to iYear
+    Move (Mid(sValue, 2, 6)) to iMonth
+    Move (Right(sValue, 2)) to iDay
+    Try
+        Move (DateSet(iYear, iMonth, iDay)) to dValue
+    Catch
+        Function_Return False
+    End_Try
+
+    Function_Return True
+End_Function
 
 Struct tDDPCrossPlatformFileInfo
-    Handle hFile
-    tDDPFileDD[] aParents
-    tDDPFileDD[] aChilds
+    Handle hoDD
+    Handle[] aParents
+    Handle[] aChilds
 End_Struct
+
+Class cDDPNativeOrderedIndex is a cObject
+    Procedure Construct_Object
+        Forward Send Construct_Object
+        Property Handle phoDD C_UnresolvedObject
+        Property tDDPOrder[] paOrder
+        Property tDDPConstrain[] paConstrains
+        Property RowID[] paRowIDs
+        Property Integer piPosition -1
+        Property Integer piRowCount 0
+        Property Integer piFetchLimit 0
+    End_Procedure
+
+    Procedure Configure Handle hoDD tDDPOrder[] aOrder tDDPConstrain[] aConstrains Integer iLimit Integer iOffset
+        RowID[] aEmpty
+
+        Set phoDD to hoDD
+        Set paOrder to aOrder
+        Set paConstrains to aConstrains
+        Set paRowIDs to aEmpty
+        Set piPosition to -1
+        Set piRowCount to 0
+        If (iLimit = 0) ;
+            Set piFetchLimit to 0
+        Else ;
+            Set piFetchLimit to (iLimit + iOffset)
+    End_Procedure
+
+    { Visibility = Private }
+    Procedure AddValueConstraints Handle hoQuery Handle hoDD
+        Handle hoSet
+        Integer iConstrain eConstrain eDbConstrain eType
+        Date dValue
+        String sFilter
+        tDDPConstrain[] aConstrains
+
+        Get paConstrains to aConstrains
+        Get ConstraintSet of hoQuery to hoSet
+        For iConstrain from 0 to (SizeOfArray(aConstrains) - 1)
+            If (aConstrains[iConstrain].eMode <> DDPFind_NE) Begin
+                Move aConstrains[iConstrain].eMode to eConstrain
+                Case Begin
+                    Case (eConstrain = DDPFind_LT)
+                        Move C_DbConstraint_LT to eDbConstrain
+                        Case Break
+                    Case (eConstrain = DDPFind_LE)
+                        Move C_DbConstraint_LE to eDbConstrain
+                        Case Break
+                    Case (eConstrain = DDPFind_EQ)
+                        Move C_DbConstraint_EQ to eDbConstrain
+                        Case Break
+                    Case (eConstrain = DDPFind_GE)
+                        Move C_DbConstraint_GE to eDbConstrain
+                        Case Break
+                    Case (eConstrain = DDPFind_GT)
+                        Move C_DbConstraint_GT to eDbConstrain
+                        Case Break
+                Case End
+
+                Get FieldType of hoDD (aConstrains[iConstrain].hField - 1) to eType
+                Move aConstrains[iConstrain].aParams[0] to sFilter
+                If (eType = C_TypeDate) Begin
+                    If (not(DDPParseISODate(sFilter, &dValue))) Procedure_Return
+                    Send Add_Value_Constraint of hoSet hoDD ;
+                        (aConstrains[iConstrain].hField - 1) eDbConstrain dValue
+                End
+                Else ;
+                    Send Add_Value_Constraint of hoSet hoDD ;
+                        (aConstrains[iConstrain].hField - 1) eDbConstrain sFilter
+            End
+        Loop
+    End_Procedure
+
+    Procedure ReadRecord Integer eMode
+        Handle hoDD hoQuery
+        Integer iOrder iPosition iLimit iRowCount
+        Boolean bHasRecord
+        tDDPOrder[] aOrder
+        RowID[] aRowIDs
+        Variant[][] aIgnored
+
+        Get phoDD to hoDD
+        Get paOrder to aOrder
+        If (eMode <> NEXT_RECORD) Begin
+            Get piFetchLimit to iLimit
+            Get Create (RefClass(cDbQuery)) to hoQuery
+            Set Server of hoQuery to hoDD
+            Send AddValueConstraints hoQuery hoDD
+            For iOrder from 0 to (SizeOfArray(aOrder) - 1)
+                Send OrderByField of hoQuery hoDD (aOrder[iOrder].hField - 1) aOrder[iOrder].eMode
+            Loop
+            Get FetchFirst of hoQuery iLimit (&aRowIDs) to aIgnored
+            Send Destroy of hoQuery
+            Set piRowCount to (SizeOfArray(aIgnored))
+            Set paRowIDs to aRowIDs
+            Move 0 to iPosition
+        End
+        Else Begin
+            Get paRowIDs to aRowIDs
+            Get piPosition to iPosition
+            Increment iPosition
+        End
+        Get piRowCount to iRowCount
+
+        If (iPosition >= 0 and iPosition < iRowCount) Begin
+            Send FindByRowId of hoDD aRowIDs[iPosition]
+            Get HasRecord of hoDD to bHasRecord
+            If (bHasRecord) Begin
+                Set piPosition to iPosition
+                Procedure_Return
+            End
+        End
+        Set piPosition to iPosition
+        Move False to Found
+        Send Clear of hoDD
+    End_Procedure
+End_Class
+
 
 Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
     Procedure Define_DDP_Backend_Mixin
+        Property Handle[] paExposedDDs
         Property tDDPCrossPlatformFileInfo[] paFileInfo
+
+
     End_Procedure
 
     Procedure End_Define_DDP_Backend_Mixin
     End_Procedure
 
     { Visibility = Private }
-    Function IsNumeric String sNumber Returns Boolean
-        String sCompare
-        Integer iLength iPosition
+    Function ExposedDDByEntity Handle hEntity Handle[] aExposedDDs Returns Handle
+        Integer iIndex
+        Handle hDDEntity
 
-        Move "-0123456789" to sCompare
-        Move (Length(sNumber)) to iLength
-        For iPosition from 1 to iLength
-            If (not(sCompare contains Mid(sNumber, iPosition, 1))) Function_Return False
+        If (hEntity = 0) Function_Return 0
+        For iIndex from 0 to (SizeOfArray(aExposedDDs) - 1)
+            Get phEntity of aExposedDDs[iIndex] to hDDEntity
+            If (hDDEntity = hEntity) Function_Return aExposedDDs[iIndex]
         Loop
-        Function_Return True
+
+        Function_Return 0
     End_Function
 
     { Visibility = Private }
-    Function IsOptDottedNumeric String sNumber Returns Boolean
-        String sCompare
-        Integer iLength iPosition
+    Procedure RebuildDDFileLayout
+        Integer iIndex iParent iParentIndex
+        Handle hoParent
+        Handle[] aExposedDDs aEmpty
+        tDDParent[] aDDParents
+        tDDPCrossPlatformFileInfo oInfo
+        tDDPCrossPlatformFileInfo[] aInfo
 
-        Move "-0123456789.," to sCompare
-        Move (Length(sNumber)) to iLength
-        For iPosition from 1 to iLength
-            If (not(sCompare contains Mid(sNumber, iPosition, 1))) Function_Return False
+        Get paExposedDDs to aExposedDDs
+        For iIndex from 0 to (SizeOfArray(aExposedDDs) - 1)
+            Move 0 to oInfo.hoDD
+            Move aEmpty to oInfo.aParents
+            Move aEmpty to oInfo.aChilds
+            Move aExposedDDs[iIndex] to oInfo.hoDD
+
+            Get paParents of aExposedDDs[iIndex] to aDDParents
+            For iParent from 0 to (SizeOfArray(aDDParents) - 1)
+                Get ExposedDDByEntity aDDParents[iParent].hEntity aExposedDDs to hoParent
+                If (hoParent <> 0 and SearchArray(hoParent, oInfo.aParents) = -1) ;
+                    Move hoParent to oInfo.aParents[-1]
+            Loop
+            Move oInfo to aInfo[-1]
         Loop
-        Function_Return True
-    End_Function
+
+        // Build reverse links from the completed parent snapshot. This avoids
+        // exposure-order-dependent incremental updates.
+        For iIndex from 0 to (SizeOfArray(aInfo) - 1)
+            For iParent from 0 to (SizeOfArray(aInfo[iIndex].aParents) - 1)
+                Move aInfo[iIndex].aParents[iParent] to hoParent
+                Move (SearchArray(hoParent, aExposedDDs)) to iParentIndex
+                If (iParentIndex <> -1 and ;
+                    SearchArray(aInfo[iIndex].hoDD, aInfo[iParentIndex].aChilds) = -1) ;
+                    Move aInfo[iIndex].hoDD to aInfo[iParentIndex].aChilds[-1]
+            Loop
+        Loop
+
+        Set paFileInfo to aInfo
+    End_Procedure
+
+
 
     Function IsObjectValidDataDictionary Handle hoDD Returns Boolean
         Handle hEntity
@@ -54,7 +233,7 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
     Function NameOfDD Handle hoDD Returns String
         String sName
 
-        Get Entity_Attribute of hoDD C_DbTableAttribute_DbName to sName
+        Get TableDbName of hoDD to sName
         Function_Return sName
     End_Function
 
@@ -62,44 +241,34 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Function_Return (Lowercase(NameOfDD(Self, hoDD)))
     End_Function
 
-    Function IsValidIndexForDD Handle hoDD Integer iIndex Returns Boolean
-        Integer iIndexCount
-
-        If (hoDD = 0 or iIndex < 1) Function_Return False
-        Get Entity_Index_Count of hoDD to iIndexCount
-        Function_Return (iIndex <= iIndexCount)
-    End_Function
 
     Function IsDDRelated Handle hoDD Handle hoTest Boolean ByRef bOptParent Returns Boolean
-        Integer iInfoIndex iIndex
-        tDDPCrossPlatformFileInfo oInfo
+        Integer iIndex
+        Handle[] aExposedDDs
         tDDPCrossPlatformFileInfo[] aInfo
 
         If (num_arguments > 2) Move False to bOptParent
         If (hoDD = 0 or hoTest = 0) Function_Return False
 
-        Get paFileInfo to aInfo
-        Get Main_File of hoDD to oInfo.hFile
-        Move (BinarySearchArray(oInfo, aInfo, False)) to iInfoIndex
-        If (iInfoIndex = -1) Begin
+        Get paExposedDDs to aExposedDDs
+        Move (SearchArray(hoDD, aExposedDDs)) to iIndex
+        If (iIndex = -1) Begin
             Error DFERR_PROGRAM "Non-exposed DD"
             Function_Return False
         End
 
-        Get Main_File of hoTest to oInfo.hFile
-        For iIndex from 0 to (SizeOfArray(aInfo[iInfoIndex].aParents) - 1)
-            If (aInfo[iInfoIndex].aParents[iIndex].hFile = oInfo.hFile) Begin
-                If (num_arguments > 2) Move True to bOptParent
-                Function_Return True
-            End
-        Loop
+        Get paFileInfo to aInfo
+        If (iIndex >= SizeOfArray(aInfo)) Function_Return False
 
-        For iIndex from 0 to (SizeOfArray(aInfo[iInfoIndex].aChilds) - 1)
-            If (aInfo[iInfoIndex].aChilds[iIndex].hFile = oInfo.hFile) Begin
-                If (num_arguments > 2) Move False to bOptParent
-                Function_Return True
-            End
-        Loop
+        If (SearchArray(hoTest, aInfo[iIndex].aParents) <> -1) Begin
+            If (num_arguments > 2) Move True to bOptParent
+            Function_Return True
+        End
+
+        If (SearchArray(hoTest, aInfo[iIndex].aChilds) <> -1) Begin
+            If (num_arguments > 2) Move False to bOptParent
+            Function_Return True
+        End
 
         Function_Return False
     End_Function
@@ -158,9 +327,13 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
 
     Procedure SerializeBufferToJson Handle hoJson tDDPTableQuery query
         Handle hFile
-        Integer iField iFieldCount
+        Integer iField iFieldCount iParent iRelatedField
+        Boolean bForceRelated bRelated
 
+        Move False to bForceRelated
+        If (num_arguments > 2) Get_Stack_Argument 3 to bForceRelated
         Get Main_File of query.hoDD to hFile
+
         Move (SizeOfArray(query.aFields)) to iFieldCount
         If (iFieldCount) Begin
             For iField from 0 to (iFieldCount - 1)
@@ -173,107 +346,49 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
                 Send SerializeField hoJson query hFile iField False
             Loop
         End
+
+        If (bForceRelated) Begin
+            Get FieldCount query.hoDD to iFieldCount
+            For iField from 1 to iFieldCount
+                Move False to bRelated
+                For iParent from 0 to (SizeOfArray(query.aParents) - 1)
+                    Get FieldRelation query.hoDD query.aParents[iParent].hoDD iField (&iRelatedField) to bRelated
+                    If (bRelated) Break
+                Loop
+                If (not(bRelated) and query.hoParentDD <> 0) ;
+                    Get FieldRelation query.hoDD query.hoParentDD iField (&iRelatedField) to bRelated
+                If (bRelated) Send SerializeField hoJson query hFile iField True
+            Loop
+        End
     End_Procedure
 
     Procedure StoreDDFileLayout Handle hoDD
-        Integer iInfoIndex iInsert iInfo iRelation iRelationCount iSegment iSegmentCount
-        Integer iParent iChild iChildParent
-        Handle hMainFile hForeignEntity
-        Boolean bAlready
-        tDDPFileDD oComb
-        tDDPCrossPlatformFileInfo oInfo
-        tDDPCrossPlatformFileInfo[] aInfo
+        Handle[] aExposedDDs
 
         If (hoDD = 0) Procedure_Return
+        Get paExposedDDs to aExposedDDs
+        If (SearchArray(hoDD, aExposedDDs) = -1) ;
+            Move hoDD to aExposedDDs[-1]
+        Set paExposedDDs to aExposedDDs
 
-        Get paFileInfo to aInfo
-        Get Main_File of hoDD to hMainFile
-        Move hMainFile to oInfo.hFile
-        Move (BinarySearchArray(oInfo, aInfo, False)) to iInfoIndex
-        If (iInfoIndex <> -1) Procedure_Return
-        Move (BinarySearchInsertPos()) to iInsert
-
-        // Store direct parent entities from the immutable entity metadata.
-        Get Entity_Relation_Count of hoDD to iRelationCount
-        Decrement iRelationCount
-        For iRelation from 0 to iRelationCount
-            Get Entity_Relation_Segment_Count of hoDD iRelation to iSegmentCount
-            Decrement iSegmentCount
-            For iSegment from 0 to iSegmentCount
-                Get Entity_Relation_Segment_Foreign_Entity of hoDD iRelation iSegment to hForeignEntity
-                If (hForeignEntity > 0) Begin
-                    Move False to bAlready
-                    For iParent from 0 to (SizeOfArray(oInfo.aParents) - 1)
-                        If (oInfo.aParents[iParent].hFile = hForeignEntity) ;
-                            Move True to bAlready
-                    Loop
-
-                    If (not(bAlready)) Begin
-                        Move hForeignEntity to oComb.hFile
-                        If (hForeignEntity = hMainFile) Begin
-                            Move hoDD to oComb.hoDD
-                        End
-                        Else Begin
-                            Get DDByFile oComb.hFile to oComb.hoDD
-                        End
-                        Move oComb to oInfo.aParents[-1]
-                    End
-                End
-            Loop
-        Loop
-
-        // Add already-exposed children that point at this entity.
-        For iInfo from 0 to (SizeOfArray(aInfo) - 1)
-            For iChildParent from 0 to (SizeOfArray(aInfo[iInfo].aParents) - 1)
-                If (aInfo[iInfo].aParents[iChildParent].hFile = hMainFile) Begin
-                    Move hoDD to aInfo[iInfo].aParents[iChildParent].hoDD
-                    Move False to bAlready
-                    For iChild from 0 to (SizeOfArray(oInfo.aChilds) - 1)
-                        If (oInfo.aChilds[iChild].hFile = aInfo[iInfo].hFile) ;
-                            Move True to bAlready
-                    Loop
-                    If (not(bAlready)) Begin
-                        Move aInfo[iInfo].hFile to oComb.hFile
-                        Get DDByFile oComb.hFile to oComb.hoDD
-                        Move oComb to oInfo.aChilds[-1]
-                    End
-                End
-            Loop
-        Loop
-
-        // Update parent entries when this DD is exposed after its children.
-        For iParent from 0 to (SizeOfArray(oInfo.aParents) - 1)
-            Move oInfo.aParents[iParent].hFile to oComb.hFile
-            Move hoDD to oComb.hoDD
-            Move (BinarySearchArray(oComb, aInfo, False)) to iInfo
-            If (iInfo <> -1) Begin
-                Move False to bAlready
-                For iChild from 0 to (SizeOfArray(aInfo[iInfo].aChilds) - 1)
-                    If (aInfo[iInfo].aChilds[iChild].hFile = hMainFile) ;
-                        Move True to bAlready
-                Loop
-                If (not(bAlready)) Move oComb to aInfo[iInfo].aChilds[-1]
-            End
-        Loop
-
-        Move (InsertInArray(aInfo, iInsert, oInfo)) to aInfo
-        Set paFileInfo to aInfo
+        // Rebuild complete snapshot from native parent metadata. Reverse
+        // links are derived after all known DDs are collected, so exposure
+        // order cannot corrupt the cache.
+        Send RebuildDDFileLayout
     End_Procedure
 
     Function DDParents Handle hoDD Returns Handle[]
-        Integer iIndex iInfoIndex
-        Handle[] aHandles
-        tDDPCrossPlatformFileInfo oInfo
+        Integer iIndex iParent
+        Handle[] aExposedDDs aHandles
         tDDPCrossPlatformFileInfo[] aInfo
 
         If (hoDD = 0) Function_Return aHandles
-        Get paFileInfo to aInfo
-        Get Main_File of hoDD to oInfo.hFile
-        Move (BinarySearchArray(oInfo, aInfo, False)) to iInfoIndex
-        If (iInfoIndex <> -1) Begin
-            For iIndex from 0 to (SizeOfArray(aInfo[iInfoIndex].aParents) - 1)
-                If (aInfo[iInfoIndex].aParents[iIndex].hoDD <> 0) ;
-                    Move aInfo[iInfoIndex].aParents[iIndex].hoDD to aHandles[-1]
+        Get paExposedDDs to aExposedDDs
+        Move (SearchArray(hoDD, aExposedDDs)) to iIndex
+        If (iIndex <> -1) Begin
+            Get paFileInfo to aInfo
+            For iParent from 0 to (SizeOfArray(aInfo[iIndex].aParents) - 1)
+                Move aInfo[iIndex].aParents[iParent] to aHandles[-1]
             Loop
         End
 
@@ -281,35 +396,45 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
     End_Function
 
     Function DDChilds Handle hoDD Returns Handle[]
-        Integer iIndex iInfoIndex
-        Handle[] aHandles
-        tDDPCrossPlatformFileInfo oInfo
+        Integer iIndex iChild
+        Handle[] aExposedDDs aHandles
         tDDPCrossPlatformFileInfo[] aInfo
 
         If (hoDD = 0) Function_Return aHandles
-        Get paFileInfo to aInfo
-        Get Main_File of hoDD to oInfo.hFile
-        Move (BinarySearchArray(oInfo, aInfo, False)) to iInfoIndex
-        If (iInfoIndex <> -1) Begin
-            For iIndex from 0 to (SizeOfArray(aInfo[iInfoIndex].aChilds) - 1)
-                If (aInfo[iInfoIndex].aChilds[iIndex].hoDD <> 0) ;
-                    Move aInfo[iInfoIndex].aChilds[iIndex].hoDD to aHandles[-1]
+        Get paExposedDDs to aExposedDDs
+        Move (SearchArray(hoDD, aExposedDDs)) to iIndex
+        If (iIndex <> -1) Begin
+            Get paFileInfo to aInfo
+            For iChild from 0 to (SizeOfArray(aInfo[iIndex].aChilds) - 1)
+                Move aInfo[iIndex].aChilds[iChild] to aHandles[-1]
             Loop
         End
 
         Function_Return aHandles
     End_Function
 
-    Function DriverIndex String sDriver Returns Integer
-        // Cross-platform database drivers are selected by connection URI, not
-        // by a process-wide numeric driver table.
-        Function_Return 0
+
+    Function DDPPrimaryKeyFields Handle hoDD Returns Integer[]
+        Integer iField
+        DbField[] aEntityFields
+        Integer[] aFields
+
+        If (hoDD = 0) Function_Return aFields
+        Get TablePrimaryKeyFields of hoDD to aEntityFields
+        For iField from 0 to (SizeOfArray(aEntityFields) - 1)
+            Move (aEntityFields[iField] + 1) to aFields[-1]
+        Loop
+
+        Function_Return aFields
     End_Function
 
     Function PrimaryDDIndex Handle hoDD Returns Integer
         Integer iIndexCount
+        Integer[] aPKFields
 
         If (hoDD = 0) Function_Return 0
+        Get DDPPrimaryKeyFields hoDD to aPKFields
+        If (SizeOfArray(aPKFields) > 0) Function_Return -1
 
         Get Entity_Index_Count of hoDD to iIndexCount
         If (iIndexCount > 0) Function_Return 1
@@ -320,8 +445,7 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Integer iFieldCount
 
         If (hoDD = 0) Function_Return 0
-
-        Get Entity_Field_Count of hoDD to iFieldCount
+        Get TableFieldCount of hoDD to iFieldCount
         Function_Return iFieldCount
     End_Function
 
@@ -332,104 +456,61 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Get FieldCount hoDD to iFieldCount
         Move (iField - 1) to iEntityField
         If (iEntityField < 0 or iEntityField >= iFieldCount) Function_Return ""
-
-        Get Entity_Field_Attribute of hoDD iEntityField C_DbFieldAttribute_DbName to sFieldName
+        Get FieldName of hoDD iEntityField to sFieldName
         Function_Return sFieldName
     End_Function
-    // DDP field handles are 1-based; Entity field indexes are 0-based.
+
     Function FieldType Handle hoDD Integer iField Returns Integer
         Integer iFieldCount iEntityField eType
 
         Get FieldCount hoDD to iFieldCount
         Move (iField - 1) to iEntityField
         If (iEntityField < 0 or iEntityField >= iFieldCount) Function_Return C_TypeNone
-
-        Get Entity_Field_Type of hoDD iEntityField to eType
+        Get FieldType of hoDD iEntityField to eType
         Function_Return eType
     End_Function
 
     Function FieldPrecision Handle hoDD Integer iField Returns Integer
-        Integer iFieldCount iEntityField iSeparator iPrecision
-        String sSize
+        Integer iFieldCount iEntityField iPrecision
 
         Get FieldCount hoDD to iFieldCount
         Move (iField - 1) to iEntityField
         If (iEntityField < 0 or iEntityField >= iFieldCount) Function_Return 0
-
-        Move 0 to iPrecision
-        Get Entity_Field_Attribute of hoDD iEntityField C_DbFieldAttribute_Size to sSize
-        Move (Pos(".", sSize)) to iSeparator
-        If (iSeparator > 0) ;
-            Move (Trim(Right(sSize, Length(sSize) - iSeparator))) to iPrecision
-
+        Get FieldPrecision of hoDD iEntityField to iPrecision
         Function_Return iPrecision
     End_Function
 
+
     // Finds the parent field related to iField on hoDD.
     Function FieldRelation Handle hoDD Handle hoParentDD Integer iField Integer ByRef iRelatedField Returns Boolean
-        Handle hParentEntity hForeignEntity
-        Integer iFieldCount iRelationCount iSegmentCount iRelation iSegment iLocalField iEntityField
+        Handle hParentEntity
+        Integer iParent iFieldIndex iEntityField
+        Boolean bRelated
+        tDDParent[] aParents
 
         Move 0 to iRelatedField
         If (hoDD = 0 or hoParentDD = 0 or hoDD = hoParentDD) ;
             Function_Return False
 
-        Get FieldCount hoDD to iFieldCount
         Move (iField - 1) to iEntityField
-        If (iEntityField < 0 or iEntityField >= iFieldCount) ;
+        If (iEntityField < 0 or iEntityField >= FieldCount(Self, hoDD)) ;
             Function_Return False
 
-        Get Entity_StructHandle of hoParentDD to hParentEntity
-        Get Entity_Relation_Count of hoDD to iRelationCount
-        Decrement iRelationCount
-        For iRelation from 0 to iRelationCount
-            Get Entity_Relation_Segment_Count of hoDD iRelation to iSegmentCount
-            Decrement iSegmentCount
-            For iSegment from 0 to iSegmentCount
-                Get Entity_Relation_Segment_Local_Field of hoDD iRelation iSegment to iLocalField
-                If (iLocalField = iEntityField) Begin
-                    Get Entity_Relation_Segment_Foreign_Entity of hoDD iRelation iSegment to hForeignEntity
-                    If (hForeignEntity = hParentEntity) Begin
-                        Get Entity_Relation_Segment_Foreign_Field of hoDD iRelation iSegment to iRelatedField
-                        Increment iRelatedField
-                        Function_Return True
+        Get phEntity of hoParentDD to hParentEntity
+        Get paParents of hoDD to aParents
+        For iParent from 0 to (SizeOfArray(aParents) - 1)
+            If (aParents[iParent].hEntity = hParentEntity) Begin
+                For iFieldIndex from 0 to (SizeOfArray(aParents[iParent].rel.aForeignKey) - 1)
+                    If (aParents[iParent].rel.aForeignKey[iFieldIndex] = iEntityField) Begin
+                        Move (aParents[iParent].rel.aRelatedKey[iFieldIndex] + 1) to iRelatedField
+                        Move True to bRelated
+                        Function_Return bRelated
                     End
-                End
-            Loop
+                Loop
+            End
         Loop
 
         Function_Return False
-    End_Function
-
-    Function IndexSegmentCount Handle hoDD Integer iIndex Returns Integer
-        Integer iIndexCount iSegmentCount
-
-        If (hoDD = 0 or iIndex < 1) Function_Return 0
-
-        Get Entity_Index_Count of hoDD to iIndexCount
-        If (iIndex > iIndexCount) Function_Return 0
-
-        Decrement iIndex
-        Get Entity_Index_Segment_Count of hoDD iIndex to iSegmentCount
-        Function_Return iSegmentCount
-    End_Function
-
-    Function IndexSegmentField Handle hoDD Integer iIndex Integer iSegment Returns Integer
-        Integer iIndexCount iSegmentCount iField
-
-        If (hoDD = 0 or iIndex < 1 or iSegment < 1) Function_Return 0
-
-        Get Entity_Index_Count of hoDD to iIndexCount
-        If (iIndex > iIndexCount) Function_Return 0
-
-        Decrement iIndex
-        Get Entity_Index_Segment_Count of hoDD iIndex to iSegmentCount
-        If (iSegment > iSegmentCount) Function_Return 0
-
-        Decrement iSegment
-        Get Entity_Index_Segment_Field of hoDD iIndex iSegment to iField
-        Increment iField
-        Function_Return iField
     End_Function
 
     // Converts a backend field type and precision to the DDP schema type.
@@ -472,58 +553,27 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Function_Return False
     End_Function
 
-    Function CreateIndex Handle hoDD tDDPOrder[] aOrder Returns Handle
-        Integer iIndex iIndexCount iSegment iSegmentCount iOrderCount
-        Integer iExpectedField hActualField eActualMode
-        Boolean bMatch
+    Function CreateIndex Handle hoDD tDDPOrder[] aOrder tDDPConstrain[] aConstrains Integer iLimit Integer iOffset Returns Handle
+        Handle hoIndex
 
         If (hoDD = 0) Function_Return 0
-        Move (SizeOfArray(aOrder)) to iOrderCount
-        If (not(iOrderCount)) Function_Return (PrimaryDDIndex(Self, hoDD))
 
-        Get Entity_Index_Count of hoDD to iIndexCount
-        Decrement iIndexCount
-        For iIndex from 0 to iIndexCount
-            Get Entity_Index_Segment_Count of hoDD iIndex to iSegmentCount
-            If (iSegmentCount = iOrderCount) Begin
-                Move True to bMatch
-                For iSegment from 0 to (iSegmentCount - 1)
-                    Get Entity_Index_Segment_Field of hoDD iIndex iSegment to hActualField
-                    Get Entity_Index_Segment_Mode of hoDD iIndex iSegment to eActualMode
-                    Move (aOrder[iSegment].hField - 1) to iExpectedField
-                    If (hActualField <> iExpectedField or eActualMode <> aOrder[iSegment].eMode) ;
-                        Move False to bMatch
-                Loop
-                If (bMatch) Function_Return (iIndex + 1)
-            End
-        Loop
-
-        // The cross-platform DB API has no mutable-index operation. Reuse an
-        // equivalent declared index when possible; otherwise use the primary key.
-        Function_Return (PrimaryDDIndex(Self, hoDD))
+        Get Create (RefClass(cDDPNativeOrderedIndex)) to hoIndex
+        Send Configure of hoIndex hoDD aOrder aConstrains iLimit iOffset
+        Function_Return hoIndex
     End_Function
 
     Procedure DeleteIndex Handle hoDD Integer iIndex
-        // CreateIndex only reuses declared indexes; there is no temporary index
-        // to delete in the cross-platform database API.
+        If (IsObjectOfClass(iIndex, (RefClass(cDDPNativeOrderedIndex)))) ;
+            Send Destroy of iIndex
     End_Procedure
 
     Procedure Set_Constrains_To_Buffers tDDPTableQuery query
-        Integer iIndex iField
-
-        For iIndex from 0 to (SizeOfArray(query.aConstrains) - 1)
-            Move (query.aConstrains[iIndex].hField - 1) to iField
-            Set Field_Current_Value of query.hoDD iField to query.aConstrains[iIndex].aParams[0]
-        Loop
-
-        For iIndex from 0 to (SizeOfArray(query.aParents) - 1)
-            Send Set_Constrains_To_Buffers query.aParents[iIndex]
-        Loop
     End_Procedure
 
     Function AddConstrain Handle hoMainDD Handle hoDD Handle hField Integer eConstrain String sFilter Returns tDDPBuilderResult
-        Integer eDbConstrain iField iFieldCount
-        Variant vValue
+        Integer eDbConstrain iField iFieldCount eType
+        Date dValue
         tDDPBuilderResult oResult
 
         If (hoDD = 0) Begin
@@ -557,18 +607,29 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
                 Move C_DbConstraint_GT to eDbConstrain
                 Case Break
             Case (eConstrain = DDPFind_NE)
-                Move C_DbConstraint_NE to eDbConstrain
-                Case Break
+                Move DDPERR_INVALID_CONSTRAIN to oResult.iErr
+                Move "Constraint '_ne' is not supported." to oResult.sError
+                Function_Return oResult
             Case Else
                 Move DDPERR_INVALID_CONSTRAIN to oResult.iErr
                 Move "Invalid constrain." to oResult.sError
                 Function_Return oResult
         Case End
 
-        Move sFilter to vValue
-        Send Add_Value_Constraint of hoDD hoDD iField eDbConstrain vValue
+        Get FieldType hoDD hField to eType
+        If (eType = C_TypeDate) Begin
+            If (not(DDPParseISODate(sFilter, &dValue))) Begin
+                Move DDPERR_INVALID_CONSTRAIN to oResult.iErr
+                Move "Invalid date constraint; expected YYYY-MM-DD." to oResult.sError
+                Function_Return oResult
+            End
+            Send Add_Value_Constraint of hoDD hoMainDD iField eDbConstrain dValue
+        End
+        Else ;
+            Send Add_Value_Constraint of hoDD hoMainDD iField eDbConstrain sFilter
         Function_Return oResult
     End_Function
+
     // DDP runtime operations for the cross-platform data dictionary API.
     Procedure DDPLink Handle hoDD Handle hoRelated Boolean bClient Boolean bConstrain
         If (hoDD = 0 or hoRelated = 0) Procedure_Return
@@ -578,67 +639,108 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
             Set Constrain_File of hoDD to (Main_File(hoRelated))
     End_Procedure
 
-    Procedure DDPClearRelations Handle hoDD Handle hoOptParentDD
-        Handle[] aChildren aEmptyChildren
+    { Visibility = Private }
+    Procedure DDPClearRelationsVisit Handle hoDD Handle[] ByRef aVisited
+        Handle[] aChildren
         tDDParent[] aParents
-        Integer iChild iParent
+        Integer iIndex
 
-        If (hoDD = 0) Procedure_Return
+        If (hoDD = 0 or SearchArray(hoDD, aVisited) <> -1) Procedure_Return
+        Move hoDD to aVisited[-1]
 
         Get paChildren of hoDD to aChildren
-        Set paChildren of hoDD to aEmptyChildren
-        For iChild from 0 to (SizeOfArray(aChildren) - 1)
-            If (num_arguments <= 1 or hoOptParentDD <> aChildren[iChild]) ;
-                Send DDPClearRelations aChildren[iChild] hoDD
+        For iIndex from 0 to (SizeOfArray(aChildren) - 1)
+            Send DDPClearRelationsVisit aChildren[iIndex] (&aVisited)
         Loop
 
         Get paParents of hoDD to aParents
-        For iParent from 0 to (SizeOfArray(aParents) - 1)
-            Move 0 to aParents[iParent].hoDD
-            Move 0 to aParents[iParent].rel.hRelatedTable
+        For iIndex from 0 to (SizeOfArray(aParents) - 1)
+            If (aParents[iIndex].hoDD <> 0) ;
+                Send DDPClearRelationsVisit aParents[iIndex].hoDD (&aVisited)
         Loop
-        Set paParents of hoDD to aParents
-        Send UpdateEntity_Relations of hoDD
 
         Set Constrain_File of hoDD to C_UnresolvedObject
+        Send Rebuild_Constraints of hoDD
         Send Clear of hoDD
     End_Procedure
 
+    Procedure DDPClearRelations Handle hoDD Handle hoOptParentDD
+        Handle[] aVisited
+
+        If (hoOptParentDD <> 0) Move hoOptParentDD to aVisited[-1]
+        Send DDPClearRelationsVisit hoDD (&aVisited)
+    End_Procedure
     Procedure DDPRequestRead Handle hoDD Integer eMode Handle hFile Integer iIndex
-        Send Find of hoDD eMode iIndex
+        Integer iFindIndex
+
+        If (iIndex > 0) Begin
+            If (IsObjectOfClass(iIndex, (RefClass(cDDPNativeOrderedIndex)))) Begin
+                Send ReadRecord of iIndex eMode
+                Procedure_Return
+            End
+        End
+
+        Move iIndex to iFindIndex
+        If (iFindIndex = -1 and (eMode = FIRST_RECORD or eMode = NEXT_RECORD)) ;
+            Move 1 to iFindIndex
+        Send Find of hoDD eMode iFindIndex
     End_Procedure
 
     Procedure DDPRequestFind Handle hoDD Integer eMode Handle hFile Integer iIndex
-        Send Find of hoDD eMode iIndex
+        Integer iFindIndex
+
+        If (iIndex > 0) Begin
+            If (IsObjectOfClass(iIndex, (RefClass(cDDPNativeOrderedIndex)))) Begin
+                Send ReadRecord of iIndex eMode
+                Procedure_Return
+            End
+        End
+
+        Move iIndex to iFindIndex
+        If (iFindIndex = -1 and (eMode = FIRST_RECORD or eMode = NEXT_RECORD)) ;
+            Move 1 to iFindIndex
+        Send Find of hoDD eMode iFindIndex
     End_Procedure
 
     Procedure DDPSetFieldValue Handle hoDD Handle hFile Integer iField String sValue
         Integer iFieldCount iEntityField
 
-        Get FieldCount Self hoDD to iFieldCount
+        If (hoDD = 0) Procedure_Return
+        Get Entity_Field_Count of hoDD to iFieldCount
         Move (iField - 1) to iEntityField
         If (iEntityField < 0 or iEntityField >= iFieldCount) Procedure_Return
-        Set Field_Current_Value of hoDD iEntityField to sValue
+        Set Entity_Field_Value of hoDD iEntityField to sValue
     End_Procedure
 
     Procedure DDPSetChangedValue Handle hoDD Handle hFile Integer iField String sValue
         Integer iFieldCount iEntityField
 
-        Get FieldCount Self hoDD to iFieldCount
+        If (hoDD = 0) Procedure_Return
+        Get Entity_Field_Count of hoDD to iFieldCount
         Move (iField - 1) to iEntityField
         If (iEntityField < 0 or iEntityField >= iFieldCount) Procedure_Return
-        Set Field_Changed_Value of hoDD iEntityField to sValue
+        Set Field_Changed_State of hoDD iEntityField to True
+        Set Entity_Field_Value of hoDD iEntityField to sValue
     End_Procedure
 
     Function DDPGetFieldValue Handle hoDD Handle hFile Integer iField Returns String
         Integer iFieldCount iEntityField
         String sValue
 
-        Get FieldCount Self hoDD to iFieldCount
+        If (hoDD = 0) Function_Return ""
+        Get Entity_Field_Count of hoDD to iFieldCount
         Move (iField - 1) to iEntityField
         If (iEntityField < 0 or iEntityField >= iFieldCount) Function_Return ""
-        Get Field_Current_Value of hoDD iEntityField to sValue
+        Get Entity_Field_Value of hoDD iEntityField to sValue
         Function_Return sValue
+    End_Function
+
+    Function DDPCurrentRowID Handle hoDD Handle hFile Returns RowID
+        RowID riCurrent
+
+        Move (NullRowID()) to riCurrent
+        If (hoDD <> 0) Get CurrentRowID of hoDD to riCurrent
+        Function_Return riCurrent
     End_Function
 
     Function DDPValidateDelete Handle hoDD Returns Boolean

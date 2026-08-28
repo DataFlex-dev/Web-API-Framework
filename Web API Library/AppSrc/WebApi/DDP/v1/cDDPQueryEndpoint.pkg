@@ -36,7 +36,9 @@ Class cDDPQueryEndpoint is a cBaseRestDataset
         tDDPBuilderResult oResult
 
         // Read the DDPStyle header; absent means nested.
+        Move "" to sStyle
         Get HttpRequestHeader "DDPStyle" to sStyle
+        Move (Replaces(Character(0), sStyle, "")) to sStyle
         If (sStyle = "flat") Begin
             Move DDPStyle_Flat to ctx.eStyle
         End
@@ -50,6 +52,7 @@ Class cDDPQueryEndpoint is a cBaseRestDataset
             Move True to webapicallcontext.bErr
             Move C_WEBAPI_NOTALLOWED to webapicallcontext.iStatusCode
             Move "Invalid style" to webapicallcontext.sShortStatusMessage
+            Move (SFormat("Invalid DDPStyle '%1'.", sStyle)) to webapicallcontext.sErrorMessage
             Procedure_Return
         End
 
@@ -88,7 +91,7 @@ Class cDDPQueryEndpoint is a cBaseRestDataset
         // Iterate over every top-level table name in the request and execute its query.
         Integer iIndex
         String sDDName
-        Handle hoDDJson hoQueryResult
+        Handle hoDDJson hoQueryResult hoMainDD
         tDDPQuery oQuery oEmptyQuery
         For iIndex from 0 to (MemberCount(ctx.hoJsonReq) - 1)
             Move (MemberNameByIndex(ctx.hoJsonReq, iIndex)) to sDDName
@@ -97,8 +100,9 @@ Class cDDPQueryEndpoint is a cBaseRestDataset
             // ConstructFindScenario and Execute* live on cWebAPIDataDictionaryProtocol;
             // Delegate walks up the parent chain to find and call them there.
             Delegate Get ConstructFindScenario sDDName hoDDJson (&oQuery) to oResult
+            Move oQuery.oMain.hoDD to hoMainDD
             If (oResult.iErr) Begin
-                Delegate Send DestroyQuery oQuery
+                Delegate Send DestroyQuery hoMainDD
                 Move True to webapicallcontext.bErr
                 Move C_WEBAPI_NOTALLOWED to webapicallcontext.iStatusCode
                 Move "Not Allowed" to webapicallcontext.sShortStatusMessage
@@ -121,7 +125,7 @@ Class cDDPQueryEndpoint is a cBaseRestDataset
             Case End
             If (oResult.iErr) Begin
                 If (hoQueryResult <> 0) Send Destroy of hoQueryResult
-                Delegate Send DestroyQuery oQuery
+                Delegate Send DestroyQuery hoMainDD
                 Move True to webapicallcontext.bErr
                 Move C_WEBAPI_NOTALLOWED to webapicallcontext.iStatusCode
                 Move "Not Allowed" to webapicallcontext.sShortStatusMessage
@@ -129,7 +133,7 @@ Class cDDPQueryEndpoint is a cBaseRestDataset
                 Procedure_Return
             End
 
-            Delegate Send DestroyQuery oQuery
+            Delegate Send DestroyQuery hoMainDD
 
             // Reset per-iteration state so stale values don't leak into the next iteration.
             Move 0 to hoQueryResult

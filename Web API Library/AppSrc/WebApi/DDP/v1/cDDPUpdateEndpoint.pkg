@@ -35,7 +35,7 @@ Class cDDPUpdateEndpoint is a cBaseRestDataset
         String sRequestBodyString sTableName
         tDDPBuilderResult oResult
         tDDPUpdateQuery oQuery oEmptyQuery
-        Handle hoElement hoTableJson hoUpdatedRecord
+        Handle hoElement hoTableJson hoUpdatedRecord hoMainDD
         Integer iIndex iJsonType iElementCount
 
         Get RequestDataString to sRequestBodyString
@@ -88,11 +88,12 @@ Class cDDPUpdateEndpoint is a cBaseRestDataset
 
             Move oEmptyQuery to oQuery
             Delegate Get ConstructUpdateScenario sTableName hoTableJson (&oQuery) to oResult
+            Move oQuery.oMain.hoDD to hoMainDD
             Send Destroy of hoTableJson
             If (iJsonType = jsonTypeArray) Send Destroy of hoElement
 
             If (oResult.iErr) Begin
-                Delegate Send DestroyUpdateQuery oQuery
+                Delegate Send DestroyUpdateQuery hoMainDD
                 Move True to webapicallcontext.bErr
                 Move C_WEBAPI_NOTALLOWED to webapicallcontext.iStatusCode
                 Move "Invalid request" to webapicallcontext.sShortStatusMessage
@@ -101,7 +102,7 @@ Class cDDPUpdateEndpoint is a cBaseRestDataset
             End
 
             Delegate Get ExecuteUpdate oQuery (&hoUpdatedRecord) to oResult
-            Delegate Send DestroyUpdateQuery oQuery
+            Delegate Send DestroyUpdateQuery hoMainDD
 
             If (oResult.iErr) Begin
                 If (hoUpdatedRecord <> 0) Send Destroy of hoUpdatedRecord

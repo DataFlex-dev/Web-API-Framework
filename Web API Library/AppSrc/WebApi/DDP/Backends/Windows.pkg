@@ -192,28 +192,41 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
     End_Procedure
 
     // Serialises the current record buffer of query.hoDD into the JSON object hoJson.
-    // When query.aFields is non-empty only those specific field numbers are emitted
-    // (always with bForceField = True so FK columns are not silently dropped).
-    // When query.aFields is empty every field in the table is serialised and
-    // SerializeField's FK-suppression logic applies normally.
+    // When query.aFields is non-empty only those specific field numbers are emitted.
+    // An optional third argument forces related FK fields into flatlinked rows.
     Procedure SerializeBufferToJson Handle hoJson tDDPTableQuery query
         Handle iFile
-        Integer iField iFieldCount
+        Integer iField iFieldCount iParent iRelatedField
+        Boolean bForceRelated bRelated
 
+        Move False to bForceRelated
+        If (num_arguments > 2) Get_Stack_Argument 3 to bForceRelated
         Get Main_File of query.hoDD to iFile
 
         Move (SizeOfArray(query.aFields)) to iFieldCount
         If (iFieldCount) Begin
-            // Honour the explicit field selection; force-emit so FK columns are included.
             For iField from 0 to (iFieldCount - 1)
                 Send SerializeField hoJson query iFile query.aFields[iField] True
             Loop
         End
         Else Begin
-            // No field filter — emit all fields; FK suppression applies per-field.
             Get_Attribute DF_FILE_NUMBER_FIELDS of iFile to iFieldCount
             For iField from 1 to iFieldCount
                 Send SerializeField hoJson query iFile iField False
+            Loop
+        End
+
+        If (bForceRelated) Begin
+            Get_Attribute DF_FILE_NUMBER_FIELDS of iFile to iFieldCount
+            For iField from 1 to iFieldCount
+                Move False to bRelated
+                For iParent from 0 to (SizeOfArray(query.aParents) - 1)
+                    Get FieldRelation query.hoDD query.aParents[iParent].hoDD iField (&iRelatedField) to bRelated
+                    If (bRelated) Break
+                Loop
+                If (not(bRelated) and query.hoParentDD <> 0) ;
+                    Get FieldRelation query.hoDD query.hoParentDD iField (&iRelatedField) to bRelated
+                If (bRelated) Send SerializeField hoJson query iFile iField True
             Loop
         End
     End_Procedure
@@ -334,6 +347,24 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Function_Return iPrimaryIndex
     End_Function
 
+    Function DDPPrimaryKeyFields Handle hoDD Returns Integer[]
+        Handle hFile
+        Integer iPrimaryIndex iSegmentCount iSegment iField
+        Integer[] aFields
+
+        Get PrimaryDDIndex hoDD to iPrimaryIndex
+        If (iPrimaryIndex <= 0) Function_Return aFields
+
+        Get Main_File of hoDD to hFile
+        Get_Attribute DF_INDEX_NUMBER_SEGMENTS of hFile iPrimaryIndex to iSegmentCount
+        For iSegment from 1 to iSegmentCount
+            Get_Attribute DF_INDEX_SEGMENT_FIELD of hFile iPrimaryIndex iSegment to iField
+            Move iField to aFields[-1]
+        Loop
+
+        Function_Return aFields
+    End_Function
+
     // Returns the total number of fields in hoDD's underlying table.
     Function FieldCount Handle hoDD Returns Integer
         Handle hFile
@@ -392,27 +423,6 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Function_Return True
     End_Function
 
-    Function IndexSegmentCount Handle hoDD Integer iIndex Returns Integer
-        Handle hFile
-        Integer iSegmentCount
-
-        If (hoDD = 0 or iIndex < 1) Function_Return 0
-
-        Get Main_File of hoDD to hFile
-        Get_Attribute DF_INDEX_NUMBER_SEGMENTS of hFile iIndex to iSegmentCount
-        Function_Return iSegmentCount
-    End_Function
-
-    Function IndexSegmentField Handle hoDD Integer iIndex Integer iSegment Returns Integer
-        Handle hFile
-        Integer iField
-
-        If (hoDD = 0 or iIndex < 1 or iSegment < 1) Function_Return 0
-
-        Get Main_File of hoDD to hFile
-        Get_Attribute DF_INDEX_SEGMENT_FIELD of hFile iIndex iSegment to iField
-        Function_Return iField
-    End_Function
 
     // Converts a backend field type and precision to the DDP schema type.
     Function DDPTypeString Integer eType Integer iPrecision Returns String
@@ -444,13 +454,12 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Function_Return False
     End_Function
 
-    // Creates a temporary DataFlex index on the underlying table driven by aOrder.
-    // Each entry in aOrder becomes one index segment; ASCII/Text segments honour the
-    // bNoCase flag for case-insensitive sorting. Returns the index number so the caller
-    // can use it for finds and hand it back to DeleteIndex when the traversal ends.
-    Function CreateIndex Handle hoDD tDDPOrder[] aOrder Returns Handle
+    // Creates a temporary DataFlex index when ordering was requested.
+    Function CreateIndex Handle hoDD tDDPOrder[] aOrder tDDPConstrain[] aConstrains Integer iLimit Integer iOffset Returns Handle
         Handle hFile
-        Integer iIndex iSegment eType
+        Integer iIndex iSegment
+
+        If (SizeOfArray(aOrder) = 0) Function_Return (PrimaryDDIndex(Self, hoDD))
         Get Main_File of hoDD to hFile
 
         Create_Index hFile at iIndex
@@ -458,10 +467,6 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         For iSegment from 1 to (SizeOfArray(aOrder))
             Set_Attribute DF_INDEX_SEGMENT_FIELD of hFile iIndex iSegment to aOrder[iSegment - 1].hField
             Set_Attribute DF_INDEX_SEGMENT_DIRECTION of hFile iIndex iSegment to aOrder[iSegment - 1].eMode
-            Get_Attribute DF_FIELD_TYPE of hFile (iSegment - 1) to eType
-            // Case flag is only meaningful for string segment types.
-            If (eType = DF_ASCII or eType = DF_TEXT) ;
-                Set_Attribute DF_INDEX_SEGMENT_CASE of hFile iIndex iSegment to (not(aOrder[iSegment - 1].bNoCase))
         Loop
         Function_Return iIndex
     End_Function
@@ -653,6 +658,10 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         String sValue
         Get_Field_Value hFile iField to sValue
         Function_Return sValue
+    End_Function
+
+    Function DDPCurrentRowID Handle hoDD Handle hFile Returns RowID
+        Function_Return (GetRowID(hFile))
     End_Function
 
     Function DDPValidateDelete Handle hoDD Returns Boolean

@@ -43,7 +43,7 @@ Class cDDPDeleteEndpoint is a cBaseRestDataset
         String sRequestBodyString sTableName
         tDDPBuilderResult oResult
         tDDPDeleteQuery oQuery oEmptyQuery
-        Handle hoElement hoTableJson hoDeletedRecord
+        Handle hoElement hoTableJson hoDeletedRecord hoMainDD
         Integer iIndex iJsonType iElementCount
 
         Get RequestDataString to sRequestBodyString
@@ -96,11 +96,12 @@ Class cDDPDeleteEndpoint is a cBaseRestDataset
 
             Move oEmptyQuery to oQuery
             Delegate Get ConstructDeleteScenario sTableName hoTableJson (&oQuery) to oResult
+            Move oQuery.oMain.hoDD to hoMainDD
             Send Destroy of hoTableJson
             If (iJsonType = jsonTypeArray) Send Destroy of hoElement
 
             If (oResult.iErr) Begin
-                Delegate Send DestroyDeleteQuery oQuery
+                Delegate Send DestroyDeleteQuery hoMainDD
                 Move True to webapicallcontext.bErr
                 Move C_WEBAPI_NOTALLOWED to webapicallcontext.iStatusCode
                 Move "Invalid request" to webapicallcontext.sShortStatusMessage
@@ -109,7 +110,7 @@ Class cDDPDeleteEndpoint is a cBaseRestDataset
             End
 
             Delegate Get ExecuteDelete oQuery (&hoDeletedRecord) to oResult
-            Delegate Send DestroyDeleteQuery oQuery
+            Delegate Send DestroyDeleteQuery hoMainDD
 
             If (oResult.iErr) Begin
                 If (hoDeletedRecord <> 0) Send Destroy of hoDeletedRecord

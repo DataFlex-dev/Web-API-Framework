@@ -13,11 +13,11 @@ Register_Function FieldName Handle hoDD Integer iField Returns String
 Register_Function FieldType Handle hoDD Integer iField Returns Integer
 Register_Function FieldPrecision Handle hoDD Integer iField Returns Integer
 Register_Function FieldRelation Handle hoDD Handle hoParentDD Integer iField Integer ByRef iRelatedField Returns Boolean
-Register_Function IndexSegmentCount Handle hoDD Integer iIndex Returns Integer
-Register_Function IndexSegmentField Handle hoDD Integer iIndex Integer iSegment Returns Integer
+Register_Function DDPPrimaryKeyFields Handle hoDD Returns Integer[]
 Register_Function DDPTypeString Integer eType Integer iPrecision Returns String
 Register_Procedure DDPLink Handle hoDD Handle hoRelated Boolean bClient Boolean bConstrain
 Register_Procedure DDPClearRelations Handle hoDD Handle hoOptParentDD
+Register_Function DDPCurrentRowID Handle hoDD Handle hFile Returns RowID
 Register_Procedure DDPRequestRead Handle hoDD Integer eMode Handle hFile Integer iIndex
 Register_Procedure DDPRequestFind Handle hoDD Integer eMode Handle hFile Integer iIndex
 Register_Procedure DDPSetFieldValue Handle hoDD Handle hFile Integer iField String sValue
@@ -99,11 +99,12 @@ End_Struct
 Struct tDDPOrder
     Handle hField
     Integer eMode
-    Boolean bNoCase
 End_Struct
 
 Struct tDDPTableQuery
     Handle hoDD
+    String sRequestName
+    Handle hoParentDD
     Integer iLimit
     Integer iOffset
     tDDPConstrain[] aConstrains
