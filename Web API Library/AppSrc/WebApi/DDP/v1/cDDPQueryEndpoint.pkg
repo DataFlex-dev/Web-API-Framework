@@ -134,7 +134,6 @@ Class cDDPQueryEndpoint is a cBaseRestDataset
             End
 
             Delegate Send DestroyQuery hoMainDD
-
             // Reset per-iteration state so stale values don't leak into the next iteration.
             Move 0 to hoQueryResult
             Move oEmptyQuery to oQuery

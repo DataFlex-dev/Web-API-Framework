@@ -304,7 +304,10 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
     Procedure SerializeField Handle hoJson tDDPTableQuery query Handle iFile Integer iField Boolean bForceField
         Integer iParent iRelatedField eType iPrecision iEntityField
         Boolean bRelated
-        String sName
+        String sName sValue
+        Date dValue
+        DateTime dtValue
+        Time tValue
         Variant vValue
 
         Move (iField - 1) to iEntityField
@@ -322,16 +325,33 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Get FieldType query.hoDD iField to eType
         Get FieldPrecision query.hoDD iField to iPrecision
         Get Entity_Field_Value of query.hoDD iEntityField to vValue
-        Send SetMemberValue of hoJson sName (DFTypeToJson(Self, eType, iPrecision)) vValue
+        If (eType = C_TypeDate) Begin
+            Move vValue to dValue
+            Move dValue to sValue
+            If (sValue = "0") Move "" to sValue
+            Send SetMemberValue of hoJson sName (DFTypeToJson(Self, eType, iPrecision)) sValue
+        End
+        Else If (eType = C_TypeDateTime) Begin
+            Move vValue to dtValue
+            Move dtValue to sValue
+            If (sValue = "0") Move "" to sValue
+            Send SetMemberValue of hoJson sName (DFTypeToJson(Self, eType, iPrecision)) sValue
+        End
+        Else If (eType = C_TypeTime) Begin
+            Move vValue to tValue
+            Move tValue to sValue
+            Send SetMemberValue of hoJson sName (DFTypeToJson(Self, eType, iPrecision)) sValue
+        End
+        Else Begin
+            Send SetMemberValue of hoJson sName (DFTypeToJson(Self, eType, iPrecision)) vValue
+        End
     End_Procedure
 
-    Procedure SerializeBufferToJson Handle hoJson tDDPTableQuery query
+    Procedure SerializeBufferToJson Handle hoJson tDDPTableQuery query Boolean bForceRelated
         Handle hFile
         Integer iField iFieldCount iParent iRelatedField
-        Boolean bForceRelated bRelated
+        Boolean bRelated
 
-        Move False to bForceRelated
-        If (num_arguments > 2) Get_Stack_Argument 3 to bForceRelated
         Get Main_File of query.hoDD to hFile
 
         Move (SizeOfArray(query.aFields)) to iFieldCount

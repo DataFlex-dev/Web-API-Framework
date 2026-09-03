@@ -460,6 +460,8 @@ Class cDDPBuilder_Mixin is a Mixin
         Function_Return oResult
     End_Function
 
+
+
     // -------------------------------------------------------------------------
     // Nested-style execution: produces a JSON array of row objects.
     // Each row embeds parent data as nested objects and child data as nested
@@ -471,13 +473,10 @@ Class cDDPBuilder_Mixin is a Mixin
         Handle hoRow hoRelatedJson
         Integer iMainFile iIndex iRelatedIndex iConstrain
         tDDPBuilderResult oResult
-
-        // Initialise the result as an empty JSON array.
         Get Create (RefClass(cJsonObject)) to hoJson
         Send InitializeJsonType of hoJson jsonTypeArray
         Get Main_File of query.hoDD to iMainFile
 
-        // Backend selects the primary index, ordered adapter, or NE compatibility path.
         Move DDPFind_GE to eMode
         Get CreateIndex query.hoDD query.aOrder query.aConstrains query.iLimit query.iOffset to iIndex
 
@@ -495,16 +494,16 @@ Class cDDPBuilder_Mixin is a Mixin
         Send DDPRequestRead query.hoDD (eMode - 1) iMainFile iIndex
 
         // Skip the first iOffset rows before beginning collection.
-        While (Found and HasRecord(query.hoDD) and query.iOffset)
+        While (HasRecord(query.hoDD) and query.iOffset)
             Decrement query.iOffset
             Send DDPRequestRead query.hoDD NEXT_RECORD iMainFile iIndex
         Loop
 
-        While (Found and HasRecord(query.hoDD) and query.iLimit)
+        While (HasRecord(query.hoDD) and query.iLimit)
             // Serialise the main table's current buffer into a JSON object row.
             Get Create (RefClass(cJsonObject)) to hoRow
             Send InitializeJsonType of hoRow jsonTypeObject
-            Send SerializeBufferToJson hoRow query
+            Send SerializeBufferToJson hoRow query False
 
             // Embed each requested parent as a nested object on the row.
             // Parent buffers are already populated by the DataFlex navigation layer
@@ -512,7 +511,7 @@ Class cDDPBuilder_Mixin is a Mixin
             For iRelatedIndex from 0 to (SizeOfArray(query.aParents) - 1)
                 Get Create (RefClass(cJsonObject)) to hoRelatedJson
                 Send InitializeJsonType of hoRelatedJson jsonTypeObject
-                Send SerializeBufferToJson hoRelatedJson query.aParents[iRelatedIndex]
+                Send SerializeBufferToJson hoRelatedJson query.aParents[iRelatedIndex] False
                 Send SetMember of hoRow (NameOfDD(Self, query.aParents[iRelatedIndex].hoDD)) hoRelatedJson
                 Send Destroy of hoRelatedJson
             Loop
@@ -534,7 +533,6 @@ Class cDDPBuilder_Mixin is a Mixin
 
         // Clean up any temporary index created for custom ordering.
         Send DeleteIndex query.hoDD iIndex
-
         Function_Return oResult
     End_Function
 
@@ -579,6 +577,7 @@ Class cDDPBuilder_Mixin is a Mixin
 
         Move DDPFind_GE to eMode
         Get CreateIndex query.hoDD query.aOrder query.aConstrains query.iLimit query.iOffset to iIndex
+
         If (not(query.iLimit)) Begin
             Move |CI$FFFFFFFF to query.iLimit
         End
@@ -586,18 +585,17 @@ Class cDDPBuilder_Mixin is a Mixin
         Send Clear of query.hoDD
         Send Set_Constrains_To_Buffers query
         Send DDPRequestRead query.hoDD (eMode - 1) iMainFile iIndex
-
         // Skip the first iOffset rows before beginning collection.
-        While (Found and HasRecord(query.hoDD) and query.iOffset)
+        While (HasRecord(query.hoDD) and query.iOffset)
             Decrement query.iOffset
             Send DDPRequestRead query.hoDD NEXT_RECORD iMainFile iIndex
         Loop
 
-        While (Found and HasRecord(query.hoDD) and query.iLimit)
+        While (HasRecord(query.hoDD) and query.iLimit)
             // Serialise the main row.
             Get Create (RefClass(cJsonObject)) to hoRow
             Send InitializeJsonType of hoRow jsonTypeObject
-            Send SerializeBufferToJson hoRow query
+            Send SerializeBufferToJson hoRow query False
 
             // Append one parent object per parent array. The same parent record
             // may be appended multiple times (once per main row that references
@@ -605,7 +603,7 @@ Class cDDPBuilder_Mixin is a Mixin
             For iRelatedIndex from 0 to (SizeOfArray(query.aParents) - 1)
                 Get Create (RefClass(cJsonObject)) to hoRelatedJson
                 Send InitializeJsonType of hoRelatedJson jsonTypeObject
-                Send SerializeBufferToJson hoRelatedJson query.aParents[iRelatedIndex]
+                Send SerializeBufferToJson hoRelatedJson query.aParents[iRelatedIndex] False
                 Send AddMember of ahParents[iRelatedIndex] hoRelatedJson
                 Send Destroy of hoRelatedJson
             Loop
@@ -735,6 +733,9 @@ Class cDDPBuilder_Mixin is a Mixin
             Send InitializeJsonType of hoRelatedJson jsonTypeArray
             Move hoRelatedJson to ahChilds[-1]
 
+            // Seen-set — empty JSON object used as a hash map.
+            // Key = SerializeRowID(rowID), Value = True (the value is irrelevant;
+            // only HasMember is ever called on it).
             Get Create (RefClass(cJsonObject)) to hoRelatedJson
             Send InitializeJsonType of hoRelatedJson jsonTypeObject
             Move hoRelatedJson to aChildSeenSets[-1]
@@ -750,12 +751,12 @@ Class cDDPBuilder_Mixin is a Mixin
         Send DDPRequestRead query.hoDD (eMode - 1) iMainFile iIndex
 
         // Skip the first iOffset rows before beginning collection.
-        While (Found and HasRecord(query.hoDD) and query.iOffset)
+        While (HasRecord(query.hoDD) and query.iOffset)
             Decrement query.iOffset
             Send DDPRequestRead query.hoDD NEXT_RECORD iMainFile iIndex
         Loop
 
-        While (Found and HasRecord(query.hoDD) and query.iLimit)
+        While (HasRecord(query.hoDD) and query.iLimit)
             // Serialise and immediately append the main row. Main rows are never
             // deduplicated ΓÇö the main table's primary key guarantees uniqueness.
             Get Create (RefClass(cJsonObject)) to hoRow
@@ -792,6 +793,7 @@ Class cDDPBuilder_Mixin is a Mixin
             // of the current main row.
             For iRelatedIndex from 0 to (SizeOfArray(query.aChilds) - 1)
                 Get Main_File of query.aChilds[iRelatedIndex].hoDD to hChildFile
+
                 Get CreateIndex query.aChilds[iRelatedIndex].hoDD query.aChilds[iRelatedIndex].aOrder query.aChilds[iRelatedIndex].aConstrains query.aChilds[iRelatedIndex].iLimit query.aChilds[iRelatedIndex].iOffset to iChildIdx
                 Send Clear of query.aChilds[iRelatedIndex].hoDD
                 Send DDPRequestRead query.aChilds[iRelatedIndex].hoDD (eMode - 1) hChildFile iChildIdx
@@ -1262,7 +1264,7 @@ Class cDDPBuilder_Mixin is a Mixin
         Move record.hoDD to serialQuery.hoDD
         Get Create (RefClass(cJsonObject)) to hoJson
         Send InitializeJsonType of hoJson jsonTypeObject
-        Send SerializeBufferToJson hoJson serialQuery
+        Send SerializeBufferToJson hoJson serialQuery False
 
         // Save each child record and group results into per-table JSON arrays.
         For iChildIdx from 0 to (SizeOfArray(record.aChilds) - 1)
@@ -1483,7 +1485,7 @@ Class cDDPBuilder_Mixin is a Mixin
         Move record.hoDD to serialQuery.hoDD
         Get Create (RefClass(cJsonObject)) to hoJson
         Send InitializeJsonType of hoJson jsonTypeObject
-        Send SerializeBufferToJson hoJson serialQuery
+        Send SerializeBufferToJson hoJson serialQuery False
 
         // Validate the delete through the DD layer (checks referential integrity rules).
         Get DDPValidateDelete record.hoDD to bErr
@@ -1688,7 +1690,7 @@ Class cDDPBuilder_Mixin is a Mixin
         Move record.hoDD to serialQuery.hoDD
         Get Create (RefClass(cJsonObject)) to hoJson
         Send InitializeJsonType of hoJson jsonTypeObject
-        Send SerializeBufferToJson hoJson serialQuery
+        Send SerializeBufferToJson hoJson serialQuery False
 
         Function_Return oResult
     End_Function

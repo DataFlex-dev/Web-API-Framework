@@ -41,6 +41,7 @@ Class cRestEntity is a cObject
         Integer iChildCount iIndex
         String sNodeName
 
+
         Get SchemaName to sNodeName
 
         //Create nested object
@@ -93,6 +94,8 @@ Class cRestEntity is a cObject
         Handle hoServer
         String sTableName
 
+        Send PrepareBinding
+
         Get Server to hoServer
         If (hoServer = 0) ;
             Procedure_Return
@@ -105,12 +108,6 @@ Class cRestEntity is a cObject
             Get CompatibilityTableName hoServer iFile to sTableName
             Set psNodeName to sTableName
         End
-    End_Procedure
-
-    Procedure End_Construct_Object
-        Forward Send End_Construct_Object
-
-        Send PrepareBinding
     End_Procedure
 
 End_Class

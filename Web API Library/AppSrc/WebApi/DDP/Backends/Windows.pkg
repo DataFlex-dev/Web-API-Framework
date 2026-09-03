@@ -1,5 +1,9 @@
 Use WebApi\DDP\Backends\IBackend.pkg
 Use DataDict.pkg
+Use cli.pkg
+
+
+
 
 // Cached topology snapshot for one exposed DD: the flat-file handle used as a
 // binary-search key, plus arrays of its direct parent (server-file, 1-to-1)
@@ -56,9 +60,9 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Function_Return True
     End_Function
 
-    // Verifies that hoDD is a DataDictionary subclass and that its underlying
-    // table is open. Called at expose time so misconfiguration errors surface before
-    // any request is served rather than during one.
+    // Verifies that hoDD is a DataDictionary subclass, that its underlying table is
+    // open, and that the table supports the SQL filter interface. Called at expose
+    // time so misconfiguration errors surface before any request is served.
     Function IsObjectValidDataDictionary Handle hoDD Returns Boolean
         If (IsObjectOfClass(hoDD, (RefClass(DataDictionary))) = False) Begin
             Function_Return False
@@ -71,6 +75,11 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Get_Attribute DF_FILE_OPENED of iFile to bOk
         If (not(bOk)) Begin
             Error DFERR_PROGRAM "Underlying table is not open."
+            Function_Return False
+        End
+
+        If (not(SupportsSQLFilters(hoDD))) Begin
+            Error DFERR_PROGRAM "Underlying table does not support SQL filters."
             Function_Return False
         End
 
@@ -194,13 +203,11 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
     // Serialises the current record buffer of query.hoDD into the JSON object hoJson.
     // When query.aFields is non-empty only those specific field numbers are emitted.
     // An optional third argument forces related FK fields into flatlinked rows.
-    Procedure SerializeBufferToJson Handle hoJson tDDPTableQuery query
+    Procedure SerializeBufferToJson Handle hoJson tDDPTableQuery query Boolean bForceRelated
         Handle iFile
         Integer iField iFieldCount iParent iRelatedField
-        Boolean bForceRelated bRelated
+        Boolean bRelated
 
-        Move False to bForceRelated
-        If (num_arguments > 2) Get_Stack_Argument 3 to bForceRelated
         Get Main_File of query.hoDD to iFile
 
         Move (SizeOfArray(query.aFields)) to iFieldCount
@@ -309,41 +316,13 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Function_Return aHandles
     End_Function
 
-    // Linear scan over the DataFlex driver table to resolve a driver name to its numeric
-    // index. The index is needed to query DF_DRIVER_CONFORMANCE and determine whether
-    // the backend supports SQL-style filters (conformance >= 1).
-    Function DriverIndex String sDriver Returns Integer
-        String sCurrentDriver
-        Integer iNumberOfDrivers iDriver iCount
-        Get_Attribute DF_NUMBER_DRIVERS to iNumberOfDrivers
-        For iCount from 1 to iNumberOfDrivers
-            Get_Attribute DF_DRIVER_NAME of iCount to sCurrentDriver
-            If (Lowercase(sCurrentDriver) = Lowercase(sDriver)) ;
-                Move iCount to iDriver
-        Loop
-        Function_Return iDriver
-    End_Function // DriverIndex
+    // Returns the primary index number declared by hoDD's underlying table.
 
-    // Returns the primary index number for hoDD. For drivers with conformance >= 1 the
-    // primary index is read directly from DF_FILE_PRIMARY_INDEX. For flat-file drivers
-    // (conformance < 1) that do not declare one, we iterate the file's indexes and
-    // return the first one found, or 0 if none exist.
     Function PrimaryDDIndex Handle hoDD Returns Integer
         Handle hFile
-        String sDriver
-        Integer iDriver iConformance iPrimaryIndex iIndexCount
+        Integer iPrimaryIndex
         Get Main_File of hoDD to hFile
-        Get_Attribute DF_FILE_DRIVER of hFile to sDriver
-        Get DriverIndex sDriver to iDriver
-        Get_Attribute DF_DRIVER_CONFORMANCE of iDriver to iConformance
-        If (iConformance >= 1) Begin
-            Get_Attribute DF_FILE_PRIMARY_INDEX of hFile to iPrimaryIndex
-            Function_Return iPrimaryIndex
-        End
-        Get_Attribute DF_FILE_LAST_INDEX_NUMBER of hFile to iIndexCount
-        Move 0 to iPrimaryIndex
-        If (iIndexCount >= 1) ;
-            Move 1 to iPrimaryIndex
+        Get_Attribute DF_FILE_PRIMARY_INDEX of hFile to iPrimaryIndex
         Function_Return iPrimaryIndex
     End_Function
 
@@ -468,6 +447,7 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
             Set_Attribute DF_INDEX_SEGMENT_FIELD of hFile iIndex iSegment to aOrder[iSegment - 1].hField
             Set_Attribute DF_INDEX_SEGMENT_DIRECTION of hFile iIndex iSegment to aOrder[iSegment - 1].eMode
         Loop
+
         Function_Return iIndex
     End_Function
 
@@ -477,19 +457,14 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Handle hFile
         Integer eType
         Get Main_File of hoDD to hFile
-        Get_Attribute DF_INDEX_TYPE of hFile iIndex to eType
+        Get_Attribute DF_INDEX_SQL_TYPE of hFile iIndex to eType
         If (eType = DF_INDEX_TEMPORARY) Begin
             Delete_Index hFile iIndex
         End
     End_Procedure
 
-    // Seeds field buffers of query.hoDD before a find sequence:
-    //   Order fields     — filled with DF_LOW (ASC) or DF_HIGH (DESC) so the first
-    //                      GE/LE find lands at the correct boundary of the sorted range.
-    //   Constrain fields — set to the user-supplied value so the Vconstrain/SQL filter
-    //                      has the right value to compare against.
-    // Recurses into aParents so parent DD buffers are also seeded, which Constrain_File
-    // needs to scope child finds to the current parent record.
+    // Seeds ordering fields for the initial index read.
+    // Parent ordering fields are seeded recursively for child traversal.
     Procedure Set_Constrains_To_Buffers tDDPTableQuery query
         Handle hFile
         Integer iIndex
@@ -500,9 +475,6 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
             Else If (query.aOrder[iIndex].eMode = DDPOrder_DESC) ;
                 Fill_Field hFile query.aOrder[iIndex].hField with DF_HIGH
         Loop
-        For iIndex from 0 to (SizeOfArray(query.aConstrains) - 1)
-            Set_Field_Value hFile query.aConstrains[iIndex].hField to query.aConstrains[iIndex].aParams[0]
-        Loop
         // Parent buffers must be seeded too; Constrain_File reads from them to scope finds.
         For iIndex from 0 to (SizeOfArray(query.aParents) - 1)
             Send Set_Constrains_To_Buffers query.aParents[iIndex]
@@ -511,87 +483,56 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
 
     // Applies one constraint for field hField on table hoDD against the literal value sFilter.
     //
-    // SQL path (hoMainDD == hoDD and the driver supports SQL filters):
+    // SQL filter path for all exposed Windows DDs, including related-table fields:
     //   String values are SQL-escaped and quoted before embedding.
     //   Numeric values are validated with IsOptDottedNumeric to prevent injection.
     //   The operator is appended to psSQLFilter via SQLStrAppend.
-    //
-    // Vconstrain path (all other cases — flat-file or related-table fields):
-    //   Uses DataFlex Vconstrain statements that operate on native index traversal.
     Function AddConstrain Handle hoMainDD Handle hoDD Handle hField Integer eConstrain String sFilter Returns tDDPBuilderResult
         Handle hFile
         String sQuery
+        Integer eType
         tDDPBuilderResult oResult
         Get Main_File of hoDD to hFile
 
-        If (hoMainDD = hoDD and SupportsSQLFilters(hoDD)) Begin
-            Integer eType
-            Get_Attribute DF_FIELD_TYPE of hFile hField to eType
-            If (eType = DF_ASCII or eType = DF_TEXT) Begin
-                // Escape and quote string values before embedding in the SQL fragment.
-                Get SQLEscapedStr of hoMainDD sFilter to sFilter
-                Move ("'" + sFilter + "'") to sFilter
-            End
-            Else If (not(IsOptDottedNumeric(Self, sFilter))) Begin
-                // Reject non-numeric values for numeric fields before they touch SQL.
-                Move DDPERR_INVALID_CONSTRAIN to oResult.iErr
-                Move "Invalid constrain should be numeric." to oResult.sError
-                Function_Return oResult
-            End
+        Get_Attribute DF_FIELD_TYPE of hFile hField to eType
+        If (eType = DF_ASCII or eType = DF_TEXT) Begin
+            // Escape and quote string values before embedding in the SQL fragment.
+            Get SQLEscapedStr of hoMainDD sFilter to sFilter
+            Move ("'" + sFilter + "'") to sFilter
+        End
+        Else If (not(IsOptDottedNumeric(Self, sFilter))) Begin
+            // Reject non-numeric values for numeric fields before they touch SQL.
+            Move DDPERR_INVALID_CONSTRAIN to oResult.iErr
+            Move "Invalid constrain should be numeric." to oResult.sError
+            Function_Return oResult
+        End
 
-            Set pbUseDDSQLFilters of hoMainDD to True
-            Get psSQLFilter of hoMainDD to sQuery
-            If (eConstrain = DDPFind_EQ) Begin
-                Get SQLStrAppend of hoMainDD sQuery (SQLStrFileFieldName(hoDD, hField) + " = " + sFilter) to sQuery
-            End
-            Else If (eConstrain = DDPFind_GE) Begin
-                Get SQLStrAppend of hoMainDD sQuery (SQLStrFileFieldName(hoDD, hField) + " >= " + sFilter) to sQuery
-            End
-            Else If (eConstrain = DDPFind_GT) Begin
-                Get SQLStrAppend of hoMainDD sQuery (SQLStrFileFieldName(hoDD, hField) + " > " + sFilter) to sQuery
-            End
-            Else If (eConstrain = DDPFind_LE) Begin
-                Get SQLStrAppend of hoMainDD sQuery (SQLStrFileFieldName(hoDD, hField) + " <= " + sFilter) to sQuery
-            End
-            Else If (eConstrain = DDPFind_LT) Begin
-                Get SQLStrAppend of hoMainDD sQuery (SQLStrFileFieldName(hoDD, hField) + " < " + sFilter) to sQuery
-            End
-            Else If (eConstrain = DDPFind_NE) Begin
-                Get SQLStrAppend of hoMainDD sQuery (SQLStrFileFieldName(hoDD, hField) + " != " + sFilter) to sQuery
-            End
-            Else Begin
-                Move DDPERR_INVALID_CONSTRAIN to oResult.iErr
-                Move "Invalid contrain." to oResult.sError
-                Function_Return oResult
-            End
-            Set psSQLFilter of hoMainDD to sQuery
+        Set pbUseDDSQLFilters of hoMainDD to True
+        Get psSQLFilter of hoMainDD to sQuery
+        If (eConstrain = DDPFind_EQ) Begin
+            Get SQLStrAppend of hoMainDD sQuery (SQLStrFileFieldName(hoDD, hField) + " = " + sFilter) to sQuery
+        End
+        Else If (eConstrain = DDPFind_GE) Begin
+            Get SQLStrAppend of hoMainDD sQuery (SQLStrFileFieldName(hoDD, hField) + " >= " + sFilter) to sQuery
+        End
+        Else If (eConstrain = DDPFind_GT) Begin
+            Get SQLStrAppend of hoMainDD sQuery (SQLStrFileFieldName(hoDD, hField) + " > " + sFilter) to sQuery
+        End
+        Else If (eConstrain = DDPFind_LE) Begin
+            Get SQLStrAppend of hoMainDD sQuery (SQLStrFileFieldName(hoDD, hField) + " <= " + sFilter) to sQuery
+        End
+        Else If (eConstrain = DDPFind_LT) Begin
+            Get SQLStrAppend of hoMainDD sQuery (SQLStrFileFieldName(hoDD, hField) + " < " + sFilter) to sQuery
+        End
+        Else If (eConstrain = DDPFind_NE) Begin
+            Get SQLStrAppend of hoMainDD sQuery (SQLStrFileFieldName(hoDD, hField) + " != " + sFilter) to sQuery
         End
         Else Begin
-            // Flat-file (or related-table) path: Vconstrain operates on index traversal.
-            If (eConstrain = DDPFind_EQ) Begin
-                Vconstrain hFile hField EQ sFilter
-            End
-            Else If (eConstrain = DDPFind_GE) Begin
-                Vconstrain hFile hField GE sFilter
-            End
-            Else If (eConstrain = DDPFind_GT) Begin
-                Vconstrain hFile hField GT sFilter
-            End
-            Else If (eConstrain = DDPFind_LE) Begin
-                Vconstrain hFile hField LE sFilter
-            End
-            Else If (eConstrain = DDPFind_LT) Begin
-                Vconstrain hFile hField LT sFilter
-            End
-            Else If (eConstrain = DDPFind_NE) Begin
-                Vconstrain hFile hField NE sFilter
-            End
-            Else Begin
-                Move DDPERR_INVALID_CONSTRAIN to oResult.iErr
-                Move "Invalid contrain." to oResult.sError
-                Function_Return oResult
-            End
+            Move DDPERR_INVALID_CONSTRAIN to oResult.iErr
+            Move "Invalid contrain." to oResult.sError
+            Function_Return oResult
         End
+        Set psSQLFilter of hoMainDD to sQuery
         Function_Return oResult
     End_Function
     // DDP runtime operations for the Classic data dictionary API.
