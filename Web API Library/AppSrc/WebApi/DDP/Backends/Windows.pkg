@@ -1,5 +1,5 @@
-Use WebApi\DDP\Backends\IBackend.pkg
-Use DataDict.pkg
+﻿Use WebApi\DDP\Backends\IBackend.pkg
+Use Db\cDataDictionary.pkg
 Use cli.pkg
 
 
@@ -160,9 +160,9 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
 
     // Maps a DataFlex field type/precision pair to the JSON primitive type used when
     // writing that field's value:
-    //   BCD with precision > 0  →  jsonTypeDouble   (decimal number)
-    //   BCD with precision = 0  →  jsonTypeInteger  (whole number)
-    //   everything else         →  jsonTypeString   (dates, text, ASCII, …)
+    //   BCD with precision > 0  ΓåÆ  jsonTypeDouble   (decimal number)
+    //   BCD with precision = 0  ΓåÆ  jsonTypeInteger  (whole number)
+    //   everything else         ΓåÆ  jsonTypeString   (dates, text, ASCII, ΓÇª)
     Function DFTypeToJson Integer eType Integer iPrecision Returns Integer
         If (eType = DF_BCD) Begin
             If (iPrecision) Begin
@@ -173,58 +173,29 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Function_Return jsonTypeString
     End_Function
 
-    // Serialises a single field from the live record buffer into the JSON object hoJson.
-    // FK link fields are suppressed by default (bForceField = False) when the related
-    // parent table is already present in the query tree — the nested parent object
-    // makes the raw numeric FK redundant. Pass bForceField = True to always emit the
-    // field (flat/flatlinked styles need the FK column as the join key).
-    Procedure SerializeField Handle hoJson tDDPTableQuery query Handle iFile Integer iField Boolean bForceField
-        String sName sValue
-        Integer iRelatedFile eType iPrecision
-        tDDPTableQuery parentQuery
-
-        Get_Attribute DF_FIELD_NAME of iFile iField to sName
-        Get_Attribute DF_FIELD_RELATED_FILE of iFile iField to iRelatedFile
-        // If the field is a FK, check whether its target parent is in the query.
-        If (iRelatedFile) Begin
-            Get FindParentFileInQuery query iRelatedFile to parentQuery
-        End
-
-        // Suppress the field only when it is a FK to an already-included parent
-        // and the caller has not overridden that behaviour.
-        If (iRelatedFile = 0 or parentQuery.hoDD = 0 or bForceField) Begin
-            Get_Field_Value iFile iField to sValue
-            Get_Attribute DF_FIELD_TYPE of iFile iField to eType
-            Get_Attribute DF_FIELD_PRECISION of iFile iField to iPrecision
-            Send SetMemberValue of hoJson sName (DFTypeToJson(Self, eType, iPrecision)) sValue
-        End
-    End_Procedure
-
-    // Serialises the current record buffer of query.hoDD into the JSON object hoJson.
-    // When query.aFields is non-empty only those specific field numbers are emitted.
-    // An optional third argument forces related FK fields into flatlinked rows.
-    Procedure SerializeBufferToJson Handle hoJson tDDPTableQuery query Boolean bForceRelated
-        Handle iFile
+    // Selects fields for JSON output.
+    Function DDPSerializedFields tDDPTableQuery query Boolean bForceRelated Returns Integer[]
+        Integer[] aFields
         Integer iField iFieldCount iParent iRelatedField
         Boolean bRelated
 
-        Get Main_File of query.hoDD to iFile
-
-        Move (SizeOfArray(query.aFields)) to iFieldCount
-        If (iFieldCount) Begin
-            For iField from 0 to (iFieldCount - 1)
-                Send SerializeField hoJson query iFile query.aFields[iField] True
-            Loop
+        If (SizeOfArray(query.aFields) > 0) Begin
+            Move query.aFields to aFields
         End
         Else Begin
-            Get_Attribute DF_FILE_NUMBER_FIELDS of iFile to iFieldCount
+            Get FieldCount query.hoDD to iFieldCount
             For iField from 1 to iFieldCount
-                Send SerializeField hoJson query iFile iField False
+                Move False to bRelated
+                For iParent from 0 to (SizeOfArray(query.aParents) - 1)
+                    Get FieldRelation query.hoDD query.aParents[iParent].hoDD iField (&iRelatedField) to bRelated
+                    If (bRelated) Break
+                Loop
+                If (not(bRelated)) Move iField to aFields[-1]
             Loop
         End
 
         If (bForceRelated) Begin
-            Get_Attribute DF_FILE_NUMBER_FIELDS of iFile to iFieldCount
+            Get FieldCount query.hoDD to iFieldCount
             For iField from 1 to iFieldCount
                 Move False to bRelated
                 For iParent from 0 to (SizeOfArray(query.aParents) - 1)
@@ -233,9 +204,35 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
                 Loop
                 If (not(bRelated) and query.hoParentDD <> 0) ;
                     Get FieldRelation query.hoDD query.hoParentDD iField (&iRelatedField) to bRelated
-                If (bRelated) Send SerializeField hoJson query iFile iField True
+                If (bRelated) Move iField to aFields[-1]
             Loop
         End
+
+        Function_Return aFields
+    End_Function
+
+    // Serializes one Classic field value.
+    Procedure SerializeFieldValue Handle hoJson Handle hoDD Integer iField Variant vValue
+        String sName
+        Get FieldName hoDD iField to sName
+        Send SetMemberValue of hoJson sName ;
+            (DFTypeToJson(Self, FieldType(Self, hoDD, iField), FieldPrecision(Self, hoDD, iField))) vValue
+    End_Procedure
+
+    Procedure SerializeBufferToJson Handle hoJson tDDPTableQuery query Boolean bForceRelated
+        Integer[] aFields
+        Integer iIndex
+        Handle hFile
+        String sValue
+        Variant vValue
+
+        Get Main_File of query.hoDD to hFile
+        Get DDPSerializedFields query bForceRelated to aFields
+        For iIndex from 0 to (SizeOfArray(aFields) - 1)
+            Get_Field_Value hFile aFields[iIndex] to sValue
+            Move sValue to vValue
+            Send SerializeFieldValue hoJson query.hoDD aFields[iIndex] vValue
+        Loop
     End_Procedure
 
     // Snapshots the parent/child relationship topology of hoDD into paFileInfo when the
@@ -326,6 +323,7 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Function_Return iPrimaryIndex
     End_Function
 
+    // Returns Classic primary-key fields.
     Function DDPPrimaryKeyFields Handle hoDD Returns Integer[]
         Handle hFile
         Integer iPrimaryIndex iSegmentCount iSegment iField
@@ -618,4 +616,178 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Function_Return sError
     End_Function
 
+    { Visibility = Private }
+    // Rebuilds find constraints recursively.
+    Procedure DDPRebuildFindConstraints tDDPTableQuery query
+        Integer iIndex
+
+        Send Rebuild_Constraints of query.hoDD
+        For iIndex from 0 to (SizeOfArray(query.aParents) - 1)
+            Send DDPRebuildFindConstraints query.aParents[iIndex]
+        Loop
+        For iIndex from 0 to (SizeOfArray(query.aChilds) - 1)
+            Send DDPRebuildFindConstraints query.aChilds[iIndex]
+        Loop
+    End_Procedure
+
+    { Visibility = Private }
+    // Applies find constraints recursively.
+    Function DDPApplyFindConstraints Handle hoMainDD tDDPTableQuery query Returns tDDPBuilderResult
+        tDDPBuilderResult oResult
+        Integer iChild
+
+        Get AddConstrainsToCurrentSet hoMainDD query to oResult
+        If (oResult.iErr) Function_Return oResult
+
+        For iChild from 0 to (SizeOfArray(query.aChilds) - 1)
+            Get DDPApplyFindConstraints hoMainDD query.aChilds[iChild] to oResult
+            If (oResult.iErr) Function_Return oResult
+        Loop
+
+        Function_Return oResult
+    End_Function
+
+    // Prepares and validates a Classic find.
+    Function DDPPrepareFind tDDPTableQuery query Returns tDDPBuilderResult
+        tDDPBuilderResult oResult
+
+        Get QueryLinkUp query to oResult
+        If (oResult.iErr) Function_Return oResult
+
+        Send DDPRebuildFindConstraints query
+        Get DDPApplyFindConstraints query.hoDD query to oResult
+        Function_Return oResult
+    End_Function
+
+    { Visibility = Private }
+    // Snapshots one Classic record and parents.
+    Function DDPSnapshotRecord tDDPTableQuery query Returns tDDPFindRecord
+        tDDPFindRecord record
+        String[] aValues
+        Integer iField iFieldCount
+        Handle hFile
+        RowID riRowId
+
+        Move query.hoDD to record.hoDD
+        Get Main_File of query.hoDD to hFile
+        Get DDPCurrentRowID query.hoDD hFile to riRowId
+        Move riRowId to record.riRowId
+        Move (not(IsNullRowID(riRowId))) to record.bPresent
+
+        Get FieldCount query.hoDD to iFieldCount
+        For iField from 1 to iFieldCount
+            If (record.bPresent) ;
+                Get DDPGetFieldValue query.hoDD hFile iField to aValues[-1]
+            Else ;
+                Move "" to aValues[-1]
+        Loop
+        Move aValues to record.vData
+
+        For iField from 0 to (SizeOfArray(query.aParents) - 1)
+            Get DDPSnapshotRecord query.aParents[iField] to record.aParents[-1]
+        Loop
+
+        Function_Return record
+    End_Function
+
+    // Fetches Classic records into snapshots.
+    Function DDPFetchRecords tDDPTableQuery query Integer eStyle tDDPFindRecord scope tDDPFindRecord[] ByRef aRecords Returns tDDPBuilderResult
+        tDDPBuilderResult oResult
+        tDDPFindRecord[] aResult aChildRecords aEmptyRecords
+        tDDPFindRecord record childScope
+        tDDPTableQuery childQuery
+        tDDPTableQuery[] aEmptyChildQueries
+        Integer iIndex iFindMode iOffset iCollected iChild iChildStyle
+        Handle hFile
+        
+
+        Move aEmptyRecords to aRecords
+        If (scope.hoDD <> 0 and not(scope.bPresent)) Function_Return oResult
+
+        Get Main_File of query.hoDD to hFile
+        Get CreateIndex query.hoDD query.aOrder query.aConstrains query.iLimit query.iOffset to iIndex
+
+        Send Clear of query.hoDD
+        Send Set_Constrains_To_Buffers query
+        Move (DDPFind_GE - 1) to iFindMode
+        Move False to Err
+        Send DDPRequestRead query.hoDD iFindMode hFile iIndex
+        If (Err) Begin
+            Move DDPERR_FIND_FAILED to oResult.iErr
+            Get DDPErrorText "Find failed." to oResult.sError
+            Send DeleteIndex query.hoDD iIndex
+            Function_Return oResult
+        End
+
+        Move query.iOffset to iOffset
+        While (HasRecord(query.hoDD) and iOffset)
+            Decrement iOffset
+            Move False to Err
+            Send DDPRequestRead query.hoDD NEXT_RECORD hFile iIndex
+            If (Err) Begin
+                Move DDPERR_FIND_FAILED to oResult.iErr
+                Get DDPErrorText "Find failed." to oResult.sError
+                Send DeleteIndex query.hoDD iIndex
+                Function_Return oResult
+            End
+        Loop
+
+        Move 0 to iCollected
+        While (HasRecord(query.hoDD) and ;
+            (query.iLimit = 0 or iCollected < query.iLimit))
+            Get DDPSnapshotRecord query to record
+
+            For iChild from 0 to (SizeOfArray(query.aChilds) - 1)
+                Move record.hoDD to childScope.hoDD
+                Move record.riRowId to childScope.riRowId
+                Move record.bPresent to childScope.bPresent
+                Move query.aChilds[iChild] to childQuery
+                Move eStyle to iChildStyle
+                If (eStyle = DDPStyle_FlatLinked) Begin
+                    Move 0 to childQuery.iLimit
+                    Move 0 to childQuery.iOffset
+                    Move aEmptyChildQueries to childQuery.aChilds
+                    Move DDPStyle_Nested to iChildStyle
+                End
+                Get DDPFetchRecords childQuery iChildStyle childScope (&aChildRecords) to oResult
+                If (oResult.iErr) Begin
+                    Send DeleteIndex query.hoDD iIndex
+                    Function_Return oResult
+                End
+                Move aChildRecords to record.aaChilds[iChild]
+            Loop
+
+            Move record to aResult[-1]
+            Increment iCollected
+            Move False to Err
+            Send DDPRequestRead query.hoDD NEXT_RECORD hFile iIndex
+            If (Err) Begin
+                Move DDPERR_FIND_FAILED to oResult.iErr
+                Get DDPErrorText "Find failed." to oResult.sError
+                Send DeleteIndex query.hoDD iIndex
+                Function_Return oResult
+            End
+        Loop
+
+        Send DeleteIndex query.hoDD iIndex
+        Move aResult to aRecords
+        Function_Return oResult
+    End_Function
+    
+    // Serializes one present snapshot.
+    Procedure DDPSerializeRecordToJson Handle hoJson tDDPTableQuery query tDDPFindRecord record Boolean bForceRelated
+        Integer[] aFields
+        Integer iIndex
+        String[] aValues
+        Variant vValue
+        If (not(record.bPresent)) Procedure_Return
+
+        Move record.vData to aValues
+        Get DDPSerializedFields query bForceRelated to aFields
+        For iIndex from 0 to (SizeOfArray(aFields) - 1)
+            Move aValues[aFields[iIndex] - 1] to vValue
+            Send SerializeFieldValue hoJson query.hoDD aFields[iIndex] vValue
+        Loop
+    End_Procedure
+    
 End_Class

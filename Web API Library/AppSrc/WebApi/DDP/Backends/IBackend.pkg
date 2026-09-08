@@ -5,27 +5,6 @@ Register_Function !1 Returns !3 !4 !5 !6 !7 !8 !9
 Register_Procedure Set !1 !3 !4 !5 !6 !7 !8 !9 Value
 #ENDCOMMAND
 
-Register_Function DDByName String sTable Returns Handle
-Register_Function DDByFile Handle hFile Returns Handle
-// DDP field handles are 1-based at the backend boundary.
-Register_Function FieldCount Handle hoDD Returns Integer
-Register_Function FieldName Handle hoDD Integer iField Returns String
-Register_Function FieldType Handle hoDD Integer iField Returns Integer
-Register_Function FieldPrecision Handle hoDD Integer iField Returns Integer
-Register_Function FieldRelation Handle hoDD Handle hoParentDD Integer iField Integer ByRef iRelatedField Returns Boolean
-Register_Function DDPPrimaryKeyFields Handle hoDD Returns Integer[]
-Register_Function DDPTypeString Integer eType Integer iPrecision Returns String
-Register_Procedure DDPLink Handle hoDD Handle hoRelated Boolean bClient Boolean bConstrain
-Register_Procedure DDPClearRelations Handle hoDD Handle hoOptParentDD
-Register_Function DDPCurrentRowID Handle hoDD Handle hFile Returns RowID
-Register_Procedure DDPRequestRead Handle hoDD Integer eMode Handle hFile Integer iIndex
-Register_Procedure DDPRequestFind Handle hoDD Integer eMode Handle hFile Integer iIndex
-Register_Procedure DDPSetFieldValue Handle hoDD Handle hFile Integer iField String sValue
-Register_Procedure DDPSetChangedValue Handle hoDD Handle hFile Integer iField String sValue
-Register_Function DDPGetFieldValue Handle hoDD Handle hFile Integer iField Returns String
-Register_Function DDPValidateDelete Handle hoDD Returns Boolean
-Register_Function DDPErrorText String sFallback Returns String
-
 Struct tDDPBuilderResult
     { Name="err" }
     Integer iErr
@@ -55,7 +34,9 @@ Enum_List
     Define DDPERR_DELETE_FAILED
     Define DDPERR_UPDATE_FAILED
     Define DDPERR_INVALID_OFFSET
+    Define DDPERR_FIND_FAILED
 End_Enum_List
+
 
 Struct tDDPDataDictPair
     String sName         // lowercase — binary-search key for case-insensitive lookup
@@ -113,6 +94,22 @@ Struct tDDPTableQuery
     tDDPTableQuery[] aChilds
     Integer[] aFields
 End_Struct
+// Controls the response JSON shape.
+Enum_List
+    Define DDPStyle_Nested for 0
+    Define DDPStyle_Flat
+    Define DDPStyle_FlatLinked
+End_Enum_List
+
+// Backend-owned snapshot of one materialized record and its related rows.
+Struct tDDPFindRecord
+    Handle hoDD
+    RowID riRowId
+    Boolean bPresent
+    Variant vData
+    tDDPFindRecord[] aParents
+    tDDPFindRecord[][] aaChilds
+End_Struct
 
 // One field assignment for a store (create) operation.
 Struct tDDPSaveField
@@ -169,6 +166,33 @@ End_Struct
 Struct tDDPUpdateQuery
     tDDPUpdateRecord oMain
 End_Struct
+
+Register_Function DDByName String sTable Returns Handle
+Register_Function DDByFile Handle hFile Returns Handle
+// CrossPlatform fieldcount starts at 0, Windows runtime starts at 1.
+Register_Function FieldCount Handle hoDD Returns Integer
+Register_Function FieldName Handle hoDD Integer iField Returns String
+Register_Function FieldType Handle hoDD Integer iField Returns Integer
+Register_Function FieldPrecision Handle hoDD Integer iField Returns Integer
+Register_Function FieldRelation Handle hoDD Handle hoParentDD Integer iField Integer ByRef iRelatedField Returns Boolean
+Register_Function DDPPrimaryKeyFields Handle hoDD Returns Integer[]
+Register_Function DDPTypeString Integer eType Integer iPrecision Returns String
+Register_Procedure DDPLink Handle hoDD Handle hoRelated Boolean bClient Boolean bConstrain
+Register_Procedure DDPClearRelations Handle hoDD Handle hoOptParentDD
+Register_Function DDPCurrentRowID Handle hoDD Handle hFile Returns RowID
+Register_Procedure DDPRequestRead Handle hoDD Integer eMode Handle hFile Integer iIndex
+Register_Procedure DDPRequestFind Handle hoDD Integer eMode Handle hFile Integer iIndex
+Register_Procedure DDPSetFieldValue Handle hoDD Handle hFile Integer iField String sValue
+Register_Procedure DDPSetChangedValue Handle hoDD Handle hFile Integer iField String sValue
+Register_Function DDPGetFieldValue Handle hoDD Handle hFile Integer iField Returns String
+Register_Function DDPValidateDelete Handle hoDD Returns Boolean
+Register_Function DDPErrorText String sFallback Returns String
+// DDP query hooks.
+Register_Function QueryLinkUp tDDPTableQuery query Returns tDDPBuilderResult
+Register_Function AddConstrainsToCurrentSet Handle hoMainDD tDDPTableQuery query tDDPTableQuery optParent Returns tDDPBuilderResult
+Register_Function DDPPrepareFind tDDPTableQuery query Returns tDDPBuilderResult
+Register_Function DDPFetchRecords tDDPTableQuery query Integer eStyle tDDPFindRecord scope tDDPFindRecord[] ByRef aRecords Returns tDDPBuilderResult
+Register_Procedure DDPSerializeRecordToJson Handle hoJson tDDPTableQuery query tDDPFindRecord record Boolean bForceRelated
 
 Class IDDP_Backend_Mixin is a Mixin
     Procedure Define_DDP_Backend_Mixin

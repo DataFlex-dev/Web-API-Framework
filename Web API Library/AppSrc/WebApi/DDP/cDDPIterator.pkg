@@ -14,11 +14,11 @@ Class cDDPIterator is a cBaseWebApiIterator
     //Prepares the data type to a format that can be send to the client
     Procedure PrepareForTransfer tWebApiCallContext ByRef webapicallcontext
         String sStringifiedJson
-        
+
         //Sanity check
         If (webapicallcontext.hoResponseBody <> 0) Begin
             Get Stringify of webapicallcontext.hoResponseBody to sStringifiedJson    
-        End        
+        End
         
         Forward Send PrepareForTransfer (&webapicallcontext)
         

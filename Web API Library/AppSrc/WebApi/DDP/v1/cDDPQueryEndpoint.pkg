@@ -21,6 +21,7 @@ Class cDDPQueryEndpoint is a cBaseRestDataset
         End_Object
     End_Procedure
 
+
     { MethodType = Event }
     // POST /ddp/v1/query
     //
@@ -120,11 +121,17 @@ Class cDDPQueryEndpoint is a cBaseRestDataset
                     Case Break
                 Case Else
                     Delegate Get ExecuteFind (&ctx) oQuery (&hoQueryResult) to oResult
-                    Send SetMember of webapicallcontext.hoResponseBody sDDName hoQueryResult
-                    Send Destroy of hoQueryResult
+                    If (not(oResult.iErr)) Begin
+                        Send SetMember of webapicallcontext.hoResponseBody sDDName hoQueryResult
+                        Send Destroy of hoQueryResult
+                        Move 0 to hoQueryResult
+                    End
             Case End
             If (oResult.iErr) Begin
-                If (hoQueryResult <> 0) Send Destroy of hoQueryResult
+                If (hoQueryResult <> 0) Begin
+                    Send Destroy of hoQueryResult
+                    Move 0 to hoQueryResult
+                End
                 Delegate Send DestroyQuery hoMainDD
                 Move True to webapicallcontext.bErr
                 Move C_WEBAPI_NOTALLOWED to webapicallcontext.iStatusCode

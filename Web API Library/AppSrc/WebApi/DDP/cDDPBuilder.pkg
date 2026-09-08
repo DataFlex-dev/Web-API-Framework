@@ -10,14 +10,6 @@ Enum_List
     Define DDP_Builder_Find for 0
 End_Enum_List
 
-// Controls how the response JSON is shaped. Nested = default relational nesting;
-// Flat = positionally-aligned parallel arrays (parents and child sub-arrays per row);
-// FlatLinked = deduplicated parallel arrays joined by FK fields.
-Enum_List
-    Define DDPStyle_Nested for 0
-    Define DDPStyle_Flat
-    Define DDPStyle_FlatLinked
-End_Enum_List
 
 // Carries the per-request execution context through the builder pipeline.
 // eType   ΓÇö reserved for future query types (currently only Find is used).
@@ -196,6 +188,7 @@ Class cDDPBuilder_Mixin is a Mixin
         Integer iIndex eType
         String sKey sValue
         tDDPBuilderResult oResult
+        Integer iConstrainIndex
 
         Move sDDName to table.sRequestName
         Move hoParent to table.hoParentDD
@@ -363,10 +356,14 @@ Class cDDPBuilder_Mixin is a Mixin
                     Move oOrder to table.aOrder[-1]
                 End
                 Else Begin
-                    Move iField to oConstrain.hField
-                    Move eResolvedMode to oConstrain.eMode
-                    Move sValue to oConstrain.aParams[0]
-                    Move oConstrain to table.aConstrains[-1]
+//                    Move iField to oConstrain.hField
+//                    Move eResolvedMode to oConstrain.eMode
+//                    Move sValue to oConstrain.aParams[0]
+//                    Move oConstrain to table.aConstrains[-1]
+                    Move iField to table.aConstrains[iConstrainIndex].hField
+                    Move eResolvedMode to table.aConstrains[iConstrainIndex].eMode
+                    Move sValue to table.aConstrains[iConstrainIndex].aParams[0]
+                    Increment iConstrainIndex
                 End
             End
         Loop
@@ -433,30 +430,10 @@ Class cDDPBuilder_Mixin is a Mixin
     Function ConstructFindScenario String sMainDD Handle hoDDJson tDDPQuery ByRef oQuery Returns tDDPBuilderResult
         tDDPBuilderResult oResult
 
-        // Phase 1 ΓÇö parse JSON into the query tree (validates all names and types).
         Get ConstructTableQuery sMainDD hoDDJson (&oQuery.oMain) 0 to oResult
         If (oResult.iErr) Function_Return oResult
 
-        // Phase 2 ΓÇö wire up live DD relationships (Add_Server_File, Constrain_File).
-        Get QueryLinkUp oQuery.oMain to oResult
-        If (oResult.iErr) Function_Return oResult
-
-        // Phase 3 ΓÇö push constraints into the main DD. Rebuild_Constraints must
-        // run first to clear any old constraints left from a prior query.
-        Send Rebuild_Constraints of oQuery.oMain.hoDD
-        Get AddConstrainsToCurrentSet oQuery.oMain.hoDD oQuery.oMain to oResult
-        If (oResult.iErr) Function_Return oResult
-
-        // Phase 4 ΓÇö push constraints for each child DD independently.
-        // Children need their own Rebuild_Constraints because they are separate
-        // DD objects with their own constraint state.
-        Integer iChild
-        For iChild from 0 to (SizeOfArray(oQuery.oMain.aChilds) - 1)
-            Send Rebuild_Constraints of oQuery.oMain.aChilds[iChild].hoDD
-            Get AddConstrainsToCurrentSet oQuery.oMain.hoDD oQuery.oMain.aChilds[iChild] to oResult
-            If (oResult.iErr) Function_Return oResult
-        Loop
-
+        Get DDPPrepareFind oQuery.oMain to oResult
         Function_Return oResult
     End_Function
 
@@ -468,74 +445,49 @@ Class cDDPBuilder_Mixin is a Mixin
     // arrays, matching the relational nesting structure of the query.
     // Called recursively for child tables.
     // -------------------------------------------------------------------------
-    Function ExecuteFindTable tDDPBuilderContext ByRef ctx tDDPTableQuery query Handle ByRef hoJson Returns tDDPBuilderResult
-        Integer eMode
+    Procedure DDPSerializeNestedRecords tDDPTableQuery query tDDPFindRecord[] aRecords Handle ByRef hoJson
         Handle hoRow hoRelatedJson
-        Integer iMainFile iIndex iRelatedIndex iConstrain
-        tDDPBuilderResult oResult
+        Integer iRecord iParent iChild
+
         Get Create (RefClass(cJsonObject)) to hoJson
         Send InitializeJsonType of hoJson jsonTypeArray
-        Get Main_File of query.hoDD to iMainFile
-
-        Move DDPFind_GE to eMode
-        Get CreateIndex query.hoDD query.aOrder query.aConstrains query.iLimit query.iOffset to iIndex
-
-        // Default to "all records" when no limit was specified.
-        // |CI$FFFFFFFF is the maximum unsigned 32-bit integer.
-        If (not(query.iLimit)) Begin
-            Move |CI$FFFFFFFF to query.iLimit
-        End
-
-        // Clear the buffer and seed it with any filter values, then issue
-        // the priming read. (eMode - 1) translates DDPFind_GE to the
-        // DataFlex Request_Read mode constant for a GE (first-in-range) find.
-        Send Clear of query.hoDD
-        Send Set_Constrains_To_Buffers query
-        Send DDPRequestRead query.hoDD (eMode - 1) iMainFile iIndex
-
-        // Skip the first iOffset rows before beginning collection.
-        While (HasRecord(query.hoDD) and query.iOffset)
-            Decrement query.iOffset
-            Send DDPRequestRead query.hoDD NEXT_RECORD iMainFile iIndex
-        Loop
-
-        While (HasRecord(query.hoDD) and query.iLimit)
-            // Serialise the main table's current buffer into a JSON object row.
+        For iRecord from 0 to (SizeOfArray(aRecords) - 1)
             Get Create (RefClass(cJsonObject)) to hoRow
             Send InitializeJsonType of hoRow jsonTypeObject
-            Send SerializeBufferToJson hoRow query False
+            Send DDPSerializeRecordToJson hoRow query aRecords[iRecord] False
 
-            // Embed each requested parent as a nested object on the row.
-            // Parent buffers are already populated by the DataFlex navigation layer
-            // because Add_Server_File / DDO_Server was set up in QueryLinkUp.
-            For iRelatedIndex from 0 to (SizeOfArray(query.aParents) - 1)
+            For iParent from 0 to (SizeOfArray(query.aParents) - 1)
                 Get Create (RefClass(cJsonObject)) to hoRelatedJson
                 Send InitializeJsonType of hoRelatedJson jsonTypeObject
-                Send SerializeBufferToJson hoRelatedJson query.aParents[iRelatedIndex] False
-                Send SetMember of hoRow (NameOfDD(Self, query.aParents[iRelatedIndex].hoDD)) hoRelatedJson
+                Send DDPSerializeRecordToJson hoRelatedJson query.aParents[iParent] ;
+                    aRecords[iRecord].aParents[iParent] False
+                Send SetMember of hoRow (NameOfDD(Self, query.aParents[iParent].hoDD)) hoRelatedJson
                 Send Destroy of hoRelatedJson
             Loop
 
-            // Recurse for each child table. Constrain_File (set in QueryLinkUp)
-            // scopes the child find to the records belonging to this parent row.
-            For iRelatedIndex from 0 to (SizeOfArray(query.aChilds) - 1)
-                Get ExecuteFindTable (&ctx) query.aChilds[iRelatedIndex] (&hoRelatedJson) to oResult
-                Send SetMember of hoRow (NameOfDD(Self, query.aChilds[iRelatedIndex].hoDD)) hoRelatedJson
+            For iChild from 0 to (SizeOfArray(query.aChilds) - 1)
+                Send DDPSerializeNestedRecords query.aChilds[iChild] ;
+                    aRecords[iRecord].aaChilds[iChild] (&hoRelatedJson)
+                Send SetMember of hoRow (NameOfDD(Self, query.aChilds[iChild].hoDD)) hoRelatedJson
                 Send Destroy of hoRelatedJson
-                If (oResult.iErr) Function_Return oResult
             Loop
 
             Send AddMember of hoJson hoRow
             Send Destroy of hoRow
-            Decrement query.iLimit
-            Send DDPRequestRead query.hoDD NEXT_RECORD iMainFile iIndex
         Loop
+    End_Procedure
 
-        // Clean up any temporary index created for custom ordering.
-        Send DeleteIndex query.hoDD iIndex
+    // Executes a nested find and serializes rows.
+    Function ExecuteFindTable tDDPBuilderContext ByRef ctx tDDPTableQuery query Handle ByRef hoJson Returns tDDPBuilderResult
+        tDDPBuilderResult oResult
+        tDDPFindRecord[] aRecords
+        tDDPFindRecord emptyScope
+
+        Get DDPFetchRecords query ctx.eStyle emptyScope (&aRecords) to oResult
+        If (oResult.iErr) Function_Return oResult
+        Send DDPSerializeNestedRecords query aRecords (&hoJson)
         Function_Return oResult
     End_Function
-
     // -------------------------------------------------------------------------
     // Flat-style execution: all tables are top-level arrays in the response.
     // Parents are positionally aligned ΓÇö element i of a parent array corresponds
@@ -545,114 +497,72 @@ Class cDDPBuilder_Mixin is a Mixin
     // main row i.
     // -------------------------------------------------------------------------
     Function ExecuteFindTableFlat tDDPBuilderContext ByRef ctx tDDPTableQuery query Handle ByRef hoJson Returns tDDPBuilderResult
-        Integer eMode
-        Handle hoMain
+        Handle hoMain hoRow hoRelatedJson
         Handle[] ahParents ahChilds
-        Handle hoRow hoRelatedJson
-        Integer iMainFile iIndex iRelatedIndex iConstrain
+        Integer iRecord iParent iChild
         String sRootName
+        tDDPFindRecord[] aRecords
+        tDDPFindRecord emptyScope
         tDDPBuilderResult oResult
 
-        // Main array ΓÇö one element per matching main-table row.
+        Get DDPFetchRecords query ctx.eStyle emptyScope (&aRecords) to oResult
+        If (oResult.iErr) Function_Return oResult
+
         Get Create (RefClass(cJsonObject)) to hoMain
         Send InitializeJsonType of hoMain jsonTypeArray
-        Get Main_File of query.hoDD to iMainFile
-
-        // Allocate one top-level array per requested parent table.
-        // These will be positionally aligned with hoMain.
-        For iRelatedIndex from 0 to (SizeOfArray(query.aParents) - 1)
+        For iParent from 0 to (SizeOfArray(query.aParents) - 1)
             Get Create (RefClass(cJsonObject)) to hoRelatedJson
             Send InitializeJsonType of hoRelatedJson jsonTypeArray
             Move hoRelatedJson to ahParents[-1]
         Loop
-
-        // Allocate one top-level array per requested child table.
-        // Each element of these arrays will itself be an array (child rows for
-        // that main row), giving a positionally-aligned array-of-arrays shape.
-        For iRelatedIndex from 0 to (SizeOfArray(query.aChilds) - 1)
+        For iChild from 0 to (SizeOfArray(query.aChilds) - 1)
             Get Create (RefClass(cJsonObject)) to hoRelatedJson
             Send InitializeJsonType of hoRelatedJson jsonTypeArray
             Move hoRelatedJson to ahChilds[-1]
         Loop
 
-        Move DDPFind_GE to eMode
-        Get CreateIndex query.hoDD query.aOrder query.aConstrains query.iLimit query.iOffset to iIndex
-
-        If (not(query.iLimit)) Begin
-            Move |CI$FFFFFFFF to query.iLimit
-        End
-
-        Send Clear of query.hoDD
-        Send Set_Constrains_To_Buffers query
-        Send DDPRequestRead query.hoDD (eMode - 1) iMainFile iIndex
-        // Skip the first iOffset rows before beginning collection.
-        While (HasRecord(query.hoDD) and query.iOffset)
-            Decrement query.iOffset
-            Send DDPRequestRead query.hoDD NEXT_RECORD iMainFile iIndex
-        Loop
-
-        While (HasRecord(query.hoDD) and query.iLimit)
-            // Serialise the main row.
+        For iRecord from 0 to (SizeOfArray(aRecords) - 1)
             Get Create (RefClass(cJsonObject)) to hoRow
             Send InitializeJsonType of hoRow jsonTypeObject
-            Send SerializeBufferToJson hoRow query False
-
-            // Append one parent object per parent array. The same parent record
-            // may be appended multiple times (once per main row that references
-            // it), preserving positional alignment with the main array.
-            For iRelatedIndex from 0 to (SizeOfArray(query.aParents) - 1)
+            Send DDPSerializeRecordToJson hoRow query aRecords[iRecord] False
+            For iParent from 0 to (SizeOfArray(query.aParents) - 1)
                 Get Create (RefClass(cJsonObject)) to hoRelatedJson
                 Send InitializeJsonType of hoRelatedJson jsonTypeObject
-                Send SerializeBufferToJson hoRelatedJson query.aParents[iRelatedIndex] False
-                Send AddMember of ahParents[iRelatedIndex] hoRelatedJson
+                Send DDPSerializeRecordToJson hoRelatedJson query.aParents[iParent] ;
+                    aRecords[iRecord].aParents[iParent] False
+                Send AddMember of ahParents[iParent] hoRelatedJson
                 Send Destroy of hoRelatedJson
             Loop
-
-            // Collect child rows for this main row using the nested executor
-            // (Constrain_File scopes it automatically), then append the resulting
-            // array as a single element of the child's top-level array.
-            For iRelatedIndex from 0 to (SizeOfArray(query.aChilds) - 1)
-                Get ExecuteFindTable (&ctx) query.aChilds[iRelatedIndex] (&hoRelatedJson) to oResult
-                Send AddMember of ahChilds[iRelatedIndex] hoRelatedJson
+            For iChild from 0 to (SizeOfArray(query.aChilds) - 1)
+                Send DDPSerializeNestedRecords query.aChilds[iChild] ;
+                    aRecords[iRecord].aaChilds[iChild] (&hoRelatedJson)
+                Send AddMember of ahChilds[iChild] hoRelatedJson
                 Send Destroy of hoRelatedJson
-                If (oResult.iErr) Function_Return oResult
             Loop
-
             Send AddMember of hoMain hoRow
             Send Destroy of hoRow
-            Decrement query.iLimit
-            Send DDPRequestRead query.hoDD NEXT_RECORD iMainFile iIndex
         Loop
 
-        // Assemble the final response object: one key per table, each mapped
-        // to its accumulated array.
         Get Create (RefClass(cJsonObject)) to hoJson
         Send InitializeJsonType of hoJson jsonTypeObject
         Move query.sRequestName to sRootName
         If (sRootName = "") Move (NameOfDD(Self, query.hoDD)) to sRootName
         Send SetMember of hoJson sRootName hoMain
         Send Destroy of hoMain
-
-        For iRelatedIndex from 0 to (SizeOfArray(query.aParents) - 1)
-            Send SetMember of hoJson (NameOfDD(Self, query.aParents[iRelatedIndex].hoDD)) ahParents[iRelatedIndex]
-            Send Destroy of ahParents[iRelatedIndex]
+        For iParent from 0 to (SizeOfArray(query.aParents) - 1)
+            Send SetMember of hoJson (NameOfDD(Self, query.aParents[iParent].hoDD)) ahParents[iParent]
+            Send Destroy of ahParents[iParent]
         Loop
-
-        For iRelatedIndex from 0 to (SizeOfArray(query.aChilds) - 1)
-            Send SetMember of hoJson (NameOfDD(Self, query.aChilds[iRelatedIndex].hoDD)) ahChilds[iRelatedIndex]
-            Send Destroy of ahChilds[iRelatedIndex]
+        For iChild from 0 to (SizeOfArray(query.aChilds) - 1)
+            Send SetMember of hoJson (NameOfDD(Self, query.aChilds[iChild].hoDD)) ahChilds[iChild]
+            Send Destroy of ahChilds[iChild]
         Loop
-
-        Send DeleteIndex query.hoDD iIndex
-
         Function_Return oResult
     End_Function
 
     // Entry point for nested-style execution. Destroys any previous result
     // handle before delegating to ExecuteFindTable.
     Function ExecuteFind tDDPBuilderContext ByRef ctx tDDPQuery query Handle ByRef hoResult Returns tDDPBuilderResult
-        Integer eMode
-        Integer iMainFile iIndex
         tDDPBuilderResult oResult
 
         If (hoResult <> 0) Begin
@@ -667,8 +577,6 @@ Class cDDPBuilder_Mixin is a Mixin
 
     // Entry point for flat-style execution.
     Function ExecuteFindFlat tDDPBuilderContext ByRef ctx tDDPQuery query Handle ByRef hoResult Returns tDDPBuilderResult
-        Integer eMode
-        Integer iMainFile iIndex
         tDDPBuilderResult oResult
 
         If (hoResult <> 0) Begin
@@ -693,158 +601,93 @@ Class cDDPBuilder_Mixin is a Mixin
     // separate data structure and reuses the existing JSON infrastructure.
     // -------------------------------------------------------------------------
     Function ExecuteFindTableFlatLinked tDDPBuilderContext ByRef ctx tDDPTableQuery query Handle ByRef hoJson Returns tDDPBuilderResult
-        Integer eMode iChildIdx
-        Handle hoMain
-        // ahParents / ahChilds — accumulator arrays for each related table.
-        // aParentSeenSets / aChildSeenSets — one cJsonObject hash-set per
-        // related table, keyed by SerializedRowID.
+        Handle hoMain hoRow hoRelatedJson
         Handle[] ahParents aParentSeenSets ahChilds aChildSeenSets
-        Handle hoRow hoRelatedJson
-        Handle hChildFile hParentFile
-        Integer iMainFile iIndex iRelatedIndex
-        String sRootName
-        RowID riParentRowID riChildRowID
+        Integer iRecord iParent iChild iRelated
+        String sRootName sRowId
+        tDDPFindRecord[] aRecords aChildRecords
+        tDDPFindRecord emptyScope
         tDDPBuilderResult oResult
+
+        Get DDPFetchRecords query ctx.eStyle emptyScope (&aRecords) to oResult
+        If (oResult.iErr) Function_Return oResult
 
         Get Create (RefClass(cJsonObject)) to hoMain
         Send InitializeJsonType of hoMain jsonTypeArray
-        Get Main_File of query.hoDD to iMainFile
-
-        // Initialise one result array and one seen-set per parent table.
-        For iRelatedIndex from 0 to (SizeOfArray(query.aParents) - 1)
-            // Result array ΓÇö unique parent records will be appended here.
+        For iParent from 0 to (SizeOfArray(query.aParents) - 1)
             Get Create (RefClass(cJsonObject)) to hoRelatedJson
             Send InitializeJsonType of hoRelatedJson jsonTypeArray
             Move hoRelatedJson to ahParents[-1]
-
-            // Seen-set ΓÇö empty JSON object used as a hash map.
-            // Key = SerializeRowID(rowID), Value = True (the value is irrelevant;
-            // only HasMember is ever called on it).
             Get Create (RefClass(cJsonObject)) to hoRelatedJson
             Send InitializeJsonType of hoRelatedJson jsonTypeObject
             Move hoRelatedJson to aParentSeenSets[-1]
         Loop
-
-        // Initialise one result array and one seen-set per child table.
-        // A fresh index is created for each parent below because the child
-        // relation scope is part of the current parent buffer state.
-        For iRelatedIndex from 0 to (SizeOfArray(query.aChilds) - 1)
+        For iChild from 0 to (SizeOfArray(query.aChilds) - 1)
             Get Create (RefClass(cJsonObject)) to hoRelatedJson
             Send InitializeJsonType of hoRelatedJson jsonTypeArray
             Move hoRelatedJson to ahChilds[-1]
-
-            // Seen-set — empty JSON object used as a hash map.
-            // Key = SerializeRowID(rowID), Value = True (the value is irrelevant;
-            // only HasMember is ever called on it).
             Get Create (RefClass(cJsonObject)) to hoRelatedJson
             Send InitializeJsonType of hoRelatedJson jsonTypeObject
             Move hoRelatedJson to aChildSeenSets[-1]
         Loop
 
-        Move DDPFind_GE to eMode
-        Get CreateIndex query.hoDD query.aOrder query.aConstrains query.iLimit query.iOffset to iIndex
-        If (not(query.iLimit)) Begin
-            Move |CI$FFFFFFFF to query.iLimit
-        End
-        Send Clear of query.hoDD
-        Send Set_Constrains_To_Buffers query
-        Send DDPRequestRead query.hoDD (eMode - 1) iMainFile iIndex
-
-        // Skip the first iOffset rows before beginning collection.
-        While (HasRecord(query.hoDD) and query.iOffset)
-            Decrement query.iOffset
-            Send DDPRequestRead query.hoDD NEXT_RECORD iMainFile iIndex
-        Loop
-
-        While (HasRecord(query.hoDD) and query.iLimit)
-            // Serialise and immediately append the main row. Main rows are never
-            // deduplicated ΓÇö the main table's primary key guarantees uniqueness.
+        For iRecord from 0 to (SizeOfArray(aRecords) - 1)
             Get Create (RefClass(cJsonObject)) to hoRow
             Send InitializeJsonType of hoRow jsonTypeObject
-            Send SerializeBufferToJson hoRow query True
+            Send DDPSerializeRecordToJson hoRow query aRecords[iRecord] True
             Send AddMember of hoMain hoRow
             Send Destroy of hoRow
 
-            // Parent deduplication: read related DD current RowID through the
-            // backend so native and Classic buffer semantics stay isolated.
-            // IsNullRowID guards against nullable parent references.
-            For iRelatedIndex from 0 to (SizeOfArray(query.aParents) - 1)
-                Get Main_File of query.aParents[iRelatedIndex].hoDD to hParentFile
-                Get DDPCurrentRowID query.aParents[iRelatedIndex].hoDD hParentFile to riParentRowID
-
-                // Skip null RowIDs (parent not present, e.g. nullable FK).
-                // Skip RowIDs already in the seen-set (duplicate parent record).
-                If (not(IsNullRowID(riParentRowID)) and ;
-                    not(HasMember(aParentSeenSets[iRelatedIndex], (SerializeRowID(riParentRowID))))) Begin
-                    // Mark as seen by inserting its serialised RowID into the hash set.
-                    Send SetMemberValue of aParentSeenSets[iRelatedIndex] (SerializeRowID(riParentRowID)) jsonTypeBoolean True
-
-                    Get Create (RefClass(cJsonObject)) to hoRelatedJson
-                    Send InitializeJsonType of hoRelatedJson jsonTypeObject
-                    Send SerializeBufferToJson hoRelatedJson query.aParents[iRelatedIndex] True
-                    Send AddMember of ahParents[iRelatedIndex] hoRelatedJson
-                    Send Destroy of hoRelatedJson
+            For iParent from 0 to (SizeOfArray(query.aParents) - 1)
+                If (aRecords[iRecord].aParents[iParent].bPresent) Begin
+                    Move (SerializeRowID(aRecords[iRecord].aParents[iParent].riRowId)) to sRowId
+                    If (not(HasMember(aParentSeenSets[iParent], sRowId))) Begin
+                        Send SetMemberValue of aParentSeenSets[iParent] sRowId jsonTypeBoolean True
+                        Get Create (RefClass(cJsonObject)) to hoRelatedJson
+                        Send InitializeJsonType of hoRelatedJson jsonTypeObject
+                        Send DDPSerializeRecordToJson hoRelatedJson query.aParents[iParent] ;
+                            aRecords[iRecord].aParents[iParent] True
+                        Send AddMember of ahParents[iParent] hoRelatedJson
+                        Send Destroy of hoRelatedJson
+                    End
                 End
             Loop
 
-            // Child deduplication: clear child DD buffer and run a scoped find.
-            // DDPCurrentRowID supplies backend-specific current RowID.
-            // Constrain_File (set in QueryLinkUp) restricts the find to children
-            // of the current main row.
-            For iRelatedIndex from 0 to (SizeOfArray(query.aChilds) - 1)
-                Get Main_File of query.aChilds[iRelatedIndex].hoDD to hChildFile
-
-                Get CreateIndex query.aChilds[iRelatedIndex].hoDD query.aChilds[iRelatedIndex].aOrder query.aChilds[iRelatedIndex].aConstrains query.aChilds[iRelatedIndex].iLimit query.aChilds[iRelatedIndex].iOffset to iChildIdx
-                Send Clear of query.aChilds[iRelatedIndex].hoDD
-                Send DDPRequestRead query.aChilds[iRelatedIndex].hoDD (eMode - 1) hChildFile iChildIdx
-
-                While (HasRecord(query.aChilds[iRelatedIndex].hoDD))
-                    Get DDPCurrentRowID query.aChilds[iRelatedIndex].hoDD hChildFile to riChildRowID
-                    If (IsNullRowID(riChildRowID)) Break
-
-                    If (not(IsNullRowID(riChildRowID)) and ;
-                        not(HasMember(aChildSeenSets[iRelatedIndex], (SerializeRowID(riChildRowID))))) Begin
-                        Send SetMemberValue of aChildSeenSets[iRelatedIndex] (SerializeRowID(riChildRowID)) jsonTypeBoolean True
-
-                        Get Create (RefClass(cJsonObject)) to hoRelatedJson
-                        Send InitializeJsonType of hoRelatedJson jsonTypeObject
-                        Send SerializeBufferToJson hoRelatedJson query.aChilds[iRelatedIndex] True
-                        Send AddMember of ahChilds[iRelatedIndex] hoRelatedJson
-                        Send Destroy of hoRelatedJson
+            For iChild from 0 to (SizeOfArray(query.aChilds) - 1)
+                Move aRecords[iRecord].aaChilds[iChild] to aChildRecords
+                For iRelated from 0 to (SizeOfArray(aChildRecords) - 1)
+                    If (aChildRecords[iRelated].bPresent) Begin
+                        Move (SerializeRowID(aChildRecords[iRelated].riRowId)) to sRowId
+                        If (not(HasMember(aChildSeenSets[iChild], sRowId))) Begin
+                            Send SetMemberValue of aChildSeenSets[iChild] sRowId jsonTypeBoolean True
+                            Get Create (RefClass(cJsonObject)) to hoRelatedJson
+                            Send InitializeJsonType of hoRelatedJson jsonTypeObject
+                            Send DDPSerializeRecordToJson hoRelatedJson query.aChilds[iChild] ;
+                                aChildRecords[iRelated] True
+                            Send AddMember of ahChilds[iChild] hoRelatedJson
+                            Send Destroy of hoRelatedJson
+                        End
                     End
-
-                    Send DDPRequestRead query.aChilds[iRelatedIndex].hoDD NEXT_RECORD hChildFile iChildIdx
                 Loop
-                Send DeleteIndex query.aChilds[iRelatedIndex].hoDD iChildIdx
             Loop
-
-            Decrement query.iLimit
-            Send DDPRequestRead query.hoDD NEXT_RECORD iMainFile iIndex
         Loop
 
-        // Assemble the response object.
         Get Create (RefClass(cJsonObject)) to hoJson
         Send InitializeJsonType of hoJson jsonTypeObject
         Move query.sRequestName to sRootName
         If (sRootName = "") Move (NameOfDD(Self, query.hoDD)) to sRootName
         Send SetMember of hoJson sRootName hoMain
         Send Destroy of hoMain
-        // Emit parent arrays and destroy both the array and its seen-set.
-        For iRelatedIndex from 0 to (SizeOfArray(query.aParents) - 1)
-            Send SetMember of hoJson (NameOfDD(Self, query.aParents[iRelatedIndex].hoDD)) ahParents[iRelatedIndex]
-            Send Destroy of ahParents[iRelatedIndex]
-            Send Destroy of aParentSeenSets[iRelatedIndex]
+        For iParent from 0 to (SizeOfArray(query.aParents) - 1)
+            Send SetMember of hoJson (NameOfDD(Self, query.aParents[iParent].hoDD)) ahParents[iParent]
+            Send Destroy of ahParents[iParent]
+            Send Destroy of aParentSeenSets[iParent]
         Loop
-
-        // Child result arrays and seen-sets have been emitted above.
-        For iRelatedIndex from 0 to (SizeOfArray(query.aChilds) - 1)
-            Send SetMember of hoJson (NameOfDD(Self, query.aChilds[iRelatedIndex].hoDD)) ahChilds[iRelatedIndex]
-            Send Destroy of ahChilds[iRelatedIndex]
-            Send Destroy of aChildSeenSets[iRelatedIndex]
+        For iChild from 0 to (SizeOfArray(query.aChilds) - 1)
+            Send SetMember of hoJson (NameOfDD(Self, query.aChilds[iChild].hoDD)) ahChilds[iChild]
+            Send Destroy of ahChilds[iChild]
+            Send Destroy of aChildSeenSets[iChild]
         Loop
-
-        Send DeleteIndex query.hoDD iIndex
-
         Function_Return oResult
     End_Function
 
