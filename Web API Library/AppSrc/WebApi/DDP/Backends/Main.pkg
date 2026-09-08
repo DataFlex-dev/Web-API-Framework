@@ -191,14 +191,18 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Function_Return jsonTypeString
     End_Function
 
-    // Selects fields for JSON output.
-    Function DDPSerializedFields tDDPTableQuery query Boolean bForceRelated Returns Integer[]
-        Integer[] aFields
-        Integer iField iFieldCount iParent iRelatedField
+    // Selects and caches fields plus their JSON metadata for response output.
+    Function DDPSerializedFields tDDPTableQuery query Boolean bForceRelated Returns tDDPSerializedField[]
+        Integer[] aFieldNumbers
+        Integer iField iFieldCount iParent iRelatedField iIndex
+        Integer eType iPrecision
+        String sName
         Boolean bRelated
+        tDDPSerializedField[] aFields
+        tDDPSerializedField oField
 
         If (SizeOfArray(query.aFields) > 0) Begin
-            Move query.aFields to aFields
+            Move query.aFields to aFieldNumbers
         End
         Else Begin
             Get FieldCount query.hoDD to iFieldCount
@@ -208,7 +212,7 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
                     Get FieldRelation query.hoDD query.aParents[iParent].hoDD iField (&iRelatedField) to bRelated
                     If (bRelated) Break
                 Loop
-                If (not(bRelated)) Move iField to aFields[-1]
+                If (not(bRelated)) Move iField to aFieldNumbers[-1]
             Loop
         End
 
@@ -222,54 +226,62 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
                 Loop
                 If (not(bRelated) and query.hoParentDD <> 0) ;
                     Get FieldRelation query.hoDD query.hoParentDD iField (&iRelatedField) to bRelated
-                If (bRelated) Move iField to aFields[-1]
+                If (bRelated) Move iField to aFieldNumbers[-1]
             Loop
         End
+
+        For iIndex from 0 to (SizeOfArray(aFieldNumbers) - 1)
+            Move aFieldNumbers[iIndex] to iField
+            Get FieldName query.hoDD iField to sName
+            Get FieldType query.hoDD iField to eType
+            Get FieldPrecision query.hoDD iField to iPrecision
+            Move iField to oField.iField
+            Move sName to oField.sName
+            Move eType to oField.eType
+            Get DFTypeToJson eType iPrecision to oField.eJsonType
+            Move oField to aFields[-1]
+        Loop
 
         Function_Return aFields
     End_Function
 
-    // Serializes one typed field value.
-    Procedure SerializeFieldValue Handle hoJson Handle hoDD Integer iField Variant vValue
-        Integer eType iPrecision
-        String sName sValue
+    // Serializes one typed field value using precomputed metadata.
+    Procedure SerializeFieldValue Handle hoJson tDDPSerializedField field Variant vValue
+        String sValue
         Date dValue
         DateTime dtValue
         Time tValue
 
-        Get FieldName hoDD iField to sName
-        Get FieldType hoDD iField to eType
-        Get FieldPrecision hoDD iField to iPrecision
-        If (eType = C_TypeDate) Begin
+        If (field.eType = C_TypeDate) Begin
             Move vValue to dValue
             Move dValue to sValue
             If (sValue = "0") Move "" to sValue
-            Send SetMemberValue of hoJson sName (DFTypeToJson(Self, eType, iPrecision)) sValue
+            Send SetMemberValue of hoJson field.sName field.eJsonType sValue
         End
-        Else If (eType = C_TypeDateTime) Begin
+        Else If (field.eType = C_TypeDateTime) Begin
             Move vValue to dtValue
             Move dtValue to sValue
             If (sValue = "0") Move "" to sValue
-            Send SetMemberValue of hoJson sName (DFTypeToJson(Self, eType, iPrecision)) sValue
+            Send SetMemberValue of hoJson field.sName field.eJsonType sValue
         End
-        Else If (eType = C_TypeTime) Begin
+        Else If (field.eType = C_TypeTime) Begin
             Move vValue to tValue
             Move tValue to sValue
-            Send SetMemberValue of hoJson sName (DFTypeToJson(Self, eType, iPrecision)) sValue
+            Send SetMemberValue of hoJson field.sName field.eJsonType sValue
         End
         Else ;
-            Send SetMemberValue of hoJson sName (DFTypeToJson(Self, eType, iPrecision)) vValue
+            Send SetMemberValue of hoJson field.sName field.eJsonType vValue
     End_Procedure
 
     Procedure SerializeBufferToJson Handle hoJson tDDPTableQuery query Boolean bForceRelated
-        Integer[] aFields
+        tDDPSerializedField[] aFields
         Integer iIndex
         Variant vValue
 
         Get DDPSerializedFields query bForceRelated to aFields
         For iIndex from 0 to (SizeOfArray(aFields) - 1)
-            Get Entity_Field_Value of query.hoDD (aFields[iIndex] - 1) to vValue
-            Send SerializeFieldValue hoJson query.hoDD aFields[iIndex] vValue
+            Get Entity_Field_Value of query.hoDD (aFields[iIndex].iField - 1) to vValue
+            Send SerializeFieldValue hoJson aFields[iIndex] vValue
         Loop
     End_Procedure
 
@@ -884,6 +896,8 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Integer iFetchLimit iRow iRowCount iOutputCount iChild iChildStyle
         BigInt biFetchLimit biMaxInteger
         If (scope.hoDD <> 0 and not(scope.bPresent)) Function_Return oResult
+        Move 0 to iReadMs
+        Move 0 to iSnapshotMs
 
         Move aEmptyRecords to aRecords
         Move aEmptyRecords to aResult
@@ -964,17 +978,15 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
     End_Function
 
     // Serializes one present snapshot.
-    Procedure DDPSerializeRecordToJson Handle hoJson tDDPTableQuery query tDDPFindRecord record Boolean bForceRelated
-        Integer[] aFields
+    Procedure DDPSerializeRecordToJson Handle hoJson tDDPSerializedField[] aFields tDDPFindRecord record
         Integer iIndex
         Variant vValue
 
         If (not(record.bPresent)) Procedure_Return
 
-        Get DDPSerializedFields query bForceRelated to aFields
         For iIndex from 0 to (SizeOfArray(aFields) - 1)
-            Get StructMember (&record.vData) (aFields[iIndex] - 1) to vValue
-            Send SerializeFieldValue hoJson query.hoDD aFields[iIndex] vValue
+            Get StructMember (&record.vData) (aFields[iIndex].iField - 1) to vValue
+            Send SerializeFieldValue hoJson aFields[iIndex] vValue
         Loop
     End_Procedure
 End_Class

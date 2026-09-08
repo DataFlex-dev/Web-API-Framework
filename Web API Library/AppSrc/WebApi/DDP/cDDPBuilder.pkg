@@ -4,6 +4,7 @@
 // only needs to pass one value through the execution pipeline.
 Struct tDDPQuery
     tDDPTableQuery oMain
+    tDDPSerializationLayout oSerialization
 End_Struct
 
 Enum_List
@@ -34,6 +35,7 @@ Class cDDPBuilder_Mixin is a Mixin
         // Guard that prevents Expose from being called after construction is
         // complete. Set to False in End_Define_cDDPBuilder_Mixin.
         Property Boolean pbIsCollecting True
+
     End_Procedure
 
     // Seal the collection phase. After this point Expose will raise a runtime
@@ -434,18 +436,40 @@ Class cDDPBuilder_Mixin is a Mixin
         If (oResult.iErr) Function_Return oResult
 
         Get DDPPrepareFind oQuery.oMain to oResult
+        If (oResult.iErr) Function_Return oResult
+
+        Get BuildSerializationLayout oQuery.oMain to oQuery.oSerialization
         Function_Return oResult
     End_Function
 
 
 
+    Function BuildSerializationLayout tDDPTableQuery query Returns tDDPSerializationLayout
+        tDDPSerializationLayout oLayout oChildLayout
+        Integer iIndex
+
+        Get DDPSerializedFields query False to oLayout.aFields
+        Get DDPSerializedFields query True to oLayout.aForceRelatedFields
+
+        For iIndex from 0 to (SizeOfArray(query.aParents) - 1)
+            Get BuildSerializationLayout query.aParents[iIndex] to oChildLayout
+            Move oChildLayout to oLayout.aParents[-1]
+        Loop
+
+        For iIndex from 0 to (SizeOfArray(query.aChilds) - 1)
+            Get BuildSerializationLayout query.aChilds[iIndex] to oChildLayout
+            Move oChildLayout to oLayout.aChilds[-1]
+        Loop
+
+        Function_Return oLayout
+    End_Function
     // -------------------------------------------------------------------------
     // Nested-style execution: produces a JSON array of row objects.
     // Each row embeds parent data as nested objects and child data as nested
     // arrays, matching the relational nesting structure of the query.
     // Called recursively for child tables.
     // -------------------------------------------------------------------------
-    Procedure DDPSerializeNestedRecords tDDPTableQuery query tDDPFindRecord[] aRecords Handle ByRef hoJson
+    Procedure DDPSerializeNestedRecords tDDPTableQuery query tDDPSerializationLayout layout tDDPFindRecord[] aRecords Handle ByRef hoJson
         Handle hoRow hoRelatedJson
         Integer iRecord iParent iChild
 
@@ -454,19 +478,19 @@ Class cDDPBuilder_Mixin is a Mixin
         For iRecord from 0 to (SizeOfArray(aRecords) - 1)
             Get Create (RefClass(cJsonObject)) to hoRow
             Send InitializeJsonType of hoRow jsonTypeObject
-            Send DDPSerializeRecordToJson hoRow query aRecords[iRecord] False
+            Send DDPSerializeRecordToJson hoRow layout.aFields aRecords[iRecord]
 
             For iParent from 0 to (SizeOfArray(query.aParents) - 1)
                 Get Create (RefClass(cJsonObject)) to hoRelatedJson
                 Send InitializeJsonType of hoRelatedJson jsonTypeObject
-                Send DDPSerializeRecordToJson hoRelatedJson query.aParents[iParent] ;
-                    aRecords[iRecord].aParents[iParent] False
+                Send DDPSerializeRecordToJson hoRelatedJson layout.aParents[iParent].aFields ;
+                    aRecords[iRecord].aParents[iParent]
                 Send SetMember of hoRow (NameOfDD(Self, query.aParents[iParent].hoDD)) hoRelatedJson
                 Send Destroy of hoRelatedJson
             Loop
 
             For iChild from 0 to (SizeOfArray(query.aChilds) - 1)
-                Send DDPSerializeNestedRecords query.aChilds[iChild] ;
+                Send DDPSerializeNestedRecords query.aChilds[iChild] layout.aChilds[iChild] ;
                     aRecords[iRecord].aaChilds[iChild] (&hoRelatedJson)
                 Send SetMember of hoRow (NameOfDD(Self, query.aChilds[iChild].hoDD)) hoRelatedJson
                 Send Destroy of hoRelatedJson
@@ -478,25 +502,24 @@ Class cDDPBuilder_Mixin is a Mixin
     End_Procedure
 
     // Executes a nested find and serializes rows.
-    Function ExecuteFindTable tDDPBuilderContext ByRef ctx tDDPTableQuery query Handle ByRef hoJson Returns tDDPBuilderResult
+    Function ExecuteFindTable tDDPBuilderContext ByRef ctx tDDPTableQuery query tDDPSerializationLayout layout Handle ByRef hoJson Returns tDDPBuilderResult
         tDDPBuilderResult oResult
         tDDPFindRecord[] aRecords
         tDDPFindRecord emptyScope
 
+
         Get DDPFetchRecords query ctx.eStyle emptyScope (&aRecords) to oResult
         If (oResult.iErr) Function_Return oResult
-        Send DDPSerializeNestedRecords query aRecords (&hoJson)
+        Send DDPSerializeNestedRecords query layout aRecords (&hoJson)
+
         Function_Return oResult
     End_Function
+
     // -------------------------------------------------------------------------
     // Flat-style execution: all tables are top-level arrays in the response.
-    // Parents are positionally aligned ΓÇö element i of a parent array corresponds
-    // to element i of the main array (same parent may appear multiple times if
-    // multiple main rows share it).
-    // Children are arrays of arrays ΓÇö element i is the array of child rows for
-    // main row i.
+    // Parents are positionally aligned; children are arrays of arrays.
     // -------------------------------------------------------------------------
-    Function ExecuteFindTableFlat tDDPBuilderContext ByRef ctx tDDPTableQuery query Handle ByRef hoJson Returns tDDPBuilderResult
+    Function ExecuteFindTableFlat tDDPBuilderContext ByRef ctx tDDPTableQuery query tDDPSerializationLayout layout Handle ByRef hoJson Returns tDDPBuilderResult
         Handle hoMain hoRow hoRelatedJson
         Handle[] ahParents ahChilds
         Integer iRecord iParent iChild
@@ -524,17 +547,17 @@ Class cDDPBuilder_Mixin is a Mixin
         For iRecord from 0 to (SizeOfArray(aRecords) - 1)
             Get Create (RefClass(cJsonObject)) to hoRow
             Send InitializeJsonType of hoRow jsonTypeObject
-            Send DDPSerializeRecordToJson hoRow query aRecords[iRecord] False
+            Send DDPSerializeRecordToJson hoRow layout.aFields aRecords[iRecord]
             For iParent from 0 to (SizeOfArray(query.aParents) - 1)
                 Get Create (RefClass(cJsonObject)) to hoRelatedJson
                 Send InitializeJsonType of hoRelatedJson jsonTypeObject
-                Send DDPSerializeRecordToJson hoRelatedJson query.aParents[iParent] ;
-                    aRecords[iRecord].aParents[iParent] False
+                Send DDPSerializeRecordToJson hoRelatedJson layout.aParents[iParent].aFields ;
+                    aRecords[iRecord].aParents[iParent]
                 Send AddMember of ahParents[iParent] hoRelatedJson
                 Send Destroy of hoRelatedJson
             Loop
             For iChild from 0 to (SizeOfArray(query.aChilds) - 1)
-                Send DDPSerializeNestedRecords query.aChilds[iChild] ;
+                Send DDPSerializeNestedRecords query.aChilds[iChild] layout.aChilds[iChild] ;
                     aRecords[iRecord].aaChilds[iChild] (&hoRelatedJson)
                 Send AddMember of ahChilds[iChild] hoRelatedJson
                 Send Destroy of hoRelatedJson
@@ -570,7 +593,7 @@ Class cDDPBuilder_Mixin is a Mixin
             Move 0 to hoResult
         End
 
-        Get ExecuteFindTable (&ctx) query.oMain (&hoResult) to oResult
+        Get ExecuteFindTable (&ctx) query.oMain query.oSerialization (&hoResult) to oResult
 
         Function_Return oResult
     End_Function
@@ -584,12 +607,11 @@ Class cDDPBuilder_Mixin is a Mixin
             Move 0 to hoResult
         End
 
-        Get ExecuteFindTableFlat (&ctx) query.oMain (&hoResult) to oResult
+        Get ExecuteFindTableFlat (&ctx) query.oMain query.oSerialization (&hoResult) to oResult
 
         Function_Return oResult
     End_Function
 
-    // -------------------------------------------------------------------------
     // FlatLinked-style execution: like flat but fully deduplicated.
     // Parents appear at most once per unique record (identified by RowID).
     // Children are collected into a single flat array across all main rows,
@@ -597,10 +619,10 @@ Class cDDPBuilder_Mixin is a Mixin
     //
     // Deduplication uses a cJsonObject as an O(1) hash set: the serialised
     // RowID string is used as the member key; presence of the key means the
-    // record has already been emitted. Using cJsonObject avoids introducing a
-    // separate data structure and reuses the existing JSON infrastructure.
+    // record has already been emitted. Using cJsonObject avoids introducing
+    // a separate data structure and reuses the existing JSON infrastructure.
     // -------------------------------------------------------------------------
-    Function ExecuteFindTableFlatLinked tDDPBuilderContext ByRef ctx tDDPTableQuery query Handle ByRef hoJson Returns tDDPBuilderResult
+    Function ExecuteFindTableFlatLinked tDDPBuilderContext ByRef ctx tDDPTableQuery query tDDPSerializationLayout layout Handle ByRef hoJson Returns tDDPBuilderResult
         Handle hoMain hoRow hoRelatedJson
         Handle[] ahParents aParentSeenSets ahChilds aChildSeenSets
         Integer iRecord iParent iChild iRelated
@@ -611,7 +633,6 @@ Class cDDPBuilder_Mixin is a Mixin
 
         Get DDPFetchRecords query ctx.eStyle emptyScope (&aRecords) to oResult
         If (oResult.iErr) Function_Return oResult
-
         Get Create (RefClass(cJsonObject)) to hoMain
         Send InitializeJsonType of hoMain jsonTypeArray
         For iParent from 0 to (SizeOfArray(query.aParents) - 1)
@@ -634,7 +655,7 @@ Class cDDPBuilder_Mixin is a Mixin
         For iRecord from 0 to (SizeOfArray(aRecords) - 1)
             Get Create (RefClass(cJsonObject)) to hoRow
             Send InitializeJsonType of hoRow jsonTypeObject
-            Send DDPSerializeRecordToJson hoRow query aRecords[iRecord] True
+            Send DDPSerializeRecordToJson hoRow layout.aForceRelatedFields aRecords[iRecord]
             Send AddMember of hoMain hoRow
             Send Destroy of hoRow
 
@@ -645,8 +666,8 @@ Class cDDPBuilder_Mixin is a Mixin
                         Send SetMemberValue of aParentSeenSets[iParent] sRowId jsonTypeBoolean True
                         Get Create (RefClass(cJsonObject)) to hoRelatedJson
                         Send InitializeJsonType of hoRelatedJson jsonTypeObject
-                        Send DDPSerializeRecordToJson hoRelatedJson query.aParents[iParent] ;
-                            aRecords[iRecord].aParents[iParent] True
+                        Send DDPSerializeRecordToJson hoRelatedJson layout.aParents[iParent].aForceRelatedFields ;
+                            aRecords[iRecord].aParents[iParent]
                         Send AddMember of ahParents[iParent] hoRelatedJson
                         Send Destroy of hoRelatedJson
                     End
@@ -662,8 +683,8 @@ Class cDDPBuilder_Mixin is a Mixin
                             Send SetMemberValue of aChildSeenSets[iChild] sRowId jsonTypeBoolean True
                             Get Create (RefClass(cJsonObject)) to hoRelatedJson
                             Send InitializeJsonType of hoRelatedJson jsonTypeObject
-                            Send DDPSerializeRecordToJson hoRelatedJson query.aChilds[iChild] ;
-                                aChildRecords[iRelated] True
+                            Send DDPSerializeRecordToJson hoRelatedJson layout.aChilds[iChild].aForceRelatedFields ;
+                                aChildRecords[iRelated]
                             Send AddMember of ahChilds[iChild] hoRelatedJson
                             Send Destroy of hoRelatedJson
                         End
@@ -700,7 +721,7 @@ Class cDDPBuilder_Mixin is a Mixin
             Move 0 to hoResult
         End
 
-        Get ExecuteFindTableFlatLinked (&ctx) query.oMain (&hoResult) to oResult
+        Get ExecuteFindTableFlatLinked (&ctx) query.oMain query.oSerialization (&hoResult) to oResult
 
         Function_Return oResult
     End_Function

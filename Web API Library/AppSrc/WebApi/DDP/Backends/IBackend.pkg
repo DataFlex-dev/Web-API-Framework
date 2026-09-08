@@ -82,6 +82,13 @@ Struct tDDPOrder
     Integer eMode
 End_Struct
 
+Struct tDDPSerializedField
+    Integer iField
+    String sName
+    Integer eType
+    Integer eJsonType
+End_Struct
+
 Struct tDDPTableQuery
     Handle hoDD
     String sRequestName
@@ -93,6 +100,13 @@ Struct tDDPTableQuery
     tDDPTableQuery[] aParents
     tDDPTableQuery[] aChilds
     Integer[] aFields
+End_Struct
+
+Struct tDDPSerializationLayout
+    tDDPSerializedField[] aFields
+    tDDPSerializedField[] aForceRelatedFields
+    tDDPSerializationLayout[] aParents
+    tDDPSerializationLayout[] aChilds
 End_Struct
 // Controls the response JSON shape.
 Enum_List
@@ -191,8 +205,9 @@ Register_Function DDPErrorText String sFallback Returns String
 Register_Function QueryLinkUp tDDPTableQuery query Returns tDDPBuilderResult
 Register_Function AddConstrainsToCurrentSet Handle hoMainDD tDDPTableQuery query tDDPTableQuery optParent Returns tDDPBuilderResult
 Register_Function DDPPrepareFind tDDPTableQuery query Returns tDDPBuilderResult
+Register_Function DDPSerializedFields tDDPTableQuery query Boolean bForceRelated Returns tDDPSerializedField[]
 Register_Function DDPFetchRecords tDDPTableQuery query Integer eStyle tDDPFindRecord scope tDDPFindRecord[] ByRef aRecords Returns tDDPBuilderResult
-Register_Procedure DDPSerializeRecordToJson Handle hoJson tDDPTableQuery query tDDPFindRecord record Boolean bForceRelated
+Register_Procedure DDPSerializeRecordToJson Handle hoJson tDDPSerializedField[] aFields tDDPFindRecord record
 
 Class IDDP_Backend_Mixin is a Mixin
     Procedure Define_DDP_Backend_Mixin
