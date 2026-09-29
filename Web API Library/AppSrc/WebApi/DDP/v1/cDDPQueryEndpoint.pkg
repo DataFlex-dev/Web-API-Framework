@@ -1,6 +1,5 @@
 ﻿Use WebApi\cBaseRestDataset.pkg
 Use WebApi\DDP\Backends\IBackend.pkg
-Use WebApi\DDP\cDDPBuilder.pkg
 
 // Handles POST /ddp/v1/query - executes a DDP query described by the JSON request body.
 // Builder and backend logic live on the parent cWebAPIDataDictionaryProtocol object;
@@ -19,6 +18,7 @@ Class cDDPQueryEndpoint is a cBaseRestDataset
         Object oJson is a cJsonObject
             Set pbRequireAllMembers to False
         End_Object
+
     End_Procedure
 
 
@@ -32,9 +32,13 @@ Class cDDPQueryEndpoint is a cBaseRestDataset
     //   flat       - positionally-aligned parallel arrays
     //   flatlinked - deduplicated parallel arrays joined by FK fields
     Procedure OnHttpPost tWebApiCallContext ByRef webapicallcontext
-        String sStyle
+        String sStyle sRequestBodyString sDDName
+        Integer iIndex
         tDDPBuilderContext ctx
         tDDPBuilderResult oResult
+        Handle hoDDJson hoQueryResult hoMainDD
+        tDDPQuery oQuery oEmptyQuery
+
 
         // Read the DDPStyle header; absent means nested.
         Move "" to sStyle
@@ -58,7 +62,6 @@ Class cDDPQueryEndpoint is a cBaseRestDataset
         End
 
         // Parse and validate the request body.
-        String sRequestBodyString
         Get RequestDataString to sRequestBodyString
         If (not(ParseString(oJson, sRequestBodyString))) Begin
             Move True to webapicallcontext.bErr
@@ -90,10 +93,6 @@ Class cDDPQueryEndpoint is a cBaseRestDataset
         Send InitializeJsonType of webapicallcontext.hoResponseBody jsonTypeObject
 
         // Iterate over every top-level table name in the request and execute its query.
-        Integer iIndex
-        String sDDName
-        Handle hoDDJson hoQueryResult hoMainDD
-        tDDPQuery oQuery oEmptyQuery
         For iIndex from 0 to (MemberCount(ctx.hoJsonReq) - 1)
             Move (MemberNameByIndex(ctx.hoJsonReq, iIndex)) to sDDName
             Get Member of ctx.hoJsonReq sDDName to hoDDJson
@@ -111,23 +110,19 @@ Class cDDPQueryEndpoint is a cBaseRestDataset
                 Procedure_Return
             End
 
-            // Execute using the style requested by the client.
-            Case Begin
-                Case (ctx.eStyle = DDPStyle_Flat)
-                    Delegate Get ExecuteFindFlat (&ctx) oQuery (&webapicallcontext.hoResponseBody) to oResult
-                    Case Break
-                Case (ctx.eStyle = DDPStyle_FlatLinked)
-                    Delegate Get ExecuteFindFlatLinked (&ctx) oQuery (&webapicallcontext.hoResponseBody) to oResult
-                    Case Break
-                Case Else
-                    Delegate Get ExecuteFind (&ctx) oQuery (&hoQueryResult) to oResult
-                    If (not(oResult.iErr)) Begin
-                        Send SetMember of webapicallcontext.hoResponseBody sDDName hoQueryResult
-                        Send Destroy of hoQueryResult
-                        Move 0 to hoQueryResult
-                    End
-            Case End
-            If (oResult.iErr) Begin
+            // Execute every response style through the backend JSON boundary.
+            If (ctx.eStyle = DDPStyle_Nested) Begin
+                Delegate Get ExecuteFind (&ctx) oQuery (&hoQueryResult) to oResult
+            End
+            Else Begin
+                Delegate Get ExecuteFind (&ctx) oQuery (&webapicallcontext.hoResponseBody) to oResult
+            End
+            If (ctx.eStyle = DDPStyle_Nested and not(oResult.iErr)) Begin
+                Send SetMember of webapicallcontext.hoResponseBody sDDName hoQueryResult
+                Send Destroy of hoQueryResult
+                Move 0 to hoQueryResult
+            End
+            If (oResult.iErr or Err) Begin
                 If (hoQueryResult <> 0) Begin
                     Send Destroy of hoQueryResult
                     Move 0 to hoQueryResult
@@ -136,7 +131,8 @@ Class cDDPQueryEndpoint is a cBaseRestDataset
                 Move True to webapicallcontext.bErr
                 Move C_WEBAPI_NOTALLOWED to webapicallcontext.iStatusCode
                 Move "Not Allowed" to webapicallcontext.sShortStatusMessage
-                Move oResult.sError to webapicallcontext.sErrorMessage
+                If (oResult.iErr) Move oResult.sError to webapicallcontext.sErrorMessage
+                Else Move "JSON response construction failed." to webapicallcontext.sErrorMessage
                 Procedure_Return
             End
 

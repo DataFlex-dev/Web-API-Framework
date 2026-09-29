@@ -36,13 +36,14 @@ Struct tDDPCrossPlatformFileInfo
     Handle[] aChilds
 End_Struct
 
-Register_Function FetchTable Handle hoModel Variant[] aRowData Integer ByRef iResultCol DbTable hTable Returns tDbTableData
 Register_Function SQLFieldName Handle hoModel DbTable hTable DbField hField Returns String
 
 Struct tDDPTableResultLayout
     Handle hoDD
-    Integer iDataColumnStart
     Integer iPresenceColumn
+    Integer[] aQueryFields
+    Integer[] aDataColumns
+    Integer[] aPrimaryKeyColumns
 End_Struct
 
 Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
@@ -51,7 +52,6 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Property Handle[] paExposedDDs
         // All table info
         Property tDDPCrossPlatformFileInfo[] paFileInfo
-        // Acts as an index
     End_Procedure
 
     Procedure End_Define_DDP_Backend_Mixin
@@ -72,7 +72,7 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
     End_Function
 
     { Visibility = Private }
-    Procedure RebuildDDFileLayout
+    Procedure RebuildExposedDDRelations
         Integer iIndex iParent iParentIndex
         Handle hoParent
         Handle[] aExposedDDs aEmpty
@@ -82,7 +82,6 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
 
         Get paExposedDDs to aExposedDDs
         For iIndex from 0 to (SizeOfArray(aExposedDDs) - 1)
-            Move 0 to oInfo.hoDD
             Move aEmpty to oInfo.aParents
             Move aEmpty to oInfo.aChilds
             Move aExposedDDs[iIndex] to oInfo.hoDD
@@ -128,9 +127,6 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Function_Return sName
     End_Function
 
-    Function LoweredNameOfDD Handle hoDD Returns String
-        Function_Return (Lowercase(NameOfDD(Self, hoDD)))
-    End_Function
 
     Function IsDDRelated Handle hoDD Handle hoTest Boolean ByRef bOptParent Returns Boolean
         Integer iIndex
@@ -201,20 +197,7 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         tDDPSerializedField[] aFields
         tDDPSerializedField oField
 
-        If (SizeOfArray(query.aFields) > 0) Begin
-            Move query.aFields to aFieldNumbers
-        End
-        Else Begin
-            Get FieldCount query.hoDD to iFieldCount
-            For iField from 1 to iFieldCount
-                Move False to bRelated
-                For iParent from 0 to (SizeOfArray(query.aParents) - 1)
-                    Get FieldRelation query.hoDD query.aParents[iParent].hoDD iField (&iRelatedField) to bRelated
-                    If (bRelated) Break
-                Loop
-                If (not(bRelated)) Move iField to aFieldNumbers[-1]
-            Loop
-        End
+        Move query.aFields to aFieldNumbers
 
         If (bForceRelated) Begin
             Get FieldCount query.hoDD to iFieldCount
@@ -226,7 +209,8 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
                 Loop
                 If (not(bRelated) and query.hoParentDD <> 0) ;
                     Get FieldRelation query.hoDD query.hoParentDD iField (&iRelatedField) to bRelated
-                If (bRelated) Move iField to aFieldNumbers[-1]
+                If (bRelated and SearchArray(iField, aFieldNumbers) = -1) ;
+                    Move iField to aFieldNumbers[-1]
             Loop
         End
 
@@ -244,6 +228,28 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
 
         Function_Return aFields
     End_Function
+
+    { Visibility = Private }
+    Function DDPRequiredQueryFields tDDPTableQuery query Returns Integer[]
+        tDDPSerializedField[] aFields
+        Integer[] aPrimaryFields aRequiredFields
+        Integer iIndex
+
+        Get DDPSerializedFields query True to aFields
+        For iIndex from 0 to (SizeOfArray(aFields) - 1)
+            If (SearchArray(aFields[iIndex].iField, aRequiredFields) = -1) ;
+                Move aFields[iIndex].iField to aRequiredFields[-1]
+        Loop
+
+        Get DDPPrimaryKeyFields query.hoDD to aPrimaryFields
+        For iIndex from 0 to (SizeOfArray(aPrimaryFields) - 1)
+            If (SearchArray(aPrimaryFields[iIndex], aRequiredFields) = -1) ;
+                Move aPrimaryFields[iIndex] to aRequiredFields[-1]
+        Loop
+
+        Function_Return aRequiredFields
+    End_Function
+
 
     // Serializes one typed field value using precomputed metadata.
     Procedure SerializeFieldValue Handle hoJson tDDPSerializedField field Variant vValue
@@ -275,8 +281,15 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
 
     Procedure SerializeBufferToJson Handle hoJson tDDPTableQuery query Boolean bForceRelated
         tDDPSerializedField[] aFields
-        Integer iIndex
+        Integer iIndex iField iFieldCount
         Variant vValue
+
+        If (SizeOfArray(query.aFields) = 0) Begin
+            Get FieldCount query.hoDD to iFieldCount
+            For iField from 1 to iFieldCount
+                Move iField to query.aFields[-1]
+            Loop
+        End
 
         Get DDPSerializedFields query bForceRelated to aFields
         For iIndex from 0 to (SizeOfArray(aFields) - 1)
@@ -297,11 +310,11 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         // Rebuild complete snapshot from native parent metadata. Reverse
         // links are derived after all known DDs are collected, so exposure
         // order cannot corrupt the cache.
-        Send RebuildDDFileLayout
+        Send RebuildExposedDDRelations
     End_Procedure
 
     Function DDParents Handle hoDD Returns Handle[]
-        Integer iIndex iParent
+        Integer iIndex
         Handle[] aExposedDDs aHandles
         tDDPCrossPlatformFileInfo[] aInfo
 
@@ -310,16 +323,14 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Move (SearchArray(hoDD, aExposedDDs)) to iIndex
         If (iIndex <> -1) Begin
             Get paFileInfo to aInfo
-            For iParent from 0 to (SizeOfArray(aInfo[iIndex].aParents) - 1)
-                Move aInfo[iIndex].aParents[iParent] to aHandles[-1]
-            Loop
+            Move aInfo[iIndex].aParents to aHandles
         End
 
         Function_Return aHandles
     End_Function
 
     Function DDChilds Handle hoDD Returns Handle[]
-        Integer iIndex iChild
+        Integer iIndex
         Handle[] aExposedDDs aHandles
         tDDPCrossPlatformFileInfo[] aInfo
 
@@ -328,9 +339,7 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Move (SearchArray(hoDD, aExposedDDs)) to iIndex
         If (iIndex <> -1) Begin
             Get paFileInfo to aInfo
-            For iChild from 0 to (SizeOfArray(aInfo[iIndex].aChilds) - 1)
-                Move aInfo[iIndex].aChilds[iChild] to aHandles[-1]
-            Loop
+            Move aInfo[iIndex].aChilds to aHandles
         End
 
         Function_Return aHandles
@@ -405,7 +414,6 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
     Function FieldRelation Handle hoDD Handle hoParentDD Integer iField Integer ByRef iRelatedField Returns Boolean
         Handle hParentEntity
         Integer iParent iFieldIndex iEntityField
-        Boolean bRelated
         tDDParent[] aParents
 
         Move 0 to iRelatedField
@@ -423,8 +431,7 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
                 For iFieldIndex from 0 to (SizeOfArray(aParents[iParent].rel.aForeignKey) - 1)
                     If (aParents[iParent].rel.aForeignKey[iFieldIndex] = iEntityField) Begin
                         Move (aParents[iParent].rel.aRelatedKey[iFieldIndex] + 1) to iRelatedField
-                        Move True to bRelated
-                        Function_Return bRelated
+                        Function_Return True
                     End
                 Loop
             End
@@ -641,6 +648,52 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
     End_Function
 
     { Visibility = Private }
+    Function DDPFindFailure Returns tDDPBuilderResult
+        tDDPBuilderResult oResult
+
+        Move DDPERR_FIND_FAILED to oResult.iErr
+        Get DDPErrorText "Find failed." to oResult.sError
+        Function_Return oResult
+    End_Function
+
+    { Visibility = Private }
+    Function DDPCreateQuery Handle hoDD Handle ByRef hoQuery Handle ByRef hoAdapter Returns tDDPBuilderResult
+        tDDPBuilderResult oResult
+
+        Move 0 to hoQuery
+        Move 0 to hoAdapter
+        Get Create (RefClass(cDbQuery)) to hoQuery
+        If (hoQuery = 0) Begin
+            Get DDPFindFailure to oResult
+            Function_Return oResult
+        End
+
+        Get Adapter of hoDD to hoAdapter
+        If (hoAdapter = 0 or hoAdapter = C_UnresolvedObject) Begin
+            Send Destroy of hoQuery
+            Move 0 to hoQuery
+            Get DDPFindFailure to oResult
+            Function_Return oResult
+        End
+
+        Function_Return oResult
+    End_Function
+
+    { Visibility = Private }
+    Function DDPFetchLimit Integer iLimit Integer iOffset Returns Integer
+        BigInt biFetchLimit
+        BigInt biMaxInteger
+        Integer iFetchLimit
+
+        If (iLimit <= 0) Function_Return 0
+        Move iLimit to biFetchLimit
+        Move (biFetchLimit + iOffset) to biFetchLimit
+        Move 2147483647 to biMaxInteger
+        If (biFetchLimit <= biMaxInteger) Move biFetchLimit to iFetchLimit
+        Function_Return iFetchLimit
+    End_Function
+
+    { Visibility = Private }
     // Finds a table layout by DD.
     Function DDPTableResultLayoutIndex Handle hoDD tDDPTableResultLayout[] aTableLayouts Returns Integer
         Integer iIndex
@@ -651,14 +704,25 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
     End_Function
 
     { Visibility = Private }
-    // Collects tables projected in flat output.
+    // Collects tables and fields projected by a native query.
     Procedure DDPCollectTableResultLayouts tDDPTableQuery query Handle hoScopeDD tDDPTableResultLayout[] ByRef aTableLayouts
-        tDDPTableResultLayout oTableLayout
-        Integer iParent iTableLayout
+        tDDPTableResultLayout oTableLayout oEmptyTableLayout
+        Integer[] aQueryFields
+        Integer iField iParent iTableLayout
+
+        Get DDPRequiredQueryFields query to aQueryFields
         Get DDPTableResultLayoutIndex query.hoDD aTableLayouts to iTableLayout
         If (iTableLayout = -1) Begin
+            Move oEmptyTableLayout to oTableLayout
             Move query.hoDD to oTableLayout.hoDD
+            Move aQueryFields to oTableLayout.aQueryFields
             Move oTableLayout to aTableLayouts[-1]
+        End
+        Else Begin
+            For iField from 0 to (SizeOfArray(aQueryFields) - 1)
+                If (SearchArray(aQueryFields[iField], aTableLayouts[iTableLayout].aQueryFields) = -1) ;
+                    Move aQueryFields[iField] to aTableLayouts[iTableLayout].aQueryFields[-1]
+            Loop
         End
 
         For iParent from 0 to (SizeOfArray(query.aParents) - 1)
@@ -667,6 +731,7 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
 
         Get DDPTableResultLayoutIndex hoScopeDD aTableLayouts to iTableLayout
         If (hoScopeDD <> 0 and iTableLayout = -1) Begin
+            Move oEmptyTableLayout to oTableLayout
             Move hoScopeDD to oTableLayout.hoDD
             Move oTableLayout to aTableLayouts[-1]
         End
@@ -695,8 +760,7 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
 
         Get Create (RefClass(cDbQuery)) to hoQuery
         If (hoQuery = 0) Begin
-            Move DDPERR_FIND_FAILED to oResult.iErr
-            Get DDPErrorText "Find failed." to oResult.sError
+            Get DDPFindFailure to oResult
             Function_Return oResult
         End
 
@@ -726,17 +790,17 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
 
     { Visibility = Private }
     // Configures the native query.
-    Function DDPConfigureQuery tDDPTableQuery query tDDPFindRecord scope Handle hoQuery tDDPTableResultLayout[] ByRef aTableLayouts Returns tDDPBuilderResult
+    Function DDPConfigureQuery tDDPTableQuery query Handle hoScopeDD RowID riScope Handle hoQuery tDDPTableResultLayout[] ByRef aTableLayouts Returns tDDPBuilderResult
         Handle hoSet hoAdapter
         tDDPBuilderResult oResult
-        Integer iIndex iTableLayout iField iFieldCount iDataCol
+        Integer iIndex iTableLayout iField iFieldCount iDataCol iPKIndex
         tDbRelation relation
         tDbConstraint[] aConstraints
-        Integer[] aDDPPKFields aScopePKFields
+        Integer[] aDDPPKFields aScopePKFields aDataColumns aPrimaryKeyColumns aEmptyPrimaryKeyColumns
         String sPKField
         Boolean bHasRowId
         tDbOperationDetails operationDetails
-        tDDPTableResultLayout oTableLayout
+        tDDPTableResultLayout oTableLayout oEmptyTableLayout
 
         Set phoServer of hoQuery to query.hoDD
         Get AddConstrainsToCurrentSet hoQuery query to oResult
@@ -744,23 +808,20 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
 
         Get ConstraintSet of hoQuery to hoSet
         If (hoSet = 0 or hoSet = C_UnresolvedObject) Begin
-            Move DDPERR_FIND_FAILED to oResult.iErr
-            Get DDPErrorText "Find failed." to oResult.sError
+            Get DDPFindFailure to oResult
             Function_Return oResult
         End
 
-        If (scope.hoDD <> 0) Begin
-            Get RelationByTable of query.hoDD scope.hoDD to relation
+        If (hoScopeDD <> 0) Begin
+            Get RelationByTable of query.hoDD hoScopeDD to relation
             If (relation.hMainTable <> query.hoDD) Begin
-                Move DDPERR_FIND_FAILED to oResult.iErr
-                Get DDPErrorText "Find failed." to oResult.sError
+                Get DDPFindFailure to oResult
                 Function_Return oResult
             End
 
-            Get DDPPrimaryKeyFields scope.hoDD to aScopePKFields
+            Get DDPPrimaryKeyFields hoScopeDD to aScopePKFields
             If (SizeOfArray(aScopePKFields) = 0) Begin
-                Move DDPERR_FIND_FAILED to oResult.iErr
-                Get DDPErrorText "Find failed." to oResult.sError
+                Get DDPFindFailure to oResult
                 Function_Return oResult
             End
 
@@ -770,63 +831,70 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
                 If (aConstraints[iIndex].eType = C_DbConstraint_RowId) Move True to bHasRowId
             Loop
             If (bHasRowId) Begin
-                Move DDPERR_FIND_FAILED to oResult.iErr
-                Get DDPErrorText "Find failed." to oResult.sError
+                Get DDPFindFailure to oResult
                 Function_Return oResult
             End
-            Send Add_Value_Constraint of hoSet scope.hoDD 0 C_DbConstraint_RowId scope.riRowId
+            Send Add_Value_Constraint of hoSet hoScopeDD 0 C_DbConstraint_RowId riScope
         End
 
-        Send DDPCollectTableResultLayouts query scope.hoDD (&aTableLayouts)
+        Send DDPCollectTableResultLayouts query hoScopeDD (&aTableLayouts)
         Move query.hoDD to operationDetails.hMainTable
         Move False to Err
         Send RegisterConstraints of hoSet (&operationDetails)
         If (Err) Begin
-            Move DDPERR_FIND_FAILED to oResult.iErr
-            Get DDPErrorText "Find failed." to oResult.sError
+            Get DDPFindFailure to oResult
             Function_Return oResult
         End
         Move False to Err
         Send DetermineConstraints of query.hoDD (&operationDetails)
         If (Err) Begin
-            Move DDPERR_FIND_FAILED to oResult.iErr
-            Get DDPErrorText "Find failed." to oResult.sError
+            Get DDPFindFailure to oResult
             Function_Return oResult
         End
         For iIndex from 0 to (SizeOfArray(operationDetails.aConstraints) - 1)
             Move operationDetails.aConstraints[iIndex].hTable to oTableLayout.hoDD
             If (oTableLayout.hoDD <> 0 and oTableLayout.hoDD <> query.hoDD) Begin
                 Get DDPTableResultLayoutIndex oTableLayout.hoDD aTableLayouts to iTableLayout
-                If (iTableLayout = -1) Move oTableLayout to aTableLayouts[-1]
+                If (iTableLayout = -1) Begin
+                    Move oEmptyTableLayout to oTableLayout
+                    Move operationDetails.aConstraints[iIndex].hTable to oTableLayout.hoDD
+                    Move oTableLayout to aTableLayouts[-1]
+                End
             End
         Loop
 
         Get DDPPrimaryKeyFields query.hoDD to aDDPPKFields
         If (SizeOfArray(aDDPPKFields) = 0) Begin
-            Move DDPERR_FIND_FAILED to oResult.iErr
-            Get DDPErrorText "Find failed." to oResult.sError
+            Get DDPFindFailure to oResult
             Function_Return oResult
         End
         Move 0 to iDataCol
 
         Get Adapter of query.hoDD to hoAdapter
         If (hoAdapter = 0 or hoAdapter = C_UnresolvedObject) Begin
-            Move DDPERR_FIND_FAILED to oResult.iErr
-            Get DDPErrorText "Find failed." to oResult.sError
+            Get DDPFindFailure to oResult
             Function_Return oResult
         End
         For iIndex from 0 to (SizeOfArray(aTableLayouts) - 1)
-            Move iDataCol to aTableLayouts[iIndex].iDataColumnStart
             Get FieldCount aTableLayouts[iIndex].hoDD to iFieldCount
             Get DDPPrimaryKeyFields aTableLayouts[iIndex].hoDD to aDDPPKFields
             If (SizeOfArray(aDDPPKFields) = 0) Begin
-                Move DDPERR_FIND_FAILED to oResult.iErr
-                Get DDPErrorText "Find failed." to oResult.sError
+                Get DDPFindFailure to oResult
                 Function_Return oResult
             End
 
-            For iField from 1 to iFieldCount
-                Send Bind_Data of hoQuery aTableLayouts[iIndex].hoDD (iField - 1)
+            For iField from 0 to (iFieldCount - 1)
+                Move -1 to aDataColumns[iField]
+            Loop
+            For iField from 0 to (SizeOfArray(aTableLayouts[iIndex].aQueryFields) - 1)
+                If (aTableLayouts[iIndex].aQueryFields[iField] < 1 or ;
+                    aTableLayouts[iIndex].aQueryFields[iField] > iFieldCount) Begin
+                    Get DDPFindFailure to oResult
+                    Function_Return oResult
+                End
+                Send Bind_Data of hoQuery aTableLayouts[iIndex].hoDD ;
+                    (aTableLayouts[iIndex].aQueryFields[iField] - 1)
+                Move iDataCol to aDataColumns[(aTableLayouts[iIndex].aQueryFields[iField] - 1)]
                 Increment iDataCol
             Loop
 
@@ -835,6 +903,12 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
             Send Bind_Native_Expression of hoQuery ;
                 ("CASE WHEN " + sPKField + " IS NULL THEN 0 ELSE 1 END") aTableLayouts[iIndex].hoDD
             Move iDataCol to aTableLayouts[iIndex].iPresenceColumn
+            Move aDataColumns to aTableLayouts[iIndex].aDataColumns
+            Move aEmptyPrimaryKeyColumns to aPrimaryKeyColumns
+            Move aPrimaryKeyColumns to aTableLayouts[iIndex].aPrimaryKeyColumns
+            For iPKIndex from 0 to (SizeOfArray(aDDPPKFields) - 1)
+                Move aDataColumns[(aDDPPKFields[iPKIndex] - 1)] to aTableLayouts[iIndex].aPrimaryKeyColumns[-1]
+            Loop
             Increment iDataCol
         Loop
 
@@ -846,147 +920,396 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
     End_Function
 
     { Visibility = Private }
-    // Builds one typed table snapshot.
-    Procedure DDPBuildTableSnapshot Handle hoAdapter Handle hoRootDD tDDPTableResultLayout tableLayout Variant[] aRow RowID riRoot tDDPFindRecord ByRef record
-        tDbTableData data
-        Integer iResultCol
+    Function DDPProjectedRowID tDDPTableResultLayout layout Variant[] ByRef aRow Returns RowID
+        RowID riProjected
+        Variant[] aCompositeKey
+        Integer iKey
 
-        Move tableLayout.hoDD to record.hoDD
-        Move False to record.bPresent
-        If (aRow[tableLayout.iPresenceColumn] = 0) Begin
-            Get CreateBuffer of tableLayout.hoDD to record.vData
-            Procedure_Return
+        Move (NullRowID()) to riProjected
+        If (SizeOfArray(layout.aPrimaryKeyColumns) = 1) Begin
+            Move aRow[layout.aPrimaryKeyColumns[0]] to riProjected
         End
-        Move tableLayout.iDataColumnStart to iResultCol
-        Get FetchTable of hoAdapter tableLayout.hoDD aRow (&iResultCol) tableLayout.hoDD to data
-        Move data.rRowId to record.riRowId
-        If (tableLayout.hoDD = hoRootDD) Move riRoot to record.riRowId
-        Move True to record.bPresent
-        Move data.vData to record.vData
-    End_Procedure
+        Else If (SizeOfArray(layout.aPrimaryKeyColumns) > 1) Begin
+            For iKey from 0 to (SizeOfArray(layout.aPrimaryKeyColumns) - 1)
+                Move aRow[layout.aPrimaryKeyColumns[iKey]] to aCompositeKey[-1]
+            Loop
+            Move aCompositeKey to riProjected
+        End
+        Function_Return riProjected
+    End_Function
 
     { Visibility = Private }
-    // Builds a snapshot tree from one row.
-    Procedure DDPBuildRecordFromNode Handle hoAdapter Handle hoRootDD tDDPTableQuery query tDDPTableResultLayout[] aTableLayouts Variant[] aRow RowID riRoot tDDPFindRecord ByRef record
-        Integer iTableLayout iParent
-        tDDPFindRecord emptyRecord
+    Function DDPValidateProjectedFields Handle hoDD tDDPSerializedField[] aFields tDDPTableResultLayout[] aTableLayouts Returns Boolean
+        Integer iLayout iField
 
-        Move emptyRecord to record
-        Get DDPTableResultLayoutIndex query.hoDD aTableLayouts to iTableLayout
-        If (iTableLayout <> -1) Begin
-            Send DDPBuildTableSnapshot hoAdapter hoRootDD aTableLayouts[iTableLayout] aRow riRoot (&record)
-        End
-        For iParent from 0 to (SizeOfArray(query.aParents) - 1)
-            Send DDPBuildRecordFromNode hoAdapter hoRootDD query.aParents[iParent] aTableLayouts ;
-                aRow riRoot (&record.aParents[iParent])
+        Get DDPTableResultLayoutIndex hoDD aTableLayouts to iLayout
+        If (iLayout = -1) Function_Return False
+        For iField from 0 to (SizeOfArray(aFields) - 1)
+            If (aFields[iField].iField < 1 or ;
+                aFields[iField].iField > SizeOfArray(aTableLayouts[iLayout].aDataColumns)) ;
+                Function_Return False
+            If (aTableLayouts[iLayout].aDataColumns[(aFields[iField].iField - 1)] < 0) ;
+                Function_Return False
+        Loop
+        Function_Return True
+    End_Function
+
+    { Visibility = Private }
+    Procedure DDPSerializeProjectedFields Handle hoJson tDDPSerializedField[] aFields Integer[] aFieldColumns Variant[] ByRef aRow
+        Integer iField
+        Variant vValue
+
+        For iField from 0 to (SizeOfArray(aFields) - 1)
+            Move aRow[aFieldColumns[iField]] to vValue
+            Send SerializeFieldValue hoJson aFields[iField] vValue
         Loop
     End_Procedure
 
-    // Fetches records into snapshots.
-    Function DDPFetchRecords tDDPTableQuery query Integer eStyle tDDPFindRecord scope tDDPFindRecord[] ByRef aRecords Returns tDDPBuilderResult
-        Handle hoQuery hoAdapter
+    { Visibility = Private }
+    Function DDPJsonConstructionFailure Returns tDDPBuilderResult
+        tDDPBuilderResult oResult
+
+        Move DDPERR_FIND_FAILED to oResult.iErr
+        Move "JSON response construction failed." to oResult.sError
+        Function_Return oResult
+    End_Function
+
+    { Visibility = Private }
+    Function DDPAppendQueryJson tDDPTableQuery query Integer eStyle Handle hoScopeDD RowID riScope Handle hoJson Handle hoSeen Boolean bFieldsOnly Returns tDDPBuilderResult
+        Handle hoQuery hoAdapter hoRow hoParentJson hoChildJson hoRootRows
+        Handle[] ahParents ahChilds aParentSeenSets aChildSeenSets
         tDDPBuilderResult oResult
         tDDPTableResultLayout[] aTableLayouts
-        tDDPFindRecord[] aResult aChildRecords aEmptyRecords
-        tDDPFindRecord record childScope
         tDDPTableQuery childQuery
         tDDPTableQuery[] aEmptyChildQueries
+        tDDPSerializedField[] aFields aParentFieldSet
+        tDDPSerializedField[][] aParentFields
+        Integer[] aFieldColumns aParentLayoutIndices aParentFieldColumns aEmptyFieldColumns
+        Integer[][] aParentColumnSets
         Variant[][] aData
         DbRowId[] aRowIds
-        Integer iFetchLimit iRow iRowCount iOutputCount iChild iChildStyle
-        BigInt biFetchLimit biMaxInteger
-        If (scope.hoDD <> 0 and not(scope.bPresent)) Function_Return oResult
-        Move 0 to iReadMs
-        Move 0 to iSnapshotMs
+        String[] aParentNames aChildNames
+        String sRootName sRowId
+        RowID riParent
+        Integer iFetchLimit iRow iRowCount iOutputCount iParent iChild iRelated
+        Integer iRootLayout
+        Boolean bFlatLinked bFlattened bForceRelated bSkipRow bFailed
 
-        Move aEmptyRecords to aRecords
-        Move aEmptyRecords to aResult
+        If (hoScopeDD <> 0 and IsNullRowID(riScope)) Function_Return oResult
+        Move (eStyle = DDPStyle_FlatLinked) to bFlatLinked
+        Move (not(bFieldsOnly) and eStyle <> DDPStyle_Nested) to bFlattened
+        Move (bFieldsOnly or bFlatLinked) to bForceRelated
 
-        Get Create (RefClass(cDbQuery)) to hoQuery
-        If (hoQuery = 0) Begin
-            Move DDPERR_FIND_FAILED to oResult.iErr
-            Get DDPErrorText "Find failed." to oResult.sError
-            Function_Return oResult
-        End
-
-        Get Adapter of query.hoDD to hoAdapter
-        If (hoAdapter = 0 or hoAdapter = C_UnresolvedObject) Begin
-            Move DDPERR_FIND_FAILED to oResult.iErr
-            Get DDPErrorText "Find failed." to oResult.sError
-            Send Destroy of hoQuery
-            Function_Return oResult
-        End
-
-        Get DDPConfigureQuery query scope hoQuery (&aTableLayouts) to oResult
+        Get DDPCreateQuery query.hoDD (&hoQuery) (&hoAdapter) to oResult
+        If (oResult.iErr) Function_Return oResult
+        Get DDPConfigureQuery query hoScopeDD riScope hoQuery (&aTableLayouts) to oResult
         If (oResult.iErr) Begin
             Send Destroy of hoQuery
             Function_Return oResult
         End
 
-        Move 0 to iFetchLimit
-        If (query.iLimit > 0) Begin
-            Move query.iLimit to biFetchLimit
-            Move (biFetchLimit + query.iOffset) to biFetchLimit
-            Move 2147483647 to biMaxInteger
-            If (biFetchLimit <= biMaxInteger) Move biFetchLimit to iFetchLimit
+        Get DDPSerializedFields query bForceRelated to aFields
+        Get DDPTableResultLayoutIndex query.hoDD aTableLayouts to iRootLayout
+        If (iRootLayout = -1 or ;
+            not(DDPValidateProjectedFields(Self, query.hoDD, aFields, aTableLayouts))) Begin
+            Send Destroy of hoQuery
+            Get DDPFindFailure to oResult
+            Function_Return oResult
         End
+        For iRelated from 0 to (SizeOfArray(aFields) - 1)
+            Move aTableLayouts[iRootLayout].aDataColumns[(aFields[iRelated].iField - 1)] to aFieldColumns[-1]
+        Loop
 
+
+        If (not(bFieldsOnly)) Begin
+            For iParent from 0 to (SizeOfArray(query.aParents) - 1)
+                Get DDPSerializedFields query.aParents[iParent] bFlatLinked to aParentFieldSet
+                Get DDPTableResultLayoutIndex query.aParents[iParent].hoDD aTableLayouts to iRootLayout
+                If (iRootLayout = -1 or ;
+                    not(DDPValidateProjectedFields(Self, query.aParents[iParent].hoDD, aParentFieldSet, aTableLayouts))) Begin
+                    Send Destroy of hoQuery
+                    Get DDPFindFailure to oResult
+                    Function_Return oResult
+                End
+                If bFlatLinked Begin
+                    For iRelated from 0 to (SizeOfArray(aTableLayouts[iRootLayout].aPrimaryKeyColumns) - 1)
+                        If (aTableLayouts[iRootLayout].aPrimaryKeyColumns[iRelated] < 0) Begin
+                            Send Destroy of hoQuery
+                            Get DDPFindFailure to oResult
+                            Function_Return oResult
+                        End
+                    Loop
+                End
+                Move aEmptyFieldColumns to aParentFieldColumns
+                For iRelated from 0 to (SizeOfArray(aParentFieldSet) - 1)
+                    Move aTableLayouts[iRootLayout].aDataColumns[(aParentFieldSet[iRelated].iField - 1)] ;
+                        to aParentFieldColumns[-1]
+                Loop
+                Move aParentFieldColumns to aParentColumnSets[-1]
+                Move iRootLayout to aParentLayoutIndices[iParent]
+                Move aParentFieldSet to aParentFields[-1]
+                Move (NameOfDD(Self, query.aParents[iParent].hoDD)) to aParentNames[-1]
+            Loop
+            For iChild from 0 to (SizeOfArray(query.aChilds) - 1)
+                Move (NameOfDD(Self, query.aChilds[iChild].hoDD)) to aChildNames[-1]
+            Loop
+        End
+        Get DDPTableResultLayoutIndex query.hoDD aTableLayouts to iRootLayout
+
+        Get DDPFetchLimit query.iLimit query.iOffset to iFetchLimit
         Move False to Err
         Get FetchFirst of hoQuery iFetchLimit (&aRowIds) to aData
         If (Err or SizeOfArray(aData) <> SizeOfArray(aRowIds)) Begin
-            Move DDPERR_FIND_FAILED to oResult.iErr
-            Get DDPErrorText "Find failed." to oResult.sError
+            Get DDPFindFailure to oResult
             Send Destroy of hoQuery
             Function_Return oResult
         End
-        Move query.iOffset to iRow
+
+        Move False to Err
+        Move False to bFailed
         Move 0 to iOutputCount
-        Move (SizeOfArray(aData)) to iRowCount
-        While (iRow < iRowCount and (query.iLimit = 0 or iOutputCount < query.iLimit))
-
-            Send DDPBuildRecordFromNode hoAdapter query.hoDD query aTableLayouts ;
-                aData[iRow] aRowIds[iRow] (&record)
-
-            For iChild from 0 to (SizeOfArray(query.aChilds) - 1)
-                Move record.hoDD to childScope.hoDD
-                Move record.riRowId to childScope.riRowId
-                Move record.bPresent to childScope.bPresent
-                Move query.aChilds[iChild] to childQuery
-                Move eStyle to iChildStyle
-                If (eStyle = DDPStyle_FlatLinked) Begin
-                    Move 0 to childQuery.iLimit
-                    Move 0 to childQuery.iOffset
-                    Move aEmptyChildQueries to childQuery.aChilds
-                    Move DDPStyle_Nested to iChildStyle
+        If bFlattened Begin
+            Get Create (RefClass(cJsonObject)) to hoRootRows
+            If (hoRootRows <> 0) Send InitializeJsonType of hoRootRows jsonTypeArray
+            If (hoRootRows = 0 or Err) Move True to bFailed
+            For iParent from 0 to (SizeOfArray(aParentNames) - 1)
+                Get Create (RefClass(cJsonObject)) to ahParents[iParent]
+                If (ahParents[iParent] <> 0) Send InitializeJsonType of ahParents[iParent] jsonTypeArray
+                If (ahParents[iParent] = 0 or Err) Move True to bFailed
+                If bFlatLinked Begin
+                    Get Create (RefClass(cJsonObject)) to aParentSeenSets[iParent]
+                    If (aParentSeenSets[iParent] <> 0) ;
+                        Send InitializeJsonType of aParentSeenSets[iParent] jsonTypeObject
+                    If (aParentSeenSets[iParent] = 0 or Err) Move True to bFailed
                 End
-                Get DDPFetchRecords childQuery iChildStyle childScope (&aChildRecords) to oResult
-                If (oResult.iErr) Begin
-                    Send Destroy of hoQuery
-                    Function_Return oResult
-                End
-                Move aChildRecords to record.aaChilds[iChild]
             Loop
+            For iChild from 0 to (SizeOfArray(aChildNames) - 1)
+                Get Create (RefClass(cJsonObject)) to ahChilds[iChild]
+                If (ahChilds[iChild] <> 0) Send InitializeJsonType of ahChilds[iChild] jsonTypeArray
+                If (ahChilds[iChild] = 0 or Err) Move True to bFailed
+                If bFlatLinked Begin
+                    Get Create (RefClass(cJsonObject)) to aChildSeenSets[iChild]
+                    If (aChildSeenSets[iChild] <> 0) ;
+                        Send InitializeJsonType of aChildSeenSets[iChild] jsonTypeObject
+                    If (aChildSeenSets[iChild] = 0 or Err) Move True to bFailed
+                End
+            Loop
+        End
 
-            Move record to aResult[-1]
-            Increment iOutputCount
-            Increment iRow
+        If (not(bFailed)) Begin
+            Get Create (RefClass(cJsonObject)) to hoRow
+            If (hoRow = 0) Move True to bFailed
+            If (not(bFieldsOnly) and SizeOfArray(aParentNames) > 0) Begin
+                Get Create (RefClass(cJsonObject)) to hoParentJson
+                If (hoParentJson = 0) Move True to bFailed
+            End
+        End
+        If Err Move True to bFailed
+
+        Move query.iOffset to iRow
+        Move (SizeOfArray(aData)) to iRowCount
+        While (not(bFailed) and iRow < iRowCount and ;
+            (query.iLimit = 0 or iOutputCount < query.iLimit))
+            Move False to bSkipRow
+            If (hoSeen <> 0) Begin
+                Move (SerializeRowID(aRowIds[iRow])) to sRowId
+                If (HasMember(hoSeen, sRowId)) Move True to bSkipRow
+                Else Send SetMemberValue of hoSeen sRowId jsonTypeBoolean True
+                If Err Begin
+                    Get DDPJsonConstructionFailure to oResult
+                    Move True to bFailed
+                End
+            End
+
+            If (not(bFailed) and not(bSkipRow)) Begin
+                Send InitializeJsonType of hoRow jsonTypeObject
+                Send DDPSerializeProjectedFields hoRow aFields aFieldColumns (&aData[iRow])
+                If Err Begin
+                    Get DDPJsonConstructionFailure to oResult
+                    Move True to bFailed
+                End
+
+                If (not(bFailed) and not(bFieldsOnly) and not(bFlattened)) Begin
+                    For iParent from 0 to (SizeOfArray(aParentNames) - 1)
+                        If (not(bFailed)) Begin
+                            Send InitializeJsonType of hoParentJson jsonTypeObject
+                            If (aData[iRow][aTableLayouts[aParentLayoutIndices[iParent]].iPresenceColumn] <> 0) ;
+                                Send DDPSerializeProjectedFields hoParentJson aParentFields[iParent] ;
+                                    aParentColumnSets[iParent] (&aData[iRow])
+                            Send SetMember of hoRow aParentNames[iParent] hoParentJson
+                            If Err Begin
+                                Get DDPJsonConstructionFailure to oResult
+                                Move True to bFailed
+                            End
+                        End
+                    Loop
+                End
+
+                If (not(bFailed) and bFlattened) Begin
+                    Send AddMember of hoRootRows hoRow
+                    If Err Begin
+                        Get DDPJsonConstructionFailure to oResult
+                        Move True to bFailed
+                    End
+                    For iParent from 0 to (SizeOfArray(aParentNames) - 1)
+                        If (not(bFailed)) Begin
+                            Send InitializeJsonType of hoParentJson jsonTypeObject
+                            If (aData[iRow][aTableLayouts[aParentLayoutIndices[iParent]].iPresenceColumn] <> 0) Begin
+                                If bFlatLinked Begin
+                                    Get DDPProjectedRowID aTableLayouts[aParentLayoutIndices[iParent]] ;
+                                        (&aData[iRow]) to riParent
+                                    Move (SerializeRowID(riParent)) to sRowId
+                                    If (not(HasMember(aParentSeenSets[iParent], sRowId))) Begin
+                                        Send SetMemberValue of aParentSeenSets[iParent] sRowId jsonTypeBoolean True
+                                        Send DDPSerializeProjectedFields hoParentJson aParentFields[iParent] ;
+                                            aParentColumnSets[iParent] (&aData[iRow])
+                                        Send AddMember of ahParents[iParent] hoParentJson
+                                    End
+                                End
+                                Else Begin
+                                    Send DDPSerializeProjectedFields hoParentJson aParentFields[iParent] ;
+                                        aParentColumnSets[iParent] (&aData[iRow])
+                                    Send AddMember of ahParents[iParent] hoParentJson
+                                End
+                            End
+                            Else If (not(bFlatLinked)) Send AddMember of ahParents[iParent] hoParentJson
+                            If Err Begin
+                                Get DDPJsonConstructionFailure to oResult
+                                Move True to bFailed
+                            End
+                        End
+                    Loop
+                End
+
+                If (not(bFailed) and not(bFieldsOnly)) Begin
+                    For iChild from 0 to (SizeOfArray(aChildNames) - 1)
+                        If (not(bFailed)) Begin
+                            Move query.aChilds[iChild] to childQuery
+                            If bFlatLinked Begin
+                                Move 0 to childQuery.iLimit
+                                Move 0 to childQuery.iOffset
+                                Move aEmptyChildQueries to childQuery.aChilds
+                                Get DDPAppendQueryJson childQuery DDPStyle_FlatLinked query.hoDD ;
+                                    aRowIds[iRow] ahChilds[iChild] aChildSeenSets[iChild] True to oResult
+                            End
+                            Else Begin
+                                If bFlattened Move 0 to hoChildJson
+                                Get Create (RefClass(cJsonObject)) to hoChildJson
+                                If (hoChildJson <> 0) Send InitializeJsonType of hoChildJson jsonTypeArray
+                                If (hoChildJson = 0 or Err) Begin
+                                    Get DDPJsonConstructionFailure to oResult
+                                End
+                                If (not(oResult.iErr) and not(Err)) ;
+                                    Get DDPAppendQueryJson childQuery DDPStyle_Nested query.hoDD ;
+                                        aRowIds[iRow] hoChildJson 0 False to oResult
+                                If (not(oResult.iErr) and not(Err)) Begin
+                                    If bFlattened Send AddMember of ahChilds[iChild] hoChildJson
+                                    Else Send SetMember of hoRow aChildNames[iChild] hoChildJson
+                                End
+                                If (hoChildJson <> 0) Begin
+                                    Send Destroy of hoChildJson
+                                    Move 0 to hoChildJson
+                                End
+                            End
+                            If (oResult.iErr or Err) Begin
+                                If (not(oResult.iErr)) Get DDPJsonConstructionFailure to oResult
+                                Move True to bFailed
+                            End
+                        End
+                    Loop
+                End
+
+                If (not(bFailed) and not(bFlattened)) Begin
+                    Send AddMember of hoJson hoRow
+                    If Err Begin
+                        Get DDPJsonConstructionFailure to oResult
+                        Move True to bFailed
+                    End
+                End
+            End
+
+            If (not(bFailed)) Begin
+                Increment iOutputCount
+                Increment iRow
+            End
         Loop
 
+        If (not(bFailed) and bFlattened) Begin
+            Move query.sRequestedName to sRootName
+            If (sRootName = "") Move (NameOfDD(Self, query.hoDD)) to sRootName
+            Send SetMember of hoJson sRootName hoRootRows
+            If Err Move True to bFailed
+            If (not(bFailed)) Begin
+                Send Destroy of hoRootRows
+                Move 0 to hoRootRows
+            End
+            For iParent from 0 to (SizeOfArray(aParentNames) - 1)
+                If (not(bFailed)) Begin
+                    Send SetMember of hoJson aParentNames[iParent] ahParents[iParent]
+                    If Err Move True to bFailed
+                    If (not(bFailed)) Begin
+                        Send Destroy of ahParents[iParent]
+                        Move 0 to ahParents[iParent]
+                    End
+                End
+            Loop
+            For iChild from 0 to (SizeOfArray(aChildNames) - 1)
+                If (not(bFailed)) Begin
+                    Send SetMember of hoJson aChildNames[iChild] ahChilds[iChild]
+                    If Err Move True to bFailed
+                    If (not(bFailed)) Begin
+                        Send Destroy of ahChilds[iChild]
+                        Move 0 to ahChilds[iChild]
+                    End
+                End
+            Loop
+            If bFailed Get DDPJsonConstructionFailure to oResult
+        End
+
+        If (hoRow <> 0) Send Destroy of hoRow
+        If (hoParentJson <> 0) Send Destroy of hoParentJson
+        If (hoChildJson <> 0) Send Destroy of hoChildJson
+        If (hoRootRows <> 0) Send Destroy of hoRootRows
+        For iParent from 0 to (SizeOfArray(ahParents) - 1)
+            If (ahParents[iParent] <> 0) Send Destroy of ahParents[iParent]
+            If (aParentSeenSets[iParent] <> 0) Send Destroy of aParentSeenSets[iParent]
+        Loop
+        For iChild from 0 to (SizeOfArray(ahChilds) - 1)
+            If (ahChilds[iChild] <> 0) Send Destroy of ahChilds[iChild]
+            If (aChildSeenSets[iChild] <> 0) Send Destroy of aChildSeenSets[iChild]
+        Loop
         Send Destroy of hoQuery
-        Move aResult to aRecords
+
+        If (Err and not(oResult.iErr)) Get DDPJsonConstructionFailure to oResult
+        If (bFailed and not(oResult.iErr)) Get DDPJsonConstructionFailure to oResult
         Function_Return oResult
     End_Function
 
-    // Serializes one present snapshot.
-    Procedure DDPSerializeRecordToJson Handle hoJson tDDPSerializedField[] aFields tDDPFindRecord record
-        Integer iIndex
-        Variant vValue
+    Function DDPFetchJson tDDPTableQuery query Integer eStyle Handle ByRef hoJson Returns tDDPBuilderResult
+        tDDPBuilderResult oResult
 
-        If (not(record.bPresent)) Procedure_Return
+        Move 0 to hoJson
+        Move False to Err
+        Get Create (RefClass(cJsonObject)) to hoJson
+        If (hoJson = 0) Begin
+            Get DDPJsonConstructionFailure to oResult
+            Function_Return oResult
+        End
+        If (eStyle = DDPStyle_Nested) Send InitializeJsonType of hoJson jsonTypeArray
+        Else Send InitializeJsonType of hoJson jsonTypeObject
+        If Err Begin
+            Send Destroy of hoJson
+            Move 0 to hoJson
+            Get DDPJsonConstructionFailure to oResult
+            Function_Return oResult
+        End
 
-        For iIndex from 0 to (SizeOfArray(aFields) - 1)
-            Get StructMember (&record.vData) (aFields[iIndex].iField - 1) to vValue
-            Send SerializeFieldValue hoJson aFields[iIndex] vValue
-        Loop
-    End_Procedure
+        Get DDPAppendQueryJson query eStyle 0 (NullRowID()) hoJson 0 False to oResult
+        If (oResult.iErr or Err) Begin
+            If (hoJson <> 0) Send Destroy of hoJson
+            Move 0 to hoJson
+            If (not(oResult.iErr)) Get DDPJsonConstructionFailure to oResult
+        End
+        Function_Return oResult
+    End_Function
 End_Class

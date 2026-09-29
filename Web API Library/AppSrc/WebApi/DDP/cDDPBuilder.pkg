@@ -4,20 +4,14 @@
 // only needs to pass one value through the execution pipeline.
 Struct tDDPQuery
     tDDPTableQuery oMain
-    tDDPSerializationLayout oSerialization
 End_Struct
 
-Enum_List
-    Define DDP_Builder_Find for 0
-End_Enum_List
 
 
 // Carries the per-request execution context through the builder pipeline.
-// eType   ΓÇö reserved for future query types (currently only Find is used).
-// eStyle  ΓÇö controls response shape; defaults to DDPStyle_Nested (value 0).
-// hoJsonReq ΓÇö handle to the parsed request JSON object.
+// eStyle  — controls response shape; defaults to DDPStyle_Nested (value 0).
+// hoJsonReq — handle to the parsed request JSON object.
 Struct tDDPBuilderContext
-    Integer eType
     Integer eStyle
     Handle hoJsonReq
 End_Struct
@@ -37,6 +31,7 @@ Class cDDPBuilder_Mixin is a Mixin
         Property Boolean pbIsCollecting True
 
     End_Procedure
+
 
     // Seal the collection phase. After this point Expose will raise a runtime
     // error, preventing tables being added to a live endpoint.
@@ -81,7 +76,7 @@ Class cDDPBuilder_Mixin is a Mixin
             If (Lowercase(Left(sSearch, iFieldNameLen)) = Lowercase(sFieldName) and Length(sSearch) = (iFieldNameLen + 3)) Begin
                 Move (Lowercase(Right(sSearch, 3))) to sContrain
                 If (sContrain = "_di") Begin
-                    // Ordering directive ΓÇö caller will build a tDDPOrder entry.
+                    // Ordering directive — caller will build a tDDPOrder entry.
                     Move True to bOrdering
                     Function_Return True
                 End
@@ -118,7 +113,7 @@ Class cDDPBuilder_Mixin is a Mixin
 
     // Looks up a parent table query by its underlying file handle.
     // Used during serialization to check whether a FK field in the current
-    // table points to one of the requested parent tables ΓÇö if so, the FK
+    // table points to one of the requested parent tables — if so, the FK
     // field is omitted from the child row (the parent object carries the data).
     // Returns an empty tDDPTableQuery if no match is found.
     Function FindParentFileInQuery tDDPTableQuery query Handle hFile Returns tDDPTableQuery
@@ -133,7 +128,7 @@ Class cDDPBuilder_Mixin is a Mixin
             End
         Loop
 
-        // No matching parent found ΓÇö return zero-initialised struct.
+        // No matching parent found — return zero-initialised struct.
         Function_Return empty
     End_Function
 
@@ -170,7 +165,7 @@ Class cDDPBuilder_Mixin is a Mixin
         // For each requested child: register it as a client file on this DD,
         // make this DD a server on the child, and set Constrain_File so that
         // navigation on the child is automatically scoped to the current parent
-        // record ΓÇö without this, Request_Read on the child would scan the whole table.
+        // record — without this, Request_Read on the child would scan the whole table.
         For iIndex from 0 to (SizeOfArray(query.aChilds) - 1)
             Send DDPLink query.aChilds[iIndex].hoDD query.hoDD True True
 
@@ -192,7 +187,7 @@ Class cDDPBuilder_Mixin is a Mixin
         tDDPBuilderResult oResult
         Integer iConstrainIndex
 
-        Move sDDName to table.sRequestName
+        Move sDDName to table.sRequestedName
         Move hoParent to table.hoParentDD
         // Resolve the table name to an exposed DD handle. Lookup is
         // case-insensitive because Expose lowercases names on registration.
@@ -203,7 +198,7 @@ Class cDDPBuilder_Mixin is a Mixin
             Function_Return oResult
         End
 
-        // __limit ΓÇö optional integer cap on rows returned for this table.
+        // __limit — optional integer cap on rows returned for this table.
         // Validated as integer type; a string "10" is rejected to catch
         // client encoding mistakes early.
         If (HasMember(hoJson, "__limit")) Begin
@@ -237,12 +232,14 @@ Class cDDPBuilder_Mixin is a Mixin
             End
             End
 
-        // __fields ΓÇö optional array of field names to include in the response.
+        // __fields — optional array of field names to include in the response.
         // Each name is resolved to a 1-based field number so serialization
         // can access fields by index without re-scanning by name at read time.
         Handle hoFields
-        Integer iField
+        Integer iField iFieldCount iParent iRelatedField
+        Boolean bFieldsSpecified
         If (HasMember(hoJson, "__fields")) Begin
+            Move True to bFieldsSpecified
             Move (MemberJsonType(hoJson, "__fields")) to eType
             If (eType <> jsonTypeArray) Begin
                 Move DDPERR_INVALID_FIELDS to oResult.iErr
@@ -254,24 +251,24 @@ Class cDDPBuilder_Mixin is a Mixin
 
             For iIndex from 0 to (MemberCount(hoFields) - 1)
                 Get MemberValue of hoFields iIndex to sValue
-                // Reject any name that does not exist on this DD ΓÇö prevents
+                // Reject any name that does not exist on this DD — prevents
                 // silent data leakage if a client typos a sensitive field name.
                 If (not(IsField(Self, table.hoDD, sValue, &iField))) Begin
                     Move DDPERR_INVALID_FIELD to oResult.iErr
                     Move "Invalid field." to oResult.sError
                     Function_Return oResult
                 End
-                // Store the resolved field number (1-based) for fast access later.
-                Move iField to table.aFields[-1]
+                // Store each resolved field once for later serialization.
+                If (SearchArray(iField, table.aFields) = -1) ;
+                    Move iField to table.aFields[-1]
             Loop
 
             Send Destroy of hoFields
         End
 
         tDDPOrder oOrder
-        tDDPConstrain oConstrain
         tDDPTableQuery oTable oEmptyTable
-        Boolean bParent bIsOrdering bResolved
+        Boolean bParent bIsOrdering bResolved bRelated
         Handle hoMemberTable
         Integer eResolvedMode
 
@@ -285,7 +282,7 @@ Class cDDPBuilder_Mixin is a Mixin
             Move (MemberJsonType(hoJson, sKey)) to eType
 
             If (eType = jsonTypeObject) Begin
-                // Nested object ΓÇö must be a related table name.
+                // Nested object — must be a related table name.
                 Get DDByName sKey to oTable.hoDD
                 If (oTable.hoDD = 0) Begin
                     Move DDPERR_UNKOWN_TABLE to oResult.iErr
@@ -321,7 +318,7 @@ Class cDDPBuilder_Mixin is a Mixin
                 Move oEmptyTable to oTable
             End
             Else Begin
-                // Scalar value ΓÇö reject arrays/objects that sneaked past the
+                // Scalar value — reject arrays/objects that sneaked past the
                 // object branch (defensive check; should not normally occur).
                 If (eType = jsonTypeObject or eType = jsonTypeArray) Begin
                     Move DDPERR_INVALID_CONSTRAIN to oResult.iErr
@@ -358,10 +355,6 @@ Class cDDPBuilder_Mixin is a Mixin
                     Move oOrder to table.aOrder[-1]
                 End
                 Else Begin
-//                    Move iField to oConstrain.hField
-//                    Move eResolvedMode to oConstrain.eMode
-//                    Move sValue to oConstrain.aParams[0]
-//                    Move oConstrain to table.aConstrains[-1]
                     Move iField to table.aConstrains[iConstrainIndex].hField
                     Move eResolvedMode to table.aConstrains[iConstrainIndex].eMode
                     Move sValue to table.aConstrains[iConstrainIndex].aParams[0]
@@ -369,15 +362,29 @@ Class cDDPBuilder_Mixin is a Mixin
                 End
             End
         Loop
+        // Resolve the default field selection after parents have been parsed.
+        // Parent relation fields are omitted unless explicitly requested.
+        If (not(bFieldsSpecified)) Begin
+            Get FieldCount table.hoDD to iFieldCount
+            For iField from 1 to iFieldCount
+                Move False to bRelated
+                For iParent from 0 to (SizeOfArray(table.aParents) - 1)
+                    Get FieldRelation table.hoDD table.aParents[iParent].hoDD iField (&iRelatedField) to bRelated
+                    If (bRelated) Break
+                Loop
+                If (not(bRelated)) Move iField to table.aFields[-1]
+            Loop
+        End
+
 
         Function_Return oResult
     End_Function
 
-    // Applies constraints from a child or parent query to the main DD's SQL
-    // filter or VConstrain buffer. When an optional parent (optParent) is
-    // supplied, constraints on FK fields that are physically stored in the
-    // parent table are redirected to the parent's field instead.
-    Function AddConstrainsToCurrentSet Handle hoMainDD tDDPTableQuery query tDDPTableQuery optParent Returns tDDPBuilderResult
+    // Applies constraints from a child or parent query to the constraint owner's
+    // SQL filter, VConstrain buffer, or native constraint set. When an optional
+    // parent (optParent) is supplied, constraints on FK fields that are physically
+    // stored in the parent table are redirected to the parent's field instead.
+    Function AddConstrainsToCurrentSet Handle hoConstraintOwner tDDPTableQuery query tDDPTableQuery optParent Returns tDDPBuilderResult
         Integer iIndex iField iFieldCount iRelatedField
         Boolean bRelated bRedirected
         tDDPBuilderResult oResult
@@ -394,7 +401,7 @@ Class cDDPBuilder_Mixin is a Mixin
                     Get FieldRelation optParent.hoDD query.hoDD iField (&iRelatedField) to bRelated
                     If (bRelated and iRelatedField = query.aConstrains[iIndex].hField) Begin
                         // Constraint field is a FK to the parent - apply it there.
-                        Get AddConstrain hoMainDD optParent.hoDD iField query.aConstrains[iIndex].eMode query.aConstrains[iIndex].aParams[0] to oResult
+                        Get AddConstrain hoConstraintOwner optParent.hoDD iField query.aConstrains[iIndex].eMode query.aConstrains[iIndex].aParams[0] to oResult
                         If (oResult.iErr) Function_Return oResult
                         Move True to bRedirected
                         Break
@@ -402,7 +409,7 @@ Class cDDPBuilder_Mixin is a Mixin
                 Loop
                 If (not(bRedirected)) Begin
                     // Constraint belongs directly on this table.
-                    Get AddConstrain hoMainDD query.hoDD query.aConstrains[iIndex].hField query.aConstrains[iIndex].eMode query.aConstrains[iIndex].aParams[0] to oResult
+                    Get AddConstrain hoConstraintOwner query.hoDD query.aConstrains[iIndex].hField query.aConstrains[iIndex].eMode query.aConstrains[iIndex].aParams[0] to oResult
                     If (oResult.iErr) Function_Return oResult
                 End
             Loop
@@ -410,16 +417,16 @@ Class cDDPBuilder_Mixin is a Mixin
         Else Begin
             // Main table - apply all constraints directly without FK redirect.
             For iIndex from 0 to (SizeOfArray(query.aConstrains) - 1)
-                Get AddConstrain hoMainDD query.hoDD query.aConstrains[iIndex].hField query.aConstrains[iIndex].eMode query.aConstrains[iIndex].aParams[0] to oResult
+                Get AddConstrain hoConstraintOwner query.hoDD query.aConstrains[iIndex].hField query.aConstrains[iIndex].eMode query.aConstrains[iIndex].aParams[0] to oResult
                 If (oResult.iErr) Function_Return oResult
             Loop
         End
 
         // Recurse into parent tables so their constraints are also applied to
-        // the main DD. This allows filtering by parent fields (e.g. Customer.Name)
-        // in a query rooted on OrderHeader.
+        // the same constraint owner. This allows filtering by parent fields
+        // (e.g. Customer.Name) in a query rooted on OrderHeader.
         For iIndex from 0 to (SizeOfArray(query.aParents) - 1)
-            Get AddConstrainsToCurrentSet hoMainDD query.aParents[iIndex] query to oResult
+            Get AddConstrainsToCurrentSet hoConstraintOwner query.aParents[iIndex] query to oResult
             If (oResult.iErr) Function_Return oResult
         Loop
 
@@ -438,153 +445,10 @@ Class cDDPBuilder_Mixin is a Mixin
         Get DDPPrepareFind oQuery.oMain to oResult
         If (oResult.iErr) Function_Return oResult
 
-        Get BuildSerializationLayout oQuery.oMain to oQuery.oSerialization
         Function_Return oResult
     End_Function
 
-
-
-    Function BuildSerializationLayout tDDPTableQuery query Returns tDDPSerializationLayout
-        tDDPSerializationLayout oLayout oChildLayout
-        Integer iIndex
-
-        Get DDPSerializedFields query False to oLayout.aFields
-        Get DDPSerializedFields query True to oLayout.aForceRelatedFields
-
-        For iIndex from 0 to (SizeOfArray(query.aParents) - 1)
-            Get BuildSerializationLayout query.aParents[iIndex] to oChildLayout
-            Move oChildLayout to oLayout.aParents[-1]
-        Loop
-
-        For iIndex from 0 to (SizeOfArray(query.aChilds) - 1)
-            Get BuildSerializationLayout query.aChilds[iIndex] to oChildLayout
-            Move oChildLayout to oLayout.aChilds[-1]
-        Loop
-
-        Function_Return oLayout
-    End_Function
-    // -------------------------------------------------------------------------
-    // Nested-style execution: produces a JSON array of row objects.
-    // Each row embeds parent data as nested objects and child data as nested
-    // arrays, matching the relational nesting structure of the query.
-    // Called recursively for child tables.
-    // -------------------------------------------------------------------------
-    Procedure DDPSerializeNestedRecords tDDPTableQuery query tDDPSerializationLayout layout tDDPFindRecord[] aRecords Handle ByRef hoJson
-        Handle hoRow hoRelatedJson
-        Integer iRecord iParent iChild
-
-        Get Create (RefClass(cJsonObject)) to hoJson
-        Send InitializeJsonType of hoJson jsonTypeArray
-        For iRecord from 0 to (SizeOfArray(aRecords) - 1)
-            Get Create (RefClass(cJsonObject)) to hoRow
-            Send InitializeJsonType of hoRow jsonTypeObject
-            Send DDPSerializeRecordToJson hoRow layout.aFields aRecords[iRecord]
-
-            For iParent from 0 to (SizeOfArray(query.aParents) - 1)
-                Get Create (RefClass(cJsonObject)) to hoRelatedJson
-                Send InitializeJsonType of hoRelatedJson jsonTypeObject
-                Send DDPSerializeRecordToJson hoRelatedJson layout.aParents[iParent].aFields ;
-                    aRecords[iRecord].aParents[iParent]
-                Send SetMember of hoRow (NameOfDD(Self, query.aParents[iParent].hoDD)) hoRelatedJson
-                Send Destroy of hoRelatedJson
-            Loop
-
-            For iChild from 0 to (SizeOfArray(query.aChilds) - 1)
-                Send DDPSerializeNestedRecords query.aChilds[iChild] layout.aChilds[iChild] ;
-                    aRecords[iRecord].aaChilds[iChild] (&hoRelatedJson)
-                Send SetMember of hoRow (NameOfDD(Self, query.aChilds[iChild].hoDD)) hoRelatedJson
-                Send Destroy of hoRelatedJson
-            Loop
-
-            Send AddMember of hoJson hoRow
-            Send Destroy of hoRow
-        Loop
-    End_Procedure
-
-    // Executes a nested find and serializes rows.
-    Function ExecuteFindTable tDDPBuilderContext ByRef ctx tDDPTableQuery query tDDPSerializationLayout layout Handle ByRef hoJson Returns tDDPBuilderResult
-        tDDPBuilderResult oResult
-        tDDPFindRecord[] aRecords
-        tDDPFindRecord emptyScope
-
-
-        Get DDPFetchRecords query ctx.eStyle emptyScope (&aRecords) to oResult
-        If (oResult.iErr) Function_Return oResult
-        Send DDPSerializeNestedRecords query layout aRecords (&hoJson)
-
-        Function_Return oResult
-    End_Function
-
-    // -------------------------------------------------------------------------
-    // Flat-style execution: all tables are top-level arrays in the response.
-    // Parents are positionally aligned; children are arrays of arrays.
-    // -------------------------------------------------------------------------
-    Function ExecuteFindTableFlat tDDPBuilderContext ByRef ctx tDDPTableQuery query tDDPSerializationLayout layout Handle ByRef hoJson Returns tDDPBuilderResult
-        Handle hoMain hoRow hoRelatedJson
-        Handle[] ahParents ahChilds
-        Integer iRecord iParent iChild
-        String sRootName
-        tDDPFindRecord[] aRecords
-        tDDPFindRecord emptyScope
-        tDDPBuilderResult oResult
-
-        Get DDPFetchRecords query ctx.eStyle emptyScope (&aRecords) to oResult
-        If (oResult.iErr) Function_Return oResult
-
-        Get Create (RefClass(cJsonObject)) to hoMain
-        Send InitializeJsonType of hoMain jsonTypeArray
-        For iParent from 0 to (SizeOfArray(query.aParents) - 1)
-            Get Create (RefClass(cJsonObject)) to hoRelatedJson
-            Send InitializeJsonType of hoRelatedJson jsonTypeArray
-            Move hoRelatedJson to ahParents[-1]
-        Loop
-        For iChild from 0 to (SizeOfArray(query.aChilds) - 1)
-            Get Create (RefClass(cJsonObject)) to hoRelatedJson
-            Send InitializeJsonType of hoRelatedJson jsonTypeArray
-            Move hoRelatedJson to ahChilds[-1]
-        Loop
-
-        For iRecord from 0 to (SizeOfArray(aRecords) - 1)
-            Get Create (RefClass(cJsonObject)) to hoRow
-            Send InitializeJsonType of hoRow jsonTypeObject
-            Send DDPSerializeRecordToJson hoRow layout.aFields aRecords[iRecord]
-            For iParent from 0 to (SizeOfArray(query.aParents) - 1)
-                Get Create (RefClass(cJsonObject)) to hoRelatedJson
-                Send InitializeJsonType of hoRelatedJson jsonTypeObject
-                Send DDPSerializeRecordToJson hoRelatedJson layout.aParents[iParent].aFields ;
-                    aRecords[iRecord].aParents[iParent]
-                Send AddMember of ahParents[iParent] hoRelatedJson
-                Send Destroy of hoRelatedJson
-            Loop
-            For iChild from 0 to (SizeOfArray(query.aChilds) - 1)
-                Send DDPSerializeNestedRecords query.aChilds[iChild] layout.aChilds[iChild] ;
-                    aRecords[iRecord].aaChilds[iChild] (&hoRelatedJson)
-                Send AddMember of ahChilds[iChild] hoRelatedJson
-                Send Destroy of hoRelatedJson
-            Loop
-            Send AddMember of hoMain hoRow
-            Send Destroy of hoRow
-        Loop
-
-        Get Create (RefClass(cJsonObject)) to hoJson
-        Send InitializeJsonType of hoJson jsonTypeObject
-        Move query.sRequestName to sRootName
-        If (sRootName = "") Move (NameOfDD(Self, query.hoDD)) to sRootName
-        Send SetMember of hoJson sRootName hoMain
-        Send Destroy of hoMain
-        For iParent from 0 to (SizeOfArray(query.aParents) - 1)
-            Send SetMember of hoJson (NameOfDD(Self, query.aParents[iParent].hoDD)) ahParents[iParent]
-            Send Destroy of ahParents[iParent]
-        Loop
-        For iChild from 0 to (SizeOfArray(query.aChilds) - 1)
-            Send SetMember of hoJson (NameOfDD(Self, query.aChilds[iChild].hoDD)) ahChilds[iChild]
-            Send Destroy of ahChilds[iChild]
-        Loop
-        Function_Return oResult
-    End_Function
-
-    // Entry point for nested-style execution. Destroys any previous result
-    // handle before delegating to ExecuteFindTable.
+    // Executes a query through the backend-owned JSON serializer.
     Function ExecuteFind tDDPBuilderContext ByRef ctx tDDPQuery query Handle ByRef hoResult Returns tDDPBuilderResult
         tDDPBuilderResult oResult
 
@@ -593,135 +457,11 @@ Class cDDPBuilder_Mixin is a Mixin
             Move 0 to hoResult
         End
 
-        Get ExecuteFindTable (&ctx) query.oMain query.oSerialization (&hoResult) to oResult
-
-        Function_Return oResult
-    End_Function
-
-    // Entry point for flat-style execution.
-    Function ExecuteFindFlat tDDPBuilderContext ByRef ctx tDDPQuery query Handle ByRef hoResult Returns tDDPBuilderResult
-        tDDPBuilderResult oResult
-
-        If (hoResult <> 0) Begin
+        Get DDPFetchJson query.oMain ctx.eStyle (&hoResult) to oResult
+        If (oResult.iErr and hoResult <> 0) Begin
             Send Destroy of hoResult
             Move 0 to hoResult
         End
-
-        Get ExecuteFindTableFlat (&ctx) query.oMain query.oSerialization (&hoResult) to oResult
-
-        Function_Return oResult
-    End_Function
-
-    // FlatLinked-style execution: like flat but fully deduplicated.
-    // Parents appear at most once per unique record (identified by RowID).
-    // Children are collected into a single flat array across all main rows,
-    // also deduplicated by RowID. FK fields on each row provide the join key.
-    //
-    // Deduplication uses a cJsonObject as an O(1) hash set: the serialised
-    // RowID string is used as the member key; presence of the key means the
-    // record has already been emitted. Using cJsonObject avoids introducing
-    // a separate data structure and reuses the existing JSON infrastructure.
-    // -------------------------------------------------------------------------
-    Function ExecuteFindTableFlatLinked tDDPBuilderContext ByRef ctx tDDPTableQuery query tDDPSerializationLayout layout Handle ByRef hoJson Returns tDDPBuilderResult
-        Handle hoMain hoRow hoRelatedJson
-        Handle[] ahParents aParentSeenSets ahChilds aChildSeenSets
-        Integer iRecord iParent iChild iRelated
-        String sRootName sRowId
-        tDDPFindRecord[] aRecords aChildRecords
-        tDDPFindRecord emptyScope
-        tDDPBuilderResult oResult
-
-        Get DDPFetchRecords query ctx.eStyle emptyScope (&aRecords) to oResult
-        If (oResult.iErr) Function_Return oResult
-        Get Create (RefClass(cJsonObject)) to hoMain
-        Send InitializeJsonType of hoMain jsonTypeArray
-        For iParent from 0 to (SizeOfArray(query.aParents) - 1)
-            Get Create (RefClass(cJsonObject)) to hoRelatedJson
-            Send InitializeJsonType of hoRelatedJson jsonTypeArray
-            Move hoRelatedJson to ahParents[-1]
-            Get Create (RefClass(cJsonObject)) to hoRelatedJson
-            Send InitializeJsonType of hoRelatedJson jsonTypeObject
-            Move hoRelatedJson to aParentSeenSets[-1]
-        Loop
-        For iChild from 0 to (SizeOfArray(query.aChilds) - 1)
-            Get Create (RefClass(cJsonObject)) to hoRelatedJson
-            Send InitializeJsonType of hoRelatedJson jsonTypeArray
-            Move hoRelatedJson to ahChilds[-1]
-            Get Create (RefClass(cJsonObject)) to hoRelatedJson
-            Send InitializeJsonType of hoRelatedJson jsonTypeObject
-            Move hoRelatedJson to aChildSeenSets[-1]
-        Loop
-
-        For iRecord from 0 to (SizeOfArray(aRecords) - 1)
-            Get Create (RefClass(cJsonObject)) to hoRow
-            Send InitializeJsonType of hoRow jsonTypeObject
-            Send DDPSerializeRecordToJson hoRow layout.aForceRelatedFields aRecords[iRecord]
-            Send AddMember of hoMain hoRow
-            Send Destroy of hoRow
-
-            For iParent from 0 to (SizeOfArray(query.aParents) - 1)
-                If (aRecords[iRecord].aParents[iParent].bPresent) Begin
-                    Move (SerializeRowID(aRecords[iRecord].aParents[iParent].riRowId)) to sRowId
-                    If (not(HasMember(aParentSeenSets[iParent], sRowId))) Begin
-                        Send SetMemberValue of aParentSeenSets[iParent] sRowId jsonTypeBoolean True
-                        Get Create (RefClass(cJsonObject)) to hoRelatedJson
-                        Send InitializeJsonType of hoRelatedJson jsonTypeObject
-                        Send DDPSerializeRecordToJson hoRelatedJson layout.aParents[iParent].aForceRelatedFields ;
-                            aRecords[iRecord].aParents[iParent]
-                        Send AddMember of ahParents[iParent] hoRelatedJson
-                        Send Destroy of hoRelatedJson
-                    End
-                End
-            Loop
-
-            For iChild from 0 to (SizeOfArray(query.aChilds) - 1)
-                Move aRecords[iRecord].aaChilds[iChild] to aChildRecords
-                For iRelated from 0 to (SizeOfArray(aChildRecords) - 1)
-                    If (aChildRecords[iRelated].bPresent) Begin
-                        Move (SerializeRowID(aChildRecords[iRelated].riRowId)) to sRowId
-                        If (not(HasMember(aChildSeenSets[iChild], sRowId))) Begin
-                            Send SetMemberValue of aChildSeenSets[iChild] sRowId jsonTypeBoolean True
-                            Get Create (RefClass(cJsonObject)) to hoRelatedJson
-                            Send InitializeJsonType of hoRelatedJson jsonTypeObject
-                            Send DDPSerializeRecordToJson hoRelatedJson layout.aChilds[iChild].aForceRelatedFields ;
-                                aChildRecords[iRelated]
-                            Send AddMember of ahChilds[iChild] hoRelatedJson
-                            Send Destroy of hoRelatedJson
-                        End
-                    End
-                Loop
-            Loop
-        Loop
-
-        Get Create (RefClass(cJsonObject)) to hoJson
-        Send InitializeJsonType of hoJson jsonTypeObject
-        Move query.sRequestName to sRootName
-        If (sRootName = "") Move (NameOfDD(Self, query.hoDD)) to sRootName
-        Send SetMember of hoJson sRootName hoMain
-        Send Destroy of hoMain
-        For iParent from 0 to (SizeOfArray(query.aParents) - 1)
-            Send SetMember of hoJson (NameOfDD(Self, query.aParents[iParent].hoDD)) ahParents[iParent]
-            Send Destroy of ahParents[iParent]
-            Send Destroy of aParentSeenSets[iParent]
-        Loop
-        For iChild from 0 to (SizeOfArray(query.aChilds) - 1)
-            Send SetMember of hoJson (NameOfDD(Self, query.aChilds[iChild].hoDD)) ahChilds[iChild]
-            Send Destroy of ahChilds[iChild]
-            Send Destroy of aChildSeenSets[iChild]
-        Loop
-        Function_Return oResult
-    End_Function
-
-    // Entry point for FlatLinked-style execution.
-    Function ExecuteFindFlatLinked tDDPBuilderContext ByRef ctx tDDPQuery query Handle ByRef hoResult Returns tDDPBuilderResult
-        tDDPBuilderResult oResult
-
-        If (hoResult <> 0) Begin
-            Send Destroy of hoResult
-            Move 0 to hoResult
-        End
-
-        Get ExecuteFindTableFlatLinked (&ctx) query.oMain query.oSerialization (&hoResult) to oResult
 
         Function_Return oResult
     End_Function
@@ -740,7 +480,7 @@ Class cDDPBuilder_Mixin is a Mixin
     // cleanup preserves idempotent schema-backed links between requests.
     // The name is stored lowercase to make lookups case-insensitive.
     Procedure Expose Integer iDDClass
-        // Prevent runtime exposure ΓÇö all tables must be declared at startup.
+        // Prevent runtime exposure — all tables must be declared at startup.
         If (not(pbIsCollecting(Self))) Begin
             Error DFERR_PROGRAM "Cannot expose at runtime."
             Procedure_Return
@@ -774,7 +514,7 @@ Class cDDPBuilder_Mixin is a Mixin
 
         Get paDataDicts to aDataDicts
 
-        // Reject duplicates ΓÇö two DDs for the same table would cause ambiguous
+        // Reject duplicates — two DDs for the same table would cause ambiguous
         // query resolution.
         Move (BinarySearchArray(DDDef, aDataDicts)) to iIndex
         If (iIndex <> -1) Begin
@@ -825,7 +565,7 @@ Class cDDPBuilder_Mixin is a Mixin
     End_Function
 
     // ---------------------------------------------------------------------------
-    // Store pipeline: parse JSON body ΓåÆ tDDPSaveQuery, wire up relationships,
+    // Store pipeline: parse JSON body → tDDPSaveQuery, wire up relationships,
     // clear/fill/validate/save, and serialize the saved record(s) back to JSON.
     // ---------------------------------------------------------------------------
 
@@ -853,7 +593,7 @@ Class cDDPBuilder_Mixin is a Mixin
             Move (MemberJsonType(hoJson, sKey)) to eType
 
             If (eType = jsonTypeArray or eType = jsonTypeObject) Begin
-                // Nested table ΓÇö must be an exposed child of this table.
+                // Nested table must be an exposed child of this table.
                 Get DDByName sKey to hoChildDD
                 If (hoChildDD = 0) Begin
                     Move DDPERR_UNKOWN_TABLE to oResult.iErr
@@ -866,7 +606,7 @@ Class cDDPBuilder_Mixin is a Mixin
                     Function_Return oResult
                 End
                 If (bParent) Begin
-                    // The related table is a parent ΓÇö only children may be nested for store.
+                    // The related table is a parent only children may be nested for store.
                     Move DDPERR_UNKOWN_TABLE to oResult.iErr
                     Move (SFormat("'%1', is a parent table.", sKey)) to oResult.sError
                     Function_Return oResult
@@ -897,7 +637,7 @@ Class cDDPBuilder_Mixin is a Mixin
                 End
             End
             Else If (eType <> jsonTypeNull) Begin
-                // Scalar field assignment ΓÇö validate the name then store number + value.
+                // Scalar field assignment — validate the name then store number + value.
                 If (not(IsField(Self, record.hoDD, sKey, &iField))) Begin
                     Move DDPERR_INVALID_FIELD to oResult.iErr
                     Move (SFormat("Unknown field '%1' in '%2'.", sKey, sDDName)) to oResult.sError
@@ -926,8 +666,8 @@ Class cDDPBuilder_Mixin is a Mixin
     Function SaveLinkUp tDDPSaveRecord record Returns tDDPBuilderResult
         Integer iIndex iDupIdx iParentIdx
         tDDPBuilderResult oResult
-        Handle hChildFile hDupFile hDirectParentFile
-        Handle[] aSchemaParents aExtraParents
+        Handle hChildFile hDupFile
+        Handle[] aSchemaParents
         Boolean bAlreadyWired
 
         // Pass 1: wire this record's own schema-declared server files.
@@ -1180,14 +920,14 @@ Class cDDPBuilder_Mixin is a Mixin
     End_Procedure
 
     // ---------------------------------------------------------------------------
-    // Delete pipeline: parse JSON body ΓåÆ tDDPDeleteQuery, wire up relationships,
-    // find ΓåÆ verify ΓåÆ snapshot ΓåÆ validate ΓåÆ delete, return the deleted record(s).
+    // Delete pipeline: parse JSON body → tDDPDeleteQuery, wire up relationships,
+    // find → verify → snapshot → validate → delete, return the deleted record(s).
     // ---------------------------------------------------------------------------
 
     // Returns the 1-based field numbers that make up the primary index of hoDD.
 
     // Parses one JSON delete object into a tDDPDeleteRecord struct.
-    // Only scalar (non-null) values are accepted ΓÇö no nested tables are allowed.
+    // Only scalar (non-null) values are accepted — no nested tables are allowed.
     // All provided keys must be valid field names on the named table.
     Function ConstructDeleteRecord String sDDName Handle hoJson tDDPDeleteRecord ByRef record Returns tDDPBuilderResult
         Integer iIndex eType iField
@@ -1550,6 +1290,23 @@ Class cDDPBuilder_Mixin is a Mixin
             Function_Return oResult
         End
 
+        // Re-find the saved row before serializing; Request_Save may leave the DD buffer elsewhere.
+        Send Clear of record.hoDD
+        For iIndex from 0 to (SizeOfArray(record.aFields) - 1)
+            For iPKIndex from 0 to (SizeOfArray(aPKFields) - 1)
+                If (record.aFields[iIndex].hField = aPKFields[iPKIndex]) Begin
+                    Send DDPSetFieldValue record.hoDD hFile record.aFields[iIndex].hField record.aFields[iIndex].sValue
+                    Break
+                End
+            Loop
+        Loop
+        Send DDPRequestFind record.hoDD EQ hFile (PrimaryDDIndex(Self, record.hoDD))
+        If (not(Found) or Err) Begin
+            Move DDPERR_RECORD_NOT_FOUND to oResult.iErr
+            Move "Record not found after update." to oResult.sError
+            Function_Return oResult
+        End
+
         // Serialise the updated buffer (all fields; no field projection applied).
         Move record.hoDD to serialQuery.hoDD
         Get Create (RefClass(cJsonObject)) to hoJson
@@ -1587,7 +1344,7 @@ Class cDDPBuilder_Mixin is a Mixin
 
         Get paDataDicts to aDataDicts
 
-        // Linear scan ΓÇö no binary search possible because the array is sorted
+        // Linear scan — no binary search possible because the array is sorted
         // by name, not by file handle.
         For iIndex from 0 to (SizeOfArray(aDataDicts) - 1)
             Get Main_File of aDataDicts[iIndex].hoDD to hFile

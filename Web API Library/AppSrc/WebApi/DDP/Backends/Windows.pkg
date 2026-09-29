@@ -160,9 +160,9 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
 
     // Maps a DataFlex field type/precision pair to the JSON primitive type used when
     // writing that field's value:
-    //   BCD with precision > 0  ΓåÆ  jsonTypeDouble   (decimal number)
-    //   BCD with precision = 0  ΓåÆ  jsonTypeInteger  (whole number)
-    //   everything else         ΓåÆ  jsonTypeString   (dates, text, ASCII, ΓÇª)
+    //   BCD with precision > 0  →  jsonTypeDouble   (decimal number)
+    //   BCD with precision = 0  →  jsonTypeInteger  (whole number)
+    //   everything else         →  jsonTypeString   (dates, text, ASCII, …)
     Function DFTypeToJson Integer eType Integer iPrecision Returns Integer
         If (eType = DF_BCD) Begin
             If (iPrecision) Begin
@@ -183,20 +183,8 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         tDDPSerializedField[] aFields
         tDDPSerializedField oField
 
-        If (SizeOfArray(query.aFields) > 0) Begin
-            Move query.aFields to aFieldNumbers
-        End
-        Else Begin
-            Get FieldCount query.hoDD to iFieldCount
-            For iField from 1 to iFieldCount
-                Move False to bRelated
-                For iParent from 0 to (SizeOfArray(query.aParents) - 1)
-                    Get FieldRelation query.hoDD query.aParents[iParent].hoDD iField (&iRelatedField) to bRelated
-                    If (bRelated) Break
-                Loop
-                If (not(bRelated)) Move iField to aFieldNumbers[-1]
-            Loop
-        End
+        Move query.aFields to aFieldNumbers
+
 
         If (bForceRelated) Begin
             Get FieldCount query.hoDD to iFieldCount
@@ -208,7 +196,8 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
                 Loop
                 If (not(bRelated) and query.hoParentDD <> 0) ;
                     Get FieldRelation query.hoDD query.hoParentDD iField (&iRelatedField) to bRelated
-                If (bRelated) Move iField to aFieldNumbers[-1]
+                If (bRelated and SearchArray(iField, aFieldNumbers) = -1) ;
+                    Move iField to aFieldNumbers[-1]
             Loop
         End
 
@@ -232,20 +221,38 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Send SetMemberValue of hoJson field.sName field.eJsonType vValue
     End_Procedure
 
-    Procedure SerializeBufferToJson Handle hoJson tDDPTableQuery query Boolean bForceRelated
-        tDDPSerializedField[] aFields
+    // Serializes selected fields directly from a live DD buffer.
+    Procedure DDPSerializeFieldsToJson Handle hoJson Handle hoDD tDDPSerializedField[] aFields
         Integer iIndex
         Handle hFile
         String sValue
         Variant vValue
 
-        Get Main_File of query.hoDD to hFile
-        Get DDPSerializedFields query bForceRelated to aFields
+        Get Main_File of hoDD to hFile
         For iIndex from 0 to (SizeOfArray(aFields) - 1)
-            Get_Field_Value hFile aFields[iIndex].iField to sValue
-            Move sValue to vValue
-            Send SerializeFieldValue hoJson aFields[iIndex] vValue
+            If (not(Err)) Begin
+                Get DDPGetFieldValue hoDD hFile aFields[iIndex].iField to sValue
+                If (not(Err)) Begin
+                    Move sValue to vValue
+                    Send SerializeFieldValue hoJson aFields[iIndex] vValue
+                End
+            End
         Loop
+    End_Procedure
+    // Serializes the complete mutation buffer through the classic field reader.
+    Procedure SerializeBufferToJson Handle hoJson tDDPTableQuery query Boolean bForceRelated
+        tDDPSerializedField[] aFields
+        Integer iField iFieldCount
+
+        If (SizeOfArray(query.aFields) = 0) Begin
+            Get FieldCount query.hoDD to iFieldCount
+            For iField from 1 to iFieldCount
+                Move iField to query.aFields[-1]
+            Loop
+        End
+
+        Get DDPSerializedFields query bForceRelated to aFields
+        Send DDPSerializeFieldsToJson hoJson query.hoDD aFields
     End_Procedure
 
     // Snapshots the parent/child relationship topology of hoDD into paFileInfo when the
@@ -673,134 +680,388 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
     End_Function
 
     { Visibility = Private }
-    // Snapshots one Classic record and parents.
-    Function DDPSnapshotRecord tDDPTableQuery query Returns tDDPFindRecord
-        tDDPFindRecord record
-        String[] aValues
-        Integer iField iFieldCount
-        Handle hFile
-        RowID riRowId
-
-        Move query.hoDD to record.hoDD
-        Get Main_File of query.hoDD to hFile
-        Get DDPCurrentRowID query.hoDD hFile to riRowId
-        Move riRowId to record.riRowId
-        Move (not(IsNullRowID(riRowId))) to record.bPresent
-
-        Get FieldCount query.hoDD to iFieldCount
-        For iField from 1 to iFieldCount
-            If (record.bPresent) ;
-                Get DDPGetFieldValue query.hoDD hFile iField to aValues[-1]
-            Else ;
-                Move "" to aValues[-1]
-        Loop
-        Move aValues to record.vData
-
-        For iField from 0 to (SizeOfArray(query.aParents) - 1)
-            Get DDPSnapshotRecord query.aParents[iField] to record.aParents[-1]
-        Loop
-
-        Function_Return record
-    End_Function
-
-    // Fetches Classic records into snapshots.
-    Function DDPFetchRecords tDDPTableQuery query Integer eStyle tDDPFindRecord scope tDDPFindRecord[] ByRef aRecords Returns tDDPBuilderResult
+    // Appends a Classic query directly into its caller-owned JSON destination.
+    Function DDPAppendQueryJson tDDPTableQuery query Integer eStyle Handle hoScopeDD RowID riScope Handle hoJson Handle hoSeen Boolean bFieldsOnly Returns tDDPBuilderResult
         tDDPBuilderResult oResult
-        tDDPFindRecord[] aResult aChildRecords aEmptyRecords
-        tDDPFindRecord record childScope
         tDDPTableQuery childQuery
         tDDPTableQuery[] aEmptyChildQueries
-        Integer iIndex iFindMode iOffset iCollected iChild iChildStyle
-        Handle hFile
+        tDDPSerializedField[] aFields
+        tDDPSerializedField[][] aParentFields
+        Handle hFile hParentFile hoMain hoRow hoParentJson hoChildJson
+        Handle[] ahParents ahChilds aParentSeenSets aChildSeenSets
+        Integer iIndex iFindMode iOffset iCollected iParent iChild
+        RowID riCurrent riParent
+        String sRootName sRowId
+        String[] aParentNames aChildNames
+        Boolean bFlatRoot bFlatLinked bFailed bEmit bRootPresent bParentPresent
+        Boolean bIndexCreated
 
-        Move aEmptyRecords to aRecords
-        Move 0 to iReadMs
-        Move 0 to iSnapshotMs
-        If (scope.hoDD <> 0 and not(scope.bPresent)) Function_Return oResult
+        Move (eStyle = DDPStyle_FlatLinked) to bFlatLinked
+        Move ((eStyle <> DDPStyle_Nested) and hoScopeDD = 0 and not(bFieldsOnly)) to bFlatRoot
+        Move 0 to iCollected
+        Move False to bFailed
+        Move False to bIndexCreated
+        If (hoScopeDD <> 0 and IsNullRowID(riScope)) Function_Return oResult
+
+        If (bFlatLinked or bFieldsOnly) ;
+            Get DDPSerializedFields query True to aFields
+        Else ;
+            Get DDPSerializedFields query False to aFields
+
+        If (not(bFieldsOnly)) Begin
+            For iParent from 0 to (SizeOfArray(query.aParents) - 1)
+                Move (NameOfDD(Self, query.aParents[iParent].hoDD)) to aParentNames[-1]
+                If bFlatLinked ;
+                    Get DDPSerializedFields query.aParents[iParent] True to aParentFields[-1]
+                Else ;
+                    Get DDPSerializedFields query.aParents[iParent] False to aParentFields[-1]
+            Loop
+            For iChild from 0 to (SizeOfArray(query.aChilds) - 1)
+                Move (NameOfDD(Self, query.aChilds[iChild].hoDD)) to aChildNames[-1]
+            Loop
+        End
+
+        If (bFlatRoot and not(bFailed)) Begin
+            Get Create (RefClass(cJsonObject)) to hoMain
+            If (hoMain <> 0 and not(Err)) Send InitializeJsonType of hoMain jsonTypeArray
+            If (hoMain = 0 or Err) Begin
+                Move DDPERR_FIND_FAILED to oResult.iErr
+                Get DDPErrorText "JSON response construction failed." to oResult.sError
+                Move True to bFailed
+            End
+            For iParent from 0 to (SizeOfArray(aParentNames) - 1)
+                If not(bFailed) Begin
+                    Get Create (RefClass(cJsonObject)) to hoParentJson
+                    If (hoParentJson <> 0 and not(Err)) ;
+                        Send InitializeJsonType of hoParentJson jsonTypeArray
+                    If (hoParentJson = 0 or Err) Begin
+                        Move DDPERR_FIND_FAILED to oResult.iErr
+                        Get DDPErrorText "JSON response construction failed." to oResult.sError
+                        Move True to bFailed
+                    End
+                    Else Begin
+                        Move hoParentJson to ahParents[-1]
+                        Move 0 to hoParentJson
+                        If bFlatLinked Begin
+                            Get Create (RefClass(cJsonObject)) to hoParentJson
+                            If (hoParentJson <> 0 and not(Err)) ;
+                                Send InitializeJsonType of hoParentJson jsonTypeObject
+                            If (hoParentJson = 0 or Err) Begin
+                                Move DDPERR_FIND_FAILED to oResult.iErr
+                                Get DDPErrorText "JSON response construction failed." to oResult.sError
+                                Move True to bFailed
+                            End
+                            Else Begin
+                                Move hoParentJson to aParentSeenSets[-1]
+                                Move 0 to hoParentJson
+                            End
+                        End
+                    End
+                End
+                If bFailed Break
+            Loop
+            For iChild from 0 to (SizeOfArray(aChildNames) - 1)
+                If not(bFailed) Begin
+                    Get Create (RefClass(cJsonObject)) to hoChildJson
+                    If (hoChildJson <> 0 and not(Err)) ;
+                        Send InitializeJsonType of hoChildJson jsonTypeArray
+                    If (hoChildJson = 0 or Err) Begin
+                        Move DDPERR_FIND_FAILED to oResult.iErr
+                        Get DDPErrorText "JSON response construction failed." to oResult.sError
+                        Move True to bFailed
+                    End
+                    Else Begin
+                        Move hoChildJson to ahChilds[-1]
+                        Move 0 to hoChildJson
+                        If bFlatLinked Begin
+                            Get Create (RefClass(cJsonObject)) to hoChildJson
+                            If (hoChildJson <> 0 and not(Err)) ;
+                                Send InitializeJsonType of hoChildJson jsonTypeObject
+                            If (hoChildJson = 0 or Err) Begin
+                                Move DDPERR_FIND_FAILED to oResult.iErr
+                                Get DDPErrorText "JSON response construction failed." to oResult.sError
+                                Move True to bFailed
+                            End
+                            Else Begin
+                                Move hoChildJson to aChildSeenSets[-1]
+                                Move 0 to hoChildJson
+                            End
+                        End
+                    End
+                End
+                If bFailed Break
+            Loop
+        End
+
+        If (not(bFailed) and not(bFieldsOnly) and (SizeOfArray(aParentNames) > 0)) ;
+            Get Create (RefClass(cJsonObject)) to hoParentJson
+        If (not(bFailed)) Get Create (RefClass(cJsonObject)) to hoRow
+        If (Err and not(bFailed)) Begin
+            Move DDPERR_FIND_FAILED to oResult.iErr
+            Get DDPErrorText "JSON response construction failed." to oResult.sError
+            Move True to bFailed
+        End
 
         Get Main_File of query.hoDD to hFile
-        Get CreateIndex query.hoDD query.aOrder query.aConstrains query.iLimit query.iOffset to iIndex
+        If (not(bFailed)) Begin
+            Get CreateIndex query.hoDD query.aOrder query.aConstrains query.iLimit query.iOffset to iIndex
+            Move True to bIndexCreated
 
-        Send Clear of query.hoDD
-        Send Set_Constrains_To_Buffers query
-        Move (DDPFind_GE - 1) to iFindMode
-        Move False to Err
-        Send DDPRequestRead query.hoDD iFindMode hFile iIndex
-        If (Err) Begin
-            Move DDPERR_FIND_FAILED to oResult.iErr
-            Get DDPErrorText "Find failed." to oResult.sError
-            Send DeleteIndex query.hoDD iIndex
-            Function_Return oResult
+            Send Clear of query.hoDD
+            Send Set_Constrains_To_Buffers query
+            Move (DDPFind_GE - 1) to iFindMode
+            Move False to Err
+            Send DDPRequestRead query.hoDD iFindMode hFile iIndex
+            If Err Begin
+                Move DDPERR_FIND_FAILED to oResult.iErr
+                Get DDPErrorText "Find failed." to oResult.sError
+                Move True to bFailed
+            End
         End
 
         Move query.iOffset to iOffset
-        While (HasRecord(query.hoDD) and iOffset)
+        While (not(bFailed) and HasRecord(query.hoDD) and iOffset)
             Decrement iOffset
             Move False to Err
             Send DDPRequestRead query.hoDD NEXT_RECORD hFile iIndex
-            If (Err) Begin
+            If Err Begin
                 Move DDPERR_FIND_FAILED to oResult.iErr
                 Get DDPErrorText "Find failed." to oResult.sError
-                Send DeleteIndex query.hoDD iIndex
-                Function_Return oResult
+                Move True to bFailed
             End
         Loop
 
-        Move 0 to iCollected
-        While (HasRecord(query.hoDD) and ;
+        While (not(bFailed) and HasRecord(query.hoDD) and ;
             (query.iLimit = 0 or iCollected < query.iLimit))
-            Get DDPSnapshotRecord query to record
+            Get DDPCurrentRowID query.hoDD hFile to riCurrent
+            Move (not(IsNullRowID(riCurrent))) to bRootPresent
+            Move True to bEmit
 
-            For iChild from 0 to (SizeOfArray(query.aChilds) - 1)
-                Move record.hoDD to childScope.hoDD
-                Move record.riRowId to childScope.riRowId
-                Move record.bPresent to childScope.bPresent
-                Move query.aChilds[iChild] to childQuery
-                Move eStyle to iChildStyle
-                If (eStyle = DDPStyle_FlatLinked) Begin
-                    Move 0 to childQuery.iLimit
-                    Move 0 to childQuery.iOffset
-                    Move aEmptyChildQueries to childQuery.aChilds
-                    Move DDPStyle_Nested to iChildStyle
-                End
-                Get DDPFetchRecords childQuery iChildStyle childScope (&aChildRecords) to oResult
-                If (oResult.iErr) Begin
-                    Send DeleteIndex query.hoDD iIndex
-                    Function_Return oResult
-                End
-                Move aChildRecords to record.aaChilds[iChild]
-            Loop
-
-            Move record to aResult[-1]
-            Increment iCollected
             Move False to Err
-            Send DDPRequestRead query.hoDD NEXT_RECORD hFile iIndex
-            If (Err) Begin
+            If (hoSeen <> 0) Begin
+                If (not(bRootPresent)) Begin
+                    Move False to bEmit
+                End
+                Else Begin
+                    Move (SerializeRowID(riCurrent)) to sRowId
+                    If (HasMember(hoSeen, sRowId)) Begin
+                        Move False to bEmit
+                    End
+                    Else Begin
+                        Send SetMemberValue of hoSeen sRowId jsonTypeBoolean True
+                    End
+                End
+            End
+            If Err Begin
                 Move DDPERR_FIND_FAILED to oResult.iErr
-                Get DDPErrorText "Find failed." to oResult.sError
-                Send DeleteIndex query.hoDD iIndex
-                Function_Return oResult
+                Get DDPErrorText "JSON response construction failed." to oResult.sError
+                Move True to bFailed
+            End
+
+            If (bEmit and not(bFailed)) Begin
+                Move False to Err
+                Send InitializeJsonType of hoRow jsonTypeObject
+                If bRootPresent ;
+                    Send DDPSerializeFieldsToJson hoRow query.hoDD aFields
+                If Err Begin
+                    Move DDPERR_FIND_FAILED to oResult.iErr
+                    Get DDPErrorText "JSON response construction failed." to oResult.sError
+                    Move True to bFailed
+                End
+
+                If (not(bFailed) and not(bFieldsOnly)) Begin
+                    For iParent from 0 to (SizeOfArray(aParentNames) - 1)
+                        Get Main_File of query.aParents[iParent].hoDD to hParentFile
+                        Get DDPCurrentRowID query.aParents[iParent].hoDD hParentFile to riParent
+                        Move (not(IsNullRowID(riParent))) to bParentPresent
+
+                        If (bFlatRoot and bFlatLinked) Begin
+                            If bParentPresent Begin
+                                Move (SerializeRowID(riParent)) to sRowId
+                                If (not(HasMember(aParentSeenSets[iParent], sRowId))) Begin
+                                    Send SetMemberValue of aParentSeenSets[iParent] sRowId jsonTypeBoolean True
+                                    Send InitializeJsonType of hoParentJson jsonTypeObject
+                                    Send DDPSerializeFieldsToJson hoParentJson ;
+                                        query.aParents[iParent].hoDD aParentFields[iParent]
+                                    If (not(Err)) Send AddMember of ahParents[iParent] hoParentJson
+                                End
+                            End
+                        End
+                        Else Begin
+                            Send InitializeJsonType of hoParentJson jsonTypeObject
+                            If bParentPresent ;
+                                Send DDPSerializeFieldsToJson hoParentJson ;
+                                    query.aParents[iParent].hoDD aParentFields[iParent]
+                            If (not(Err)) Begin
+                                If bFlatRoot ;
+                                    Send AddMember of ahParents[iParent] hoParentJson
+                                Else ;
+                                    Send SetMember of hoRow aParentNames[iParent] hoParentJson
+                            End
+                        End
+                        If Err Begin
+                            Move DDPERR_FIND_FAILED to oResult.iErr
+                            Get DDPErrorText "JSON response construction failed." to oResult.sError
+                            Move True to bFailed
+                            Break
+                        End
+                    Loop
+                End
+            End
+
+            If (not(bFailed) and bEmit and not(bFieldsOnly)) Begin
+                For iChild from 0 to (SizeOfArray(aChildNames) - 1)
+                    Move query.aChilds[iChild] to childQuery
+                    If (bFlatRoot and bFlatLinked) Begin
+                        Move 0 to childQuery.iLimit
+                        Move 0 to childQuery.iOffset
+                        Move aEmptyChildQueries to childQuery.aChilds
+                        Get DDPAppendQueryJson childQuery DDPStyle_FlatLinked query.hoDD riCurrent ;
+                            ahChilds[iChild] aChildSeenSets[iChild] True to oResult
+                    End
+                    Else Begin
+                        Get Create (RefClass(cJsonObject)) to hoChildJson
+                        If (hoChildJson <> 0 and not(Err)) Begin
+                            Send InitializeJsonType of hoChildJson jsonTypeArray
+                            If Err Begin
+                                Move DDPERR_FIND_FAILED to oResult.iErr
+                                Get DDPErrorText "JSON response construction failed." to oResult.sError
+                            End
+                            Else ;
+                                Get DDPAppendQueryJson childQuery DDPStyle_Nested query.hoDD riCurrent ;
+                                    hoChildJson 0 False to oResult
+                            If (not(oResult.iErr) and not(Err)) Begin
+                                If bFlatRoot ;
+                                    Send AddMember of ahChilds[iChild] hoChildJson
+                                Else ;
+                                    Send SetMember of hoRow aChildNames[iChild] hoChildJson
+                            End
+                        End
+                        Else If (not(oResult.iErr)) Begin
+                            Move DDPERR_FIND_FAILED to oResult.iErr
+                            Get DDPErrorText "JSON response construction failed." to oResult.sError
+                        End
+                        If (Err and not(oResult.iErr)) Begin
+                            Move DDPERR_FIND_FAILED to oResult.iErr
+                            Get DDPErrorText "JSON response construction failed." to oResult.sError
+                        End
+                        If (hoChildJson <> 0) Send Destroy of hoChildJson
+                        Move 0 to hoChildJson
+                    End
+                    If (oResult.iErr) Begin
+                        Move True to bFailed
+                        Break
+                    End
+                    If Err Begin
+                        Move DDPERR_FIND_FAILED to oResult.iErr
+                        Get DDPErrorText "JSON response construction failed." to oResult.sError
+                        Move True to bFailed
+                        Break
+                    End
+                Loop
+            End
+
+            If (not(bFailed) and bEmit) Begin
+                If bFlatRoot ;
+                    Send AddMember of hoMain hoRow
+                Else ;
+                    Send AddMember of hoJson hoRow
+                If Err Begin
+                    Move DDPERR_FIND_FAILED to oResult.iErr
+                    Get DDPErrorText "JSON response construction failed." to oResult.sError
+                    Move True to bFailed
+                End
+            End
+
+            If not(bFailed) Begin
+                Increment iCollected
+                Move False to Err
+                Send DDPRequestRead query.hoDD NEXT_RECORD hFile iIndex
+                If Err Begin
+                    Move DDPERR_FIND_FAILED to oResult.iErr
+                    Get DDPErrorText "Find failed." to oResult.sError
+                    Move True to bFailed
+                End
             End
         Loop
 
-        Send DeleteIndex query.hoDD iIndex
-        Move aResult to aRecords
+        If (not(bFailed) and bFlatRoot) Begin
+            Move query.sRequestedName to sRootName
+            If (sRootName = "") Move (NameOfDD(Self, query.hoDD)) to sRootName
+            Send SetMember of hoJson sRootName hoMain
+            For iParent from 0 to (SizeOfArray(aParentNames) - 1)
+                If (not(Err)) Send SetMember of hoJson aParentNames[iParent] ahParents[iParent]
+            Loop
+            For iChild from 0 to (SizeOfArray(aChildNames) - 1)
+                If (not(Err)) Send SetMember of hoJson aChildNames[iChild] ahChilds[iChild]
+            Loop
+            If Err Begin
+                Move DDPERR_FIND_FAILED to oResult.iErr
+                Get DDPErrorText "JSON response construction failed." to oResult.sError
+                Move True to bFailed
+            End
+        End
+
+        If (not(bFailed) and Err) Begin
+            Move DDPERR_FIND_FAILED to oResult.iErr
+            Get DDPErrorText "JSON response construction failed." to oResult.sError
+            Move True to bFailed
+        End
+
+        If bIndexCreated Send DeleteIndex query.hoDD iIndex
+        If (hoRow <> 0) Send Destroy of hoRow
+        If (hoParentJson <> 0) Send Destroy of hoParentJson
+        If (hoChildJson <> 0) Send Destroy of hoChildJson
+        If (hoMain <> 0) Send Destroy of hoMain
+        For iParent from 0 to (SizeOfArray(ahParents) - 1)
+            If (ahParents[iParent] <> 0) Send Destroy of ahParents[iParent]
+        Loop
+        For iChild from 0 to (SizeOfArray(ahChilds) - 1)
+            If (ahChilds[iChild] <> 0) Send Destroy of ahChilds[iChild]
+        Loop
+        For iParent from 0 to (SizeOfArray(aParentSeenSets) - 1)
+            If (aParentSeenSets[iParent] <> 0) Send Destroy of aParentSeenSets[iParent]
+        Loop
+        For iChild from 0 to (SizeOfArray(aChildSeenSets) - 1)
+            If (aChildSeenSets[iChild] <> 0) Send Destroy of aChildSeenSets[iChild]
+        Loop
+
+        If (not(bFailed)) Begin
+        End
         Function_Return oResult
     End_Function
-    
-    // Serializes one present snapshot.
-    Procedure DDPSerializeRecordToJson Handle hoJson tDDPSerializedField[] aFields tDDPFindRecord record
-        Integer iIndex
-        String[] aValues
-        Variant vValue
 
-        If (not(record.bPresent)) Procedure_Return
+    // Creates the complete response object or array for the requested style.
+    Function DDPFetchJson tDDPTableQuery query Integer eStyle Handle ByRef hoJson Returns tDDPBuilderResult
+        tDDPBuilderResult oResult
+        Boolean bInitialized
 
-        Move record.vData to aValues
-        For iIndex from 0 to (SizeOfArray(aFields) - 1)
-            Move aValues[aFields[iIndex].iField - 1] to vValue
-            Send SerializeFieldValue hoJson aFields[iIndex] vValue
-        Loop
-    End_Procedure
-    
+        Move 0 to hoJson
+        Move False to Err
+        Get Create (RefClass(cJsonObject)) to hoJson
+        If (hoJson <> 0) Begin
+            If (eStyle = DDPStyle_Nested) ;
+                Send InitializeJsonType of hoJson jsonTypeArray
+            Else ;
+                Send InitializeJsonType of hoJson jsonTypeObject
+        End
+        Move ((hoJson <> 0) and not(Err)) to bInitialized
+        If bInitialized Begin
+            Get DDPAppendQueryJson query eStyle 0 (NullRowID()) hoJson 0 False to oResult
+            If (Err and not(oResult.iErr)) Begin
+                Move DDPERR_FIND_FAILED to oResult.iErr
+                Get DDPErrorText "JSON response construction failed." to oResult.sError
+            End
+        End
+        Else Begin
+            Move DDPERR_FIND_FAILED to oResult.iErr
+            Get DDPErrorText "JSON response construction failed." to oResult.sError
+        End
+
+        If (oResult.iErr) Begin
+            If (hoJson <> 0) Send Destroy of hoJson
+            Move 0 to hoJson
+        End
+        Function_Return oResult
+    End_Function
 End_Class

@@ -91,7 +91,7 @@ End_Struct
 
 Struct tDDPTableQuery
     Handle hoDD
-    String sRequestName
+    String sRequestedName
     Handle hoParentDD
     Integer iLimit
     Integer iOffset
@@ -102,12 +102,6 @@ Struct tDDPTableQuery
     Integer[] aFields
 End_Struct
 
-Struct tDDPSerializationLayout
-    tDDPSerializedField[] aFields
-    tDDPSerializedField[] aForceRelatedFields
-    tDDPSerializationLayout[] aParents
-    tDDPSerializationLayout[] aChilds
-End_Struct
 // Controls the response JSON shape.
 Enum_List
     Define DDPStyle_Nested for 0
@@ -115,15 +109,6 @@ Enum_List
     Define DDPStyle_FlatLinked
 End_Enum_List
 
-// Backend-owned snapshot of one materialized record and its related rows.
-Struct tDDPFindRecord
-    Handle hoDD
-    RowID riRowId
-    Boolean bPresent
-    Variant vData
-    tDDPFindRecord[] aParents
-    tDDPFindRecord[][] aaChilds
-End_Struct
 
 // One field assignment for a store (create) operation.
 Struct tDDPSaveField
@@ -203,11 +188,10 @@ Register_Function DDPValidateDelete Handle hoDD Returns Boolean
 Register_Function DDPErrorText String sFallback Returns String
 // DDP query hooks.
 Register_Function QueryLinkUp tDDPTableQuery query Returns tDDPBuilderResult
-Register_Function AddConstrainsToCurrentSet Handle hoMainDD tDDPTableQuery query tDDPTableQuery optParent Returns tDDPBuilderResult
+Register_Function AddConstrainsToCurrentSet Handle hoConstraintOwner tDDPTableQuery query tDDPTableQuery optParent Returns tDDPBuilderResult
 Register_Function DDPPrepareFind tDDPTableQuery query Returns tDDPBuilderResult
 Register_Function DDPSerializedFields tDDPTableQuery query Boolean bForceRelated Returns tDDPSerializedField[]
-Register_Function DDPFetchRecords tDDPTableQuery query Integer eStyle tDDPFindRecord scope tDDPFindRecord[] ByRef aRecords Returns tDDPBuilderResult
-Register_Procedure DDPSerializeRecordToJson Handle hoJson tDDPSerializedField[] aFields tDDPFindRecord record
+Register_Function DDPFetchJson tDDPTableQuery query Integer eStyle Handle ByRef hoJson Returns tDDPBuilderResult
 
 Class IDDP_Backend_Mixin is a Mixin
     Procedure Define_DDP_Backend_Mixin
