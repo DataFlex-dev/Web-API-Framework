@@ -1,4 +1,5 @@
 ﻿Use UI
+Define C_WebAPIDDP_Default_Limit for 200
 
 // Top-level query descriptor: wraps the root table query so the caller
 // only needs to pass one value through the execution pipeline.
@@ -199,8 +200,10 @@ Class cDDPBuilder_Mixin is a Mixin
         End
 
         // __limit — optional integer cap on rows returned for this table.
+        // Defaults to 200; an explicit zero means no limit.
         // Validated as integer type; a string "10" is rejected to catch
         // client encoding mistakes early.
+        Move C_WebAPIDDP_Default_Limit to table.iLimit
         If (HasMember(hoJson, "__limit")) Begin
             Move (MemberJsonType(hoJson, "__limit")) to eType
             If (eType <> jsonTypeInteger) Begin
