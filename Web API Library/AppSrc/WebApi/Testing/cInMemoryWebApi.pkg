@@ -1,0 +1,182 @@
+#IFDEF IS$CROSS_PLATFORM
+Use WebApi\DDP\Backends\IBackend.pkg
+Use Shared\tNameValuePair.pkg
+#ELSE
+Use Datadict.pkg
+Use tNameValuePair.pkg
+Use Flexml.pkg
+#ENDIF
+Use WebApi\cWebApi.pkg
+
+Struct tWebApiTestNameValue
+    String sName
+    String sValue
+End_Struct
+
+Struct tWebApiTestRequest
+    String sVerb
+    String sPath
+    String sQueryString
+    String sContentType
+    String sAcceptType
+    String sBody
+    tWebApiTestNameValue[] aRequestHeaders
+    tWebApiTestNameValue[] aServerVariables
+End_Struct
+
+Struct tWebApiTestResponse
+    Integer iStatusCode
+    String sReason
+    String sBody
+    UChar[] ucBody
+    tWebApiTestNameValue[] aResponseHeaders
+End_Struct
+
+Class cInMemoryWebApiSession is a cObject
+    Procedure Set_HttpH_Data String sWpoName Integer iWpoID
+    End_Procedure
+    Procedure Error_Report Integer iErrorNumber Integer iErrorLine String sErrorMessage
+    End_Procedure
+End_Class
+
+Object oInMemoryWebApiSession is a cInMemoryWebApiSession
+    Move Self to ghInetSession
+End_Object
+
+Class cInMemoryWebApi is a cWebApi
+
+    Procedure Construct_Object
+        Forward Send Construct_Object
+
+        { Visibility=Private }
+        Property tWebApiTestRequest ptTestRequest
+        { Visibility=Private }
+        Property tWebApiTestResponse ptTestResponse
+    End_Procedure
+    Procedure Error_Report Integer ErrNum Integer Err_Line String sErrMsg
+        Boolean bDebugMode
+        String sFormattedMsg
+        String[] asCallstack
+
+        Get pbDebugMode to bDebugMode
+        Set pbUnexpectedError to True
+        Move (SFormat("Error %1 at line %2: %3", ErrNum, Err_Line, sErrMsg)) to sFormattedMsg
+        Set psLastErrorMessage to sFormattedMsg
+        Send Error_Report of ghoErrorHandler ErrNum Err_Line sErrMsg
+
+        If (IsDebuggerPresent() or bDebugMode) Begin
+            Get pasErrorCallstack to asCallstack
+            Move sFormattedMsg to asCallstack[-1]
+            Set pasErrorCallstack to asCallstack
+        End
+    End_Procedure
+
+    { Visibility=Private }
+    Function FindTestValue String sName tWebApiTestNameValue[] aValues Returns String
+        String sLookup
+        Integer iIndex
+
+        Move (Lowercase(sName)) to sLookup
+        For iIndex from 0 to (SizeOfArray(aValues) - 1)
+            If (Lowercase(aValues[iIndex].sName) = sLookup) Begin
+                Function_Return aValues[iIndex].sValue
+            End
+        Loop
+
+        Function_Return ""
+    End_Function
+
+    Function ResponseHeader tWebApiTestResponse response String sName Returns String
+        Function_Return (FindTestValue(Self, sName, response.aResponseHeaders))
+    End_Function
+
+    Function RequestDataString Returns String
+        tWebApiTestRequest request
+
+        Get ptTestRequest to request
+        Function_Return request.sBody
+    End_Function
+
+    Function HttpRequestHeader String sHeaderName Returns String
+        tWebApiTestRequest request
+
+        Get ptTestRequest to request
+        Function_Return (FindTestValue(Self, sHeaderName, request.aRequestHeaders))
+    End_Function
+
+    Function ServerVariable String sVariableName Returns String
+        tWebApiTestRequest request
+
+        Get ptTestRequest to request
+        Function_Return (FindTestValue(Self, sVariableName, request.aServerVariables))
+    End_Function
+
+    Procedure AddHttpResponseHeader String sHeaderName String sHeaderValue
+        tWebApiTestResponse response
+        Integer iIndex
+
+        Get ptTestResponse to response
+        Move (SizeOfArray(response.aResponseHeaders)) to iIndex
+        Move sHeaderName to response.aResponseHeaders[iIndex].sName
+        Move sHeaderValue to response.aResponseHeaders[iIndex].sValue
+        Set ptTestResponse to response
+    End_Procedure
+
+    Procedure SetResponseStatus UShort usStatusCode String sReason UShort usStatusSubCode
+        tWebApiTestResponse response
+
+        Get ptTestResponse to response
+        Move usStatusCode to response.iStatusCode
+        Move sReason to response.sReason
+        Set ptTestResponse to response
+    End_Procedure
+
+    Procedure OutputString String sData
+        UChar[] ucData
+
+        Move (StringToUCharArray(sData)) to ucData
+        Send OutputUChar ucData
+    End_Procedure
+
+    Procedure OutputUChar UChar[] ucData
+        tWebApiTestResponse response
+        Integer iIndex iOffset
+
+        Get ptTestResponse to response
+        Move (SizeOfArray(response.ucBody)) to iOffset
+        For iIndex from 0 to (SizeOfArray(ucData) - 1)
+            Move ucData[iIndex] to response.ucBody[iOffset + iIndex]
+        Loop
+        Move (UCharArrayToString(response.ucBody)) to response.sBody
+        Set ptTestResponse to response
+    End_Procedure
+
+    Function ExecuteRequest tWebApiTestRequest request Returns tWebApiTestResponse
+        tWebApiTestResponse response
+        Handle hoOldErrorObject hoOldInetSession hoOldGlobalErrorHandler
+        Integer iRequestSize
+
+        Set ptTestRequest to request
+        Move 0 to response.iStatusCode
+        Move "" to response.sReason
+        Move "" to response.sBody
+        Set ptTestResponse to response
+
+        Move ghInetSession to hoOldInetSession
+        Move ghoErrorHandler to hoOldGlobalErrorHandler
+        Move oInMemoryWebApiSession to ghoErrorHandler
+        Move Self to ghInetSession
+        Move Error_Object_Id to hoOldErrorObject
+        Move (SizeOfArray(StringToUCharArray(request.sBody))) to iRequestSize
+        Move False to Err
+        Send HandleHttpRequest request.sVerb request.sPath request.sQueryString request.sContentType request.sAcceptType iRequestSize
+        Move hoOldGlobalErrorHandler to ghoErrorHandler
+        Move hoOldErrorObject to Error_Object_Id
+        Move False to Err
+        Move hoOldInetSession to ghInetSession
+
+        Get ptTestResponse to response
+        Function_Return response
+    End_Function
+
+End_Class
