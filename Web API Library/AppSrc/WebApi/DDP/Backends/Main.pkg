@@ -123,7 +123,7 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
     Function NameOfDD Handle hoDD Returns String
         String sName
 
-        Get TableDbName of hoDD to sName
+        Get TableLogicalName of hoDD to sName
         Function_Return sName
     End_Function
 

@@ -5,7 +5,7 @@ Class cWebApiDDCompatibility_Mixin is a Mixin
     Function CompatibilityTableName Handle hoServer Integer iFile Returns String
         String sTableName
 
-        Get TableDbName of hoServer to sTableName
+        Get TableLogicalName of hoServer to sTableName
 
         Function_Return sTableName
     End_Function
