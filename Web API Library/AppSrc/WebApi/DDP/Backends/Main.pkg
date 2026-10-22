@@ -36,11 +36,8 @@ Struct tDDPCrossPlatformFileInfo
     Handle[] aChilds
 End_Struct
 
-Register_Function SQLFieldName Handle hoModel DbTable hTable DbField hField Returns String
-
 Struct tDDPTableResultLayout
     Handle hoDD
-    Integer iPresenceColumn
     Integer[] aQueryFields
     Integer[] aDataColumns
     Integer[] aPrimaryKeyColumns
@@ -791,13 +788,12 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
     { Visibility = Private }
     // Configures the native query.
     Function DDPConfigureQuery tDDPTableQuery query Handle hoScopeDD RowID riScope Handle hoQuery tDDPTableResultLayout[] ByRef aTableLayouts Returns tDDPBuilderResult
-        Handle hoSet hoAdapter
+        Handle hoSet
         tDDPBuilderResult oResult
         Integer iIndex iTableLayout iField iFieldCount iDataCol iPKIndex
         tDbRelation relation
         tDbConstraint[] aConstraints
         Integer[] aDDPPKFields aScopePKFields aDataColumns aPrimaryKeyColumns aEmptyPrimaryKeyColumns
-        String sPKField
         Boolean bHasRowId
         tDbOperationDetails operationDetails
         tDDPTableResultLayout oTableLayout oEmptyTableLayout
@@ -869,12 +865,6 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
             Function_Return oResult
         End
         Move 0 to iDataCol
-
-        Get Adapter of query.hoDD to hoAdapter
-        If (hoAdapter = 0 or hoAdapter = C_UnresolvedObject) Begin
-            Get DDPFindFailure to oResult
-            Function_Return oResult
-        End
         For iIndex from 0 to (SizeOfArray(aTableLayouts) - 1)
             Get FieldCount aTableLayouts[iIndex].hoDD to iFieldCount
             Get DDPPrimaryKeyFields aTableLayouts[iIndex].hoDD to aDDPPKFields
@@ -898,18 +888,21 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
                 Increment iDataCol
             Loop
 
-            Get SQLFieldName of hoAdapter query.hoDD aTableLayouts[iIndex].hoDD ;
-                aDDPPKFields[0] to sPKField
-            Send Bind_Native_Expression of hoQuery ;
-                ("CASE WHEN " + sPKField + " IS NULL THEN 0 ELSE 1 END") aTableLayouts[iIndex].hoDD
-            Move iDataCol to aTableLayouts[iIndex].iPresenceColumn
+            // Parent presence is read from the primary-key columns (see DDPLayoutHasRow), so bind any
+            // key field the projection did not already select.
+            For iPKIndex from 0 to (SizeOfArray(aDDPPKFields) - 1)
+                If (aDataColumns[(aDDPPKFields[iPKIndex] - 1)] = -1) Begin
+                    Send Bind_Data of hoQuery aTableLayouts[iIndex].hoDD (aDDPPKFields[iPKIndex] - 1)
+                    Move iDataCol to aDataColumns[(aDDPPKFields[iPKIndex] - 1)]
+                    Increment iDataCol
+                End
+            Loop
             Move aDataColumns to aTableLayouts[iIndex].aDataColumns
             Move aEmptyPrimaryKeyColumns to aPrimaryKeyColumns
             Move aPrimaryKeyColumns to aTableLayouts[iIndex].aPrimaryKeyColumns
             For iPKIndex from 0 to (SizeOfArray(aDDPPKFields) - 1)
                 Move aDataColumns[(aDDPPKFields[iPKIndex] - 1)] to aTableLayouts[iIndex].aPrimaryKeyColumns[-1]
             Loop
-            Increment iDataCol
         Loop
 
         For iIndex from 0 to (SizeOfArray(query.aOrder) - 1)
@@ -936,6 +929,18 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
             Move aCompositeKey to riProjected
         End
         Function_Return riProjected
+    End_Function
+
+    { Visibility = Private }
+    Function DDPLayoutHasRow tDDPTableResultLayout layout Variant[] ByRef aRow Returns Boolean
+        Integer iKey
+        String sKey
+
+        For iKey from 0 to (SizeOfArray(layout.aPrimaryKeyColumns) - 1)
+            Move aRow[layout.aPrimaryKeyColumns[iKey]] to sKey
+            If (sKey <> "" and sKey <> "0") Function_Return True
+        Loop
+        Function_Return False
     End_Function
 
     { Visibility = Private }
@@ -993,7 +998,7 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         RowID riParent
         Integer iFetchLimit iRow iRowCount iOutputCount iParent iChild iRelated
         Integer iRootLayout
-        Boolean bFlatLinked bFlattened bForceRelated bSkipRow bFailed
+        Boolean bFlatLinked bFlattened bForceRelated bSkipRow bFailed bHasParent
 
         If (hoScopeDD <> 0 and IsNullRowID(riScope)) Function_Return oResult
         Move (eStyle = DDPStyle_FlatLinked) to bFlatLinked
@@ -1030,15 +1035,6 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
                     Send Destroy of hoQuery
                     Get DDPFindFailure to oResult
                     Function_Return oResult
-                End
-                If bFlatLinked Begin
-                    For iRelated from 0 to (SizeOfArray(aTableLayouts[iRootLayout].aPrimaryKeyColumns) - 1)
-                        If (aTableLayouts[iRootLayout].aPrimaryKeyColumns[iRelated] < 0) Begin
-                            Send Destroy of hoQuery
-                            Get DDPFindFailure to oResult
-                            Function_Return oResult
-                        End
-                    Loop
                 End
                 Move aEmptyFieldColumns to aParentFieldColumns
                 For iRelated from 0 to (SizeOfArray(aParentFieldSet) - 1)
@@ -1133,7 +1129,8 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
                     For iParent from 0 to (SizeOfArray(aParentNames) - 1)
                         If (not(bFailed)) Begin
                             Send InitializeJsonType of hoParentJson jsonTypeObject
-                            If (aData[iRow][aTableLayouts[aParentLayoutIndices[iParent]].iPresenceColumn] <> 0) ;
+                            Get DDPLayoutHasRow aTableLayouts[aParentLayoutIndices[iParent]] (&aData[iRow]) to bHasParent
+                            If bHasParent ;
                                 Send DDPSerializeProjectedFields hoParentJson aParentFields[iParent] ;
                                     aParentColumnSets[iParent] (&aData[iRow])
                             Send SetMember of hoRow aParentNames[iParent] hoParentJson
@@ -1154,7 +1151,8 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
                     For iParent from 0 to (SizeOfArray(aParentNames) - 1)
                         If (not(bFailed)) Begin
                             Send InitializeJsonType of hoParentJson jsonTypeObject
-                            If (aData[iRow][aTableLayouts[aParentLayoutIndices[iParent]].iPresenceColumn] <> 0) Begin
+                            Get DDPLayoutHasRow aTableLayouts[aParentLayoutIndices[iParent]] (&aData[iRow]) to bHasParent
+                            If bHasParent Begin
                                 If bFlatLinked Begin
                                     Get DDPProjectedRowID aTableLayouts[aParentLayoutIndices[iParent]] ;
                                         (&aData[iRow]) to riParent
