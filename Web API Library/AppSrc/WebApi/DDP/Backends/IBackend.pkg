@@ -77,9 +77,14 @@ Struct tDDPConstrain
     Variant[] aParams
 End_Struct
 
+// One sort field. iSequence is its place in the overall sort order: the seq from the request
+// when given as {dir, seq} (bExplicit), otherwise where it appears in the request.
 Struct tDDPOrder
+    Handle hoDD
     Handle hField
     Integer eMode
+    Integer iSequence
+    Boolean bExplicit
 End_Struct
 
 Struct tDDPSerializedField
@@ -192,6 +197,8 @@ Register_Function AddConstrainsToCurrentSet Handle hoConstraintOwner tDDPTableQu
 Register_Function DDPPrepareFind tDDPTableQuery query Returns tDDPBuilderResult
 Register_Function DDPSerializedFields tDDPTableQuery query Boolean bForceRelated Returns tDDPSerializedField[]
 Register_Function DDPFetchJson tDDPTableQuery query Integer eStyle Handle ByRef hoJson Returns tDDPBuilderResult
+// Sort-field comparer from cDDPBuilder_Mixin, also used by the backends.
+Register_Function DDPCompareOrderSequence tDDPOrder oLeft tDDPOrder oRight Returns Integer
 
 Class IDDP_Backend_Mixin is a Mixin
     Procedure Define_DDP_Backend_Mixin

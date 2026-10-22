@@ -477,6 +477,16 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Function_Return False
     End_Function
 
+    // True when the value only contains number characters (digits, sign, separators, exponent).
+    { Visibility = Private }
+    Function DDPIsNumericFilter String sFilter Returns Boolean
+        Integer iPosition
+
+        For iPosition from 1 to (Length(sFilter))
+            If (not("-+0123456789.,eE" contains Mid(sFilter, 1, iPosition))) Function_Return False
+        Loop
+        Function_Return True
+    End_Function
 
     Function AddConstrain Handle hoMainDD Handle hoDD Handle hField Integer eConstrain String sFilter Returns tDDPBuilderResult
         Integer eDbConstrain iField iFieldCount eType
@@ -531,6 +541,15 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
                 Function_Return oResult
             End
             Send Add_Value_Constraint of hoDD hoMainDD iField eDbConstrain dValue
+        End
+        // Compare numeric fields as numbers, because the filter value is read as text.
+        Else If (sFilter <> "" and (DFTypeToJson(Self, eType, 0) = jsonTypeInteger or DFTypeToJson(Self, eType, 0) = jsonTypeDouble)) Begin
+            If (not(DDPIsNumericFilter(Self, sFilter))) Begin
+                Move DDPERR_INVALID_CONSTRAIN to oResult.iErr
+                Move "Invalid numeric constraint." to oResult.sError
+                Function_Return oResult
+            End
+            Send Add_Value_Constraint of hoDD hoMainDD iField eDbConstrain (Convert(sFilter, Number))
         End
         Else ;
             Send Add_Value_Constraint of hoDD hoMainDD iField eDbConstrain sFilter
@@ -797,6 +816,7 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Boolean bHasRowId
         tDbOperationDetails operationDetails
         tDDPTableResultLayout oTableLayout oEmptyTableLayout
+        tDDPOrder[] aOrder
 
         Set phoServer of hoQuery to query.hoDD
         Get AddConstrainsToCurrentSet hoQuery query to oResult
@@ -905,9 +925,12 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
             Loop
         Loop
 
-        For iIndex from 0 to (SizeOfArray(query.aOrder) - 1)
-            Send OrderByField of hoQuery query.hoDD ;
-                (query.aOrder[iIndex].hField - 1) query.aOrder[iIndex].eMode
+        // Sort on the main table and its parents, in the overall sort order.
+        Send DDPCollectOrders query (&aOrder)
+        Move (SortArray(aOrder, Self, RefFunc(DDPCompareOrderSequence))) to aOrder
+        For iIndex from 0 to (SizeOfArray(aOrder) - 1)
+            Send OrderByField of hoQuery aOrder[iIndex].hoDD ;
+                (aOrder[iIndex].hField - 1) aOrder[iIndex].eMode
         Loop
         Function_Return oResult
     End_Function

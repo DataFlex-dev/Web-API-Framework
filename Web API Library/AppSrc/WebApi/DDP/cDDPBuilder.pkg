@@ -178,11 +178,101 @@ Class cDDPBuilder_Mixin is a Mixin
         Function_Return oResult
     End_Function
 
+    // Collects the sort fields of a table and of its parent tables.
+    Procedure DDPCollectOrders tDDPTableQuery query tDDPOrder[] ByRef aOrder
+        Integer iIndex
+
+        For iIndex from 0 to (SizeOfArray(query.aOrder) - 1)
+            Move query.aOrder[iIndex] to aOrder[-1]
+        Loop
+        For iIndex from 0 to (SizeOfArray(query.aParents) - 1)
+            Send DDPCollectOrders query.aParents[iIndex] (&aOrder)
+        Loop
+    End_Procedure
+
+    // Compares two sort fields for SortArray: the lower sequence comes first.
+    Function DDPCompareOrderSequence tDDPOrder oLeft tDDPOrder oRight Returns Integer
+        If (oLeft.iSequence > oRight.iSequence) Function_Return (GT)
+        If (oLeft.iSequence < oRight.iSequence) Function_Return (LT)
+        Function_Return (EQ)
+    End_Function
+
+    // Reads one _di value. A plain "asc"/"desc" is sorted by where it appears in the request.
+    // A {"dir": "asc"|"desc", "seq": <number>} value is sorted by seq (lowest first).
+    Function ParseOrderDirective Handle hoJson String sKey String sDDName Handle hoDD Integer iField Integer ByRef iOrderSequence tDDPOrder ByRef oOrder Returns tDDPBuilderResult
+        tDDPBuilderResult oResult
+        Handle hoDirective
+        String sValue
+        Boolean bValid
+
+        Move hoDD to oOrder.hoDD
+        Move iField to oOrder.hField
+        Move True to bValid
+        If (MemberJsonType(hoJson, sKey) = jsonTypeObject) Begin
+            Get Member of hoJson sKey to hoDirective
+            Move (HasMember(hoDirective, "dir") and HasMember(hoDirective, "seq")) to bValid
+            If (bValid) Move (MemberJsonType(hoDirective, "seq") = jsonTypeInteger) to bValid
+            If (bValid) Begin
+                Get MemberValue of hoDirective "dir" to sValue
+                Get MemberValue of hoDirective "seq" to oOrder.iSequence
+            End
+            Move True to oOrder.bExplicit
+            Send Destroy of hoDirective
+        End
+        Else Begin
+            Get MemberValue of hoJson sKey to sValue
+            Move iOrderSequence to oOrder.iSequence
+            Increment iOrderSequence
+            Move False to oOrder.bExplicit
+        End
+
+        // "ASC" and "asc" both work.
+        Move (Lowercase(sValue)) to sValue
+        If (bValid and sValue = "asc") Move DDPOrder_ASC to oOrder.eMode
+        Else If (bValid and sValue = "desc") Move DDPOrder_DESC to oOrder.eMode
+        Else Begin
+            Move DDPERR_INVALID_ORDER to oResult.iErr
+            Move (SFormat("Invalid ordering on field '%1' in '%2'.", sKey, sDDName)) to oResult.sError
+        End
+        Function_Return oResult
+    End_Function
+
+    // Checks that a table and its parents use only one form ("asc"/"desc" or {dir, seq}) and
+    // never repeat a seq. Child tables have their own sort order, so each is checked separately.
+    Function ValidateOrderScope tDDPTableQuery query Returns tDDPBuilderResult
+        tDDPBuilderResult oResult
+        tDDPOrder[] aOrder
+        Integer iIndex
+
+        Send DDPCollectOrders query (&aOrder)
+        Move (SortArray(aOrder, Self, RefFunc(DDPCompareOrderSequence))) to aOrder
+        For iIndex from 1 to (SizeOfArray(aOrder) - 1)
+            If (aOrder[iIndex].bExplicit <> aOrder[0].bExplicit) Begin
+                Move DDPERR_INVALID_ORDER to oResult.iErr
+                Move (SFormat("Ordering in '%1' mixes 'asc'/'desc' strings with {dir, seq} objects; use one form.", NameOfDD(Self, query.hoDD))) to oResult.sError
+                Function_Return oResult
+            End
+            If (aOrder[iIndex].iSequence = aOrder[iIndex - 1].iSequence) Begin
+                Move DDPERR_INVALID_ORDER to oResult.iErr
+                Move (SFormat("Ordering in '%1' uses seq %2 more than once.", NameOfDD(Self, query.hoDD), aOrder[iIndex].iSequence)) to oResult.sError
+                Function_Return oResult
+            End
+        Loop
+
+        For iIndex from 0 to (SizeOfArray(query.aChilds) - 1)
+            Get ValidateOrderScope query.aChilds[iIndex] to oResult
+            If (oResult.iErr) Function_Return oResult
+        Loop
+        Function_Return oResult
+    End_Function
+
     // Parses one JSON table-query object (e.g. {"__limit":10, "Name_ge":"A",
     // "OrderHeader": {...}}) into a tDDPTableQuery struct. Called recursively
     // for each nested related table. hoParent is the file handle of the calling
     // table, used to validate that the nested table is directly related.
-    Function ConstructTableQuery String sDDName Handle hoJson tDDPTableQuery ByRef table Handle hoParent Returns tDDPBuilderResult
+    // iOrderSequence counts the plain "asc"/"desc" sort fields in the order they appear in
+    // the request, including nested tables.
+    Function ConstructTableQuery String sDDName Handle hoJson tDDPTableQuery ByRef table Handle hoParent Integer ByRef iOrderSequence Returns tDDPBuilderResult
         Integer iIndex eType
         String sKey sValue
         tDDPBuilderResult oResult
@@ -276,15 +366,22 @@ Class cDDPBuilder_Mixin is a Mixin
         Integer eResolvedMode
 
         // Walk remaining JSON members; skip the two reserved keys already handled.
-        // Members are either nested table queries (objects) or field constraints/
-        // ordering directives (scalars).
+        // A member is a sort field ("asc"/"desc" or {dir, seq}), a nested table (object)
+        // or a constraint (value).
         For iIndex from 0 to (MemberCount(hoJson) - 1)
             Get MemberNameByIndex of hoJson iIndex to sKey
             If (sKey = "__limit" or sKey = "__offset" or sKey = "__fields") Break Begin
 
             Move (MemberJsonType(hoJson, sKey)) to eType
+            // This also tells us whether the member is a sort field (_di).
+            Get DetermineFieldAndConstrainMode table.hoDD sKey (&iField) (&eResolvedMode) (&bIsOrdering) to bResolved
 
-            If (eType = jsonTypeObject) Begin
+            If (bResolved and bIsOrdering) Begin
+                Get ParseOrderDirective hoJson sKey sDDName table.hoDD iField (&iOrderSequence) (&oOrder) to oResult
+                If (oResult.iErr) Function_Return oResult
+                Move oOrder to table.aOrder[-1]
+            End
+            Else If (eType = jsonTypeObject) Begin
                 // Nested object — must be a related table name.
                 Get DDByName sKey to oTable.hoDD
                 If (oTable.hoDD = 0) Begin
@@ -304,7 +401,7 @@ Class cDDPBuilder_Mixin is a Mixin
 
                 // Recurse to parse the nested table's own constraints and relations.
                 Get Member of hoJson sKey to hoMemberTable
-                Get ConstructTableQuery sKey hoMemberTable (&oTable) table.hoDD to oResult
+                Get ConstructTableQuery sKey hoMemberTable (&oTable) table.hoDD (&iOrderSequence) to oResult
                 Send Destroy of hoMemberTable
 
                 If (oResult.iErr) Function_Return oResult
@@ -329,9 +426,6 @@ Class cDDPBuilder_Mixin is a Mixin
                     Function_Return oResult
                 End
 
-                // Parse the key into a field handle and constraint mode.
-                // DetermineFieldAndConstrainMode also signals ordering directives.
-                Get DetermineFieldAndConstrainMode table.hoDD sKey (&iField) (&eResolvedMode) (&bIsOrdering) to bResolved
                 If (not(bResolved)) Begin
                     Move DDPERR_INVALID_CONSTRAIN to oResult.iErr
                     Move (SFormat("Invalid parameter field '%1' in '%2'.", sKey, sDDName)) to oResult.sError
@@ -339,30 +433,10 @@ Class cDDPBuilder_Mixin is a Mixin
                 End
 
                 Get MemberValue of hoJson sKey to sValue
-                If (bIsOrdering) Begin
-                    // Ordering directive (_di suffix). Normalise the value to
-                    // lowercase so "ASC"/"asc" are treated the same.
-                    Move (Lowercase(sValue)) to sValue
-                    Move iField to oOrder.hField
-                    If (sValue = "asc") Begin
-                        Move DDPOrder_ASC to oOrder.eMode
-                    End
-                    Else If (sValue = "desc") Begin
-                        Move DDPOrder_DESC to oOrder.eMode
-                    End
-                    Else Begin
-                        Move DDPERR_INVALID_ORDER to oResult.iErr
-                        Move (SFormat("Invalid ordering on field '%1' in '%2'.", sKey, sDDName)) to oResult.sError
-                        Function_Return oResult
-                    End
-                    Move oOrder to table.aOrder[-1]
-                End
-                Else Begin
-                    Move iField to table.aConstrains[iConstrainIndex].hField
-                    Move eResolvedMode to table.aConstrains[iConstrainIndex].eMode
-                    Move sValue to table.aConstrains[iConstrainIndex].aParams[0]
-                    Increment iConstrainIndex
-                End
+                Move iField to table.aConstrains[iConstrainIndex].hField
+                Move eResolvedMode to table.aConstrains[iConstrainIndex].eMode
+                Move sValue to table.aConstrains[iConstrainIndex].aParams[0]
+                Increment iConstrainIndex
             End
         Loop
         // Resolve the default field selection after parents have been parsed.
@@ -379,7 +453,8 @@ Class cDDPBuilder_Mixin is a Mixin
             Loop
         End
 
-
+        // Put this table's sort fields in sort order. The backends apply them in that order.
+        Move (SortArray(table.aOrder, Self, RefFunc(DDPCompareOrderSequence))) to table.aOrder
         Function_Return oResult
     End_Function
 
@@ -441,8 +516,12 @@ Class cDDPBuilder_Mixin is a Mixin
     // ready for Request_Read. Called once per top-level table per request.
     Function ConstructFindScenario String sMainDD Handle hoDDJson tDDPQuery ByRef oQuery Returns tDDPBuilderResult
         tDDPBuilderResult oResult
+        Integer iOrderSequence
 
-        Get ConstructTableQuery sMainDD hoDDJson (&oQuery.oMain) 0 to oResult
+        Get ConstructTableQuery sMainDD hoDDJson (&oQuery.oMain) 0 (&iOrderSequence) to oResult
+        If (oResult.iErr) Function_Return oResult
+
+        Get ValidateOrderScope oQuery.oMain to oResult
         If (oResult.iErr) Function_Return oResult
 
         Get DDPPrepareFind oQuery.oMain to oResult
