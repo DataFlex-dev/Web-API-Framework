@@ -710,6 +710,36 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
     End_Function
 
     { Visibility = Private }
+    // The cursor row's RowID built from query.aCursorKey, typed like the primary-key fields
+    // (dates as YYYY-MM-DD): a single value for a one-field key, otherwise an array.
+    Function DDPCursorRowId tDDPTableQuery query Variant ByRef vRowId Returns tDDPBuilderResult
+        tDDPBuilderResult oResult
+        Integer[] aPKFields
+        Integer iKey
+        Variant vBuffer
+        Variant[] aKey
+        Date dValue
+
+        Get DDPPrimaryKeyFields query.hoDD to aPKFields
+        Get CreateBuffer of query.hoDD to vBuffer
+        For iKey from 0 to (SizeOfArray(aPKFields) - 1)
+            If (FieldType(Self, query.hoDD, aPKFields[iKey]) = C_TypeDate) Begin
+                If (not(DDPParseISODate(query.aCursorKey[iKey], &dValue))) Begin
+                    Move DDPERR_INVALID_FORMAT to oResult.iErr
+                    Move "Invalid cursor date; expected YYYY-MM-DD." to oResult.sError
+                    Function_Return oResult
+                End
+                Send StructSetMember (&vBuffer) (aPKFields[iKey] - 1) dValue
+            End
+            Else Send StructSetMember (&vBuffer) (aPKFields[iKey] - 1) query.aCursorKey[iKey]
+            Get StructMember (&vBuffer) (aPKFields[iKey] - 1) to aKey[iKey]
+        Loop
+        If (SizeOfArray(aKey) = 1) Move aKey[0] to vRowId
+        Else Move aKey to vRowId
+        Function_Return oResult
+    End_Function
+
+    { Visibility = Private }
     // Finds a table layout by DD.
     Function DDPTableResultLayoutIndex Handle hoDD tDDPTableResultLayout[] aTableLayouts Returns Integer
         Integer iIndex
@@ -1019,9 +1049,10 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         String[] aParentNames aChildNames
         String sRootName sRowId
         RowID riParent
-        Integer iFetchLimit iRow iRowCount iOutputCount iParent iChild iRelated
+        Integer iFetchLimit iRow iRowCount iOutputCount iParent iChild iRelated eQueryMode
         Integer iRootLayout
         Boolean bFlatLinked bFlattened bForceRelated bSkipRow bFailed bHasParent
+        Variant vStartAt
 
         If (hoScopeDD <> 0 and IsNullRowID(riScope)) Function_Return oResult
         Move (eStyle = DDPStyle_FlatLinked) to bFlatLinked
@@ -1076,8 +1107,19 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Get DDPTableResultLayoutIndex query.hoDD aTableLayouts to iRootLayout
 
         Get DDPFetchLimit query.iLimit query.iOffset to iFetchLimit
+        If (query.eCursorMode <> DDPFind_Auto) Begin
+            Get DDPCursorRowId query (&vStartAt) to oResult
+            If (oResult.iErr) Begin
+                Send Destroy of hoQuery
+                Function_Return oResult
+            End
+        End
         Move False to Err
-        Get FetchFirst of hoQuery iFetchLimit (&aRowIds) to aData
+        If (query.eCursorMode = DDPFind_Auto) Get FetchFirst of hoQuery iFetchLimit (&aRowIds) to aData
+        Else Begin
+            Move (If(query.eCursorMode = DDPFind_GT, C_DbQuery_Next, C_DbQuery_Prev)) to eQueryMode
+            Get FetchEx of hoQuery eQueryMode vStartAt iFetchLimit (&aRowIds) to aData
+        End
         If (Err or SizeOfArray(aData) <> SizeOfArray(aRowIds)) Begin
             Get DDPFindFailure to oResult
             Send Destroy of hoQuery

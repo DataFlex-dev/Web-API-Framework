@@ -1,5 +1,7 @@
 Use WebApi\DDP\cDDPRequestParser.pkg
 
+Define C_DDPInvalidCursor for 'Invalid cursor. Expected {"mode": "gt"|"lt", "rowid": <primary-key value, or an array with one value per primary-key field>}.'
+
 // Working node while a DbMessage request is parsed. The tree (aParents) is
 // assembled only after every join, field, constraint and ordering is resolved.
 Struct tDDPDbMessageNode
@@ -15,8 +17,8 @@ End_Struct
 //  "constraints":[{"field":"Customer.State","op":"eq","value":"TX"}],
 //  "orderBy":[{"field":"Customer.Name","dir":"asc"}],
 //  "limit":20, "offset":0}
-// Joins must point to parent tables. "or" groups, multi-field constraints and "cursor"
-// are rejected as not supported yet.
+// Joins must point to parent tables. "or" groups and multi-field constraints are
+// rejected as not supported yet.
 Class cDDPDbMessageRequestParser is a cDDPRequestParser
 
     // JSON type of member sMember, or -1 when it is absent.
@@ -186,6 +188,56 @@ Class cDDPDbMessageRequestParser is a cDDPRequestParser
         Function_Return oResult
     End_Function
 
+    // Reads "cursor": {"mode": "gt"|"lt", "rowid": <key value>} into table.eCursorMode and table.aCursorKey.
+    // A composite primary key needs an array with one value per key field.
+    Function ParseCursor Handle hoJson tDDPTableQuery ByRef table Returns tDDPBuilderResult
+        tDDPBuilderResult oResult
+        Handle hoCursor hoRowId
+        Integer[] aPKFields
+        Integer iKey eType
+        String sMode sValue
+        Boolean bValid
+
+        If (MemberJsonType(hoJson, "cursor") <> jsonTypeObject) ;
+            Function_Return (ErrorResult(Self, DDPERR_INVALID_FORMAT, C_DDPInvalidCursor))
+        Get DDPPrimaryKeyFields of (phoProtocol(Self)) table.hoDD to aPKFields
+        Get Member of hoJson "cursor" to hoCursor
+
+        If (MemberJsonTypeOrAbsent(Self, hoCursor, "mode") = jsonTypeString) ;
+            Get MemberValue of hoCursor "mode" to sMode
+        Move (Lowercase(sMode)) to sMode
+        Move ((sMode = "gt" or sMode = "lt") and SizeOfArray(aPKFields) > 0) to bValid
+        Move (MemberJsonTypeOrAbsent(Self, hoCursor, "rowid")) to eType
+        If (bValid) Begin
+            If (SizeOfArray(aPKFields) = 1) ;
+                Move (eType <> -1 and eType <> jsonTypeObject and eType <> jsonTypeArray and eType <> jsonTypeNull) to bValid
+            Else Move (eType = jsonTypeArray) to bValid
+        End
+
+        If (bValid and eType = jsonTypeArray) Begin
+            Get Member of hoCursor "rowid" to hoRowId
+            Move (MemberCount(hoRowId) = SizeOfArray(aPKFields)) to bValid
+            For iKey from 0 to (MemberCount(hoRowId) - 1)
+                Move (ArrayElementJsonType(Self, hoRowId, iKey)) to eType
+                If (eType = jsonTypeObject or eType = jsonTypeArray or eType = jsonTypeNull) Move False to bValid
+                If (bValid) Begin
+                    Get MemberValue of hoRowId iKey to sValue
+                    Move sValue to table.aCursorKey[iKey]
+                End
+            Loop
+            Send Destroy of hoRowId
+        End
+        Else If (bValid) Begin
+            Get MemberValue of hoCursor "rowid" to sValue
+            Move sValue to table.aCursorKey[0]
+        End
+        Send Destroy of hoCursor
+
+        If (not(bValid)) Function_Return (ErrorResult(Self, DDPERR_INVALID_FORMAT, C_DDPInvalidCursor))
+        Move (If(sMode = "gt", DDPFind_GT, DDPFind_LT)) to table.eCursorMode
+        Function_Return oResult
+    End_Function
+
     // Runs each element of array member sMember ("join", "constraints" or "orderBy") through ParseJoin, ParseConstraint or ParseOrderBy.
     // An absent member is accepted; a non-array member returns iErr/sError.
     Function ParseArrayMember Handle hoJson String sMember Integer iErr String sError tDDPDbMessageNode[] ByRef aNodes Returns tDDPBuilderResult
@@ -257,8 +309,6 @@ Class cDDPDbMessageRequestParser is a cDDPRequestParser
                 sKey <> "orderBy" and sKey <> "limit" and sKey <> "offset" and sKey <> "cursor") ;
                 Function_Return (ErrorResult(Self, DDPERR_INVALID_FORMAT, SFormat("Unknown member '%1'.", sKey)))
         Loop
-        If (HasMember(hoJson, "cursor")) ;
-            Function_Return (ErrorResult(Self, DDPERR_INVALID_FORMAT, "'cursor' is not supported yet."))
 
         // 2. Root table, limit and offset.
         If (MemberJsonTypeOrAbsent(Self, hoJson, "table") <> jsonTypeString) ;
@@ -277,6 +327,10 @@ Class cDDPDbMessageRequestParser is a cDDPRequestParser
         If (oResult.iErr) Function_Return oResult
         Get ReadOptionalNonNegativeInteger hoJson "offset" DDPERR_INVALID_OFFSET "Invalid offset." (&oNode.oTable.iOffset) to oResult
         If (oResult.iErr) Function_Return oResult
+        If (HasMember(hoJson, "cursor")) Begin
+            Get ParseCursor hoJson (&oNode.oTable) to oResult
+            If (oResult.iErr) Function_Return oResult
+        End
         Move oNode to aNodes[0]
 
         // 3. Joins.

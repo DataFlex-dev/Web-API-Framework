@@ -100,6 +100,8 @@ Struct tDDPTableQuery
     Handle hoParentDD
     Integer iLimit
     Integer iOffset
+    Integer eCursorMode   // DDPFind_GT: rows after the cursor row; DDPFind_LT: rows before it, nearest first. DDPFind_Auto (0): no cursor. Root table only.
+    String[] aCursorKey   // the cursor row's primary-key values as sent, in DDPPrimaryKeyFields order
     tDDPConstrain[] aConstrains
     tDDPOrder[] aOrder
     tDDPTableQuery[] aParents

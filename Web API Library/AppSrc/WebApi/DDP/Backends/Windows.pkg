@@ -1037,6 +1037,11 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Boolean bInitialized
 
         Move 0 to hoJson
+        If (query.eCursorMode <> DDPFind_Auto) Begin
+            Move DDPERR_INVALID_FORMAT to oResult.iErr
+            Move "'cursor' is not supported by the Windows backend yet." to oResult.sError
+            Function_Return oResult
+        End
         Move False to Err
         Get Create (RefClass(cJsonObject)) to hoJson
         If (hoJson <> 0) Begin
