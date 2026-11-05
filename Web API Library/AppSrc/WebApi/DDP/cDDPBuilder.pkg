@@ -11,10 +11,8 @@ End_Struct
 
 // Carries the per-request execution context through the builder pipeline.
 // eStyle  — controls response shape; defaults to DDPStyle_Nested (value 0).
-// hoJsonReq — handle to the parsed request JSON object.
 Struct tDDPBuilderContext
     Integer eStyle
-    Handle hoJsonReq
 End_Struct
 
 // cDDPBuilder_Mixin provides the full query-build and query-execute logic.
@@ -47,69 +45,6 @@ Class cDDPBuilder_Mixin is a Mixin
             Function_Return ""
         End
         Function_Return aTables[0]
-    End_Function
-
-    // Parses a request key (e.g. "Name_ge") into its field handle, constraint
-    // mode, and whether it is an ordering directive (_di) rather than a filter.
-    // Returns True if the key resolves to a valid field+operator combination.
-    // The field number is returned via iField (1-based), mode via eMode,
-    // and ordering flag via bOrdering.
-    Function DetermineFieldAndConstrainMode Handle hoDD String sSearch Integer ByRef iField Integer ByRef eMode Boolean ByRef bOrdering Returns Boolean
-        Integer iFieldCount iFieldNameLen
-        String sFieldName sContrain
-        Get FieldCount hoDD to iFieldCount
-        Move False to bOrdering
-
-        // Walk every field on the DD checking for an exact name match first
-        // (bare name = equality) then a name+3-char suffix match.
-        For iField from 1 to iFieldCount
-            Move (FieldName(Self, hoDD, iField)) to sFieldName
-            Move (Length(sFieldName)) to iFieldNameLen
-
-            // Bare field name with no suffix — treat as equality constraint.
-            If (Lowercase(sSearch) = Lowercase(sFieldName)) Begin
-                Move DDPFind_EQ to eMode
-                Function_Return True
-            End
-
-            // Name + exactly 3 suffix characters (e.g. "_ge", "_di").
-            // Lowercase the suffix so the API is case-insensitive.
-            If (Lowercase(Left(sSearch, iFieldNameLen)) = Lowercase(sFieldName) and Length(sSearch) = (iFieldNameLen + 3)) Begin
-                Move (Lowercase(Right(sSearch, 3))) to sContrain
-                If (sContrain = "_di") Begin
-                    // Ordering directive — caller will build a tDDPOrder entry.
-                    Move True to bOrdering
-                    Function_Return True
-                End
-                Else If (sContrain = "_eq") Begin
-                    Move DDPFind_EQ to eMode
-                    Function_Return True
-                End
-                Else If (sContrain = "_ne") Begin
-                    Move DDPFind_NE to eMode
-                    Function_Return True
-                End
-                Else If (sContrain = "_ge") Begin
-                    Move DDPFind_GE to eMode
-                    Function_Return True
-                End
-                Else If (sContrain = "_gt") Begin
-                    Move DDPFind_GT to eMode
-                    Function_Return True
-                End
-                Else If (sContrain = "_le") Begin
-                    Move DDPFind_LE to eMode
-                    Function_Return True
-                End
-                Else If (sContrain = "_lt") Begin
-                    Move DDPFind_LT to eMode
-                    Function_Return True
-                End
-            End
-        Loop
-
-        // Key did not match any field on this DD.
-        Function_Return False
     End_Function
 
     // Looks up a parent table query by its underlying file handle.
@@ -145,7 +80,7 @@ Class cDDPBuilder_Mixin is a Mixin
 
     // Wires up the live DD relationships described by a tDDPTableQuery tree so
     // that DataFlex navigation (Request_Read / Constrain_File) works correctly
-    // at execution time. Called once per query after ConstructTableQuery builds
+    // at execution time. Called once per query after a request parser builds
     // the tree but before any finds are executed.
     // Recurses depth-first through both parent and child branches.
     Function QueryLinkUp tDDPTableQuery query Returns tDDPBuilderResult
@@ -197,267 +132,6 @@ Class cDDPBuilder_Mixin is a Mixin
         Function_Return (EQ)
     End_Function
 
-    // Reads one _di value. A plain "asc"/"desc" is sorted by where it appears in the request.
-    // A {"dir": "asc"|"desc", "seq": <number>} value is sorted by seq (lowest first).
-    Function ParseOrderDirective Handle hoJson String sKey String sDDName Handle hoDD Integer iField Integer ByRef iOrderSequence tDDPOrder ByRef oOrder Returns tDDPBuilderResult
-        tDDPBuilderResult oResult
-        Handle hoDirective
-        String sValue
-        Boolean bValid
-
-        Move hoDD to oOrder.hoDD
-        Move iField to oOrder.hField
-        Move True to bValid
-        If (MemberJsonType(hoJson, sKey) = jsonTypeObject) Begin
-            Get Member of hoJson sKey to hoDirective
-            Move (HasMember(hoDirective, "dir") and HasMember(hoDirective, "seq")) to bValid
-            If (bValid) Move (MemberJsonType(hoDirective, "seq") = jsonTypeInteger) to bValid
-            If (bValid) Begin
-                Get MemberValue of hoDirective "dir" to sValue
-                Get MemberValue of hoDirective "seq" to oOrder.iSequence
-            End
-            Move True to oOrder.bExplicit
-            Send Destroy of hoDirective
-        End
-        Else Begin
-            Get MemberValue of hoJson sKey to sValue
-            Move iOrderSequence to oOrder.iSequence
-            Increment iOrderSequence
-            Move False to oOrder.bExplicit
-        End
-
-        // "ASC" and "asc" both work.
-        Move (Lowercase(sValue)) to sValue
-        If (bValid and sValue = "asc") Move DDPOrder_ASC to oOrder.eMode
-        Else If (bValid and sValue = "desc") Move DDPOrder_DESC to oOrder.eMode
-        Else Begin
-            Move DDPERR_INVALID_ORDER to oResult.iErr
-            Move (SFormat("Invalid ordering on field '%1' in '%2'.", sKey, sDDName)) to oResult.sError
-        End
-        Function_Return oResult
-    End_Function
-
-    // Checks that a table and its parents use only one form ("asc"/"desc" or {dir, seq}) and
-    // never repeat a seq. Child tables have their own sort order, so each is checked separately.
-    Function ValidateOrderScope tDDPTableQuery query Returns tDDPBuilderResult
-        tDDPBuilderResult oResult
-        tDDPOrder[] aOrder
-        Integer iIndex
-
-        Send DDPCollectOrders query (&aOrder)
-        Move (SortArray(aOrder, Self, RefFunc(DDPCompareOrderSequence))) to aOrder
-        For iIndex from 1 to (SizeOfArray(aOrder) - 1)
-            If (aOrder[iIndex].bExplicit <> aOrder[0].bExplicit) Begin
-                Move DDPERR_INVALID_ORDER to oResult.iErr
-                Move (SFormat("Ordering in '%1' mixes 'asc'/'desc' strings with {dir, seq} objects; use one form.", NameOfDD(Self, query.hoDD))) to oResult.sError
-                Function_Return oResult
-            End
-            If (aOrder[iIndex].iSequence = aOrder[iIndex - 1].iSequence) Begin
-                Move DDPERR_INVALID_ORDER to oResult.iErr
-                Move (SFormat("Ordering in '%1' uses seq %2 more than once.", NameOfDD(Self, query.hoDD), aOrder[iIndex].iSequence)) to oResult.sError
-                Function_Return oResult
-            End
-        Loop
-
-        For iIndex from 0 to (SizeOfArray(query.aChilds) - 1)
-            Get ValidateOrderScope query.aChilds[iIndex] to oResult
-            If (oResult.iErr) Function_Return oResult
-        Loop
-        Function_Return oResult
-    End_Function
-
-    // Parses one JSON table-query object (e.g. {"__limit":10, "Name_ge":"A",
-    // "OrderHeader": {...}}) into a tDDPTableQuery struct. Called recursively
-    // for each nested related table. hoParent is the file handle of the calling
-    // table, used to validate that the nested table is directly related.
-    // iOrderSequence counts the plain "asc"/"desc" sort fields in the order they appear in
-    // the request, including nested tables.
-    Function ConstructTableQuery String sDDName Handle hoJson tDDPTableQuery ByRef table Handle hoParent Integer ByRef iOrderSequence Returns tDDPBuilderResult
-        Integer iIndex eType
-        String sKey sValue
-        tDDPBuilderResult oResult
-        Integer iConstrainIndex
-
-        Move sDDName to table.sRequestedName
-        Move hoParent to table.hoParentDD
-        // Resolve the table name to an exposed DD handle. Lookup is
-        // case-insensitive because Expose lowercases names on registration.
-        Get DDByName sDDName to table.hoDD
-        If (table.hoDD = 0) Begin
-            Move DDPERR_UNKOWN_TABLE to oResult.iErr
-            Move (SFormat("'%1', not known.", sDDName)) to oResult.sError
-            Function_Return oResult
-        End
-
-        // __limit — optional integer cap on rows returned for this table.
-        // Defaults to 200; an explicit zero means no limit.
-        // Validated as integer type; a string "10" is rejected to catch
-        // client encoding mistakes early.
-        Move C_WebAPIDDP_Default_Limit to table.iLimit
-        If (HasMember(hoJson, "__limit")) Begin
-            Move (MemberJsonType(hoJson, "__limit")) to eType
-            If (eType <> jsonTypeInteger) Begin
-                Move DDPERR_INVALID_LIMIT to oResult.iErr
-                Move "Invalid limit." to oResult.sError
-                Function_Return oResult
-            End
-            Get MemberValue of hoJson "__limit" to table.iLimit
-            If (table.iLimit < 0) Begin
-                Move DDPERR_INVALID_LIMIT to oResult.iErr
-                Move "Invalid limit." to oResult.sError
-                Function_Return oResult
-            End
-        End
-
-        // __offset — optional integer number of rows to skip before collecting results.
-        If (HasMember(hoJson, "__offset")) Begin
-            Move (MemberJsonType(hoJson, "__offset")) to eType
-            If (eType <> jsonTypeInteger) Begin
-                Move DDPERR_INVALID_OFFSET to oResult.iErr
-                Move "Invalid offset." to oResult.sError
-                Function_Return oResult
-            End
-            Get MemberValue of hoJson "__offset" to table.iOffset
-            If (table.iOffset < 0) Begin
-                Move DDPERR_INVALID_OFFSET to oResult.iErr
-                Move "Invalid offset." to oResult.sError
-                Function_Return oResult
-            End
-            End
-
-        // __fields — optional array of field names to include in the response.
-        // Each name is resolved to a 1-based field number so serialization
-        // can access fields by index without re-scanning by name at read time.
-        Handle hoFields
-        Integer iField iFieldCount iParent iRelatedField
-        Boolean bFieldsSpecified
-        If (HasMember(hoJson, "__fields")) Begin
-            Move True to bFieldsSpecified
-            Move (MemberJsonType(hoJson, "__fields")) to eType
-            If (eType <> jsonTypeArray) Begin
-                Move DDPERR_INVALID_FIELDS to oResult.iErr
-                Move "Invalid fields." to oResult.sError
-                Function_Return oResult
-            End
-
-            Get Member of hoJson "__fields" to hoFields
-
-            For iIndex from 0 to (MemberCount(hoFields) - 1)
-                Get MemberValue of hoFields iIndex to sValue
-                // Reject any name that does not exist on this DD — prevents
-                // silent data leakage if a client typos a sensitive field name.
-                If (not(IsField(Self, table.hoDD, sValue, &iField))) Begin
-                    Move DDPERR_INVALID_FIELD to oResult.iErr
-                    Move "Invalid field." to oResult.sError
-                    Function_Return oResult
-                End
-                // Store each resolved field once for later serialization.
-                If (SearchArray(iField, table.aFields) = -1) ;
-                    Move iField to table.aFields[-1]
-            Loop
-
-            Send Destroy of hoFields
-        End
-
-        tDDPOrder oOrder
-        tDDPTableQuery oTable oEmptyTable
-        Boolean bParent bIsOrdering bResolved bRelated
-        Handle hoMemberTable
-        Integer eResolvedMode
-
-        // Walk remaining JSON members; skip the two reserved keys already handled.
-        // A member is a sort field ("asc"/"desc" or {dir, seq}), a nested table (object)
-        // or a constraint (value).
-        For iIndex from 0 to (MemberCount(hoJson) - 1)
-            Get MemberNameByIndex of hoJson iIndex to sKey
-            If (sKey = "__limit" or sKey = "__offset" or sKey = "__fields") Break Begin
-
-            Move (MemberJsonType(hoJson, sKey)) to eType
-            // This also tells us whether the member is a sort field (_di).
-            Get DetermineFieldAndConstrainMode table.hoDD sKey (&iField) (&eResolvedMode) (&bIsOrdering) to bResolved
-
-            If (bResolved and bIsOrdering) Begin
-                Get ParseOrderDirective hoJson sKey sDDName table.hoDD iField (&iOrderSequence) (&oOrder) to oResult
-                If (oResult.iErr) Function_Return oResult
-                Move oOrder to table.aOrder[-1]
-            End
-            Else If (eType = jsonTypeObject) Begin
-                // Nested object — must be a related table name.
-                Get DDByName sKey to oTable.hoDD
-                If (oTable.hoDD = 0) Begin
-                    Move DDPERR_UNKOWN_TABLE to oResult.iErr
-                    Move (SFormat("'%1', not known.", sKey)) to oResult.sError
-                    Function_Return oResult
-                End
-
-                // Verify a direct relationship exists between this table and
-                // the nested one. IsDDRelated also sets bParent to distinguish
-                // server-file (parent) from client-file (child) direction.
-                If (not(IsDDRelated(Self, table.hoDD, oTable.hoDD, &bParent))) Begin
-                    Move DDPERR_UNKOWN_TABLE to oResult.iErr
-                    Move (SFormat("'%1', not related.", sKey)) to oResult.sError
-                    Function_Return oResult
-                End
-
-                // Recurse to parse the nested table's own constraints and relations.
-                Get Member of hoJson sKey to hoMemberTable
-                Get ConstructTableQuery sKey hoMemberTable (&oTable) table.hoDD (&iOrderSequence) to oResult
-                Send Destroy of hoMemberTable
-
-                If (oResult.iErr) Function_Return oResult
-
-                // Slot into the correct relation array based on direction.
-                If (bParent) Begin
-                    Move oTable to table.aParents[-1]
-                End
-                Else Begin
-                    Move oTable to table.aChilds[-1]
-                End
-
-                // Reset the scratch variable for the next iteration.
-                Move oEmptyTable to oTable
-            End
-            Else Begin
-                // Scalar value — reject arrays/objects that sneaked past the
-                // object branch (defensive check; should not normally occur).
-                If (eType = jsonTypeObject or eType = jsonTypeArray) Begin
-                    Move DDPERR_INVALID_CONSTRAIN to oResult.iErr
-                    Move (SFormat("Invalid parameter '%1' in '%2'.", sKey, sDDName)) to oResult.sError
-                    Function_Return oResult
-                End
-
-                If (not(bResolved)) Begin
-                    Move DDPERR_INVALID_CONSTRAIN to oResult.iErr
-                    Move (SFormat("Invalid parameter field '%1' in '%2'.", sKey, sDDName)) to oResult.sError
-                    Function_Return oResult
-                End
-
-                Get MemberValue of hoJson sKey to sValue
-                Move iField to table.aConstrains[iConstrainIndex].hField
-                Move eResolvedMode to table.aConstrains[iConstrainIndex].eMode
-                Move sValue to table.aConstrains[iConstrainIndex].aParams[0]
-                Increment iConstrainIndex
-            End
-        Loop
-        // Resolve the default field selection after parents have been parsed.
-        // Parent relation fields are omitted unless explicitly requested.
-        If (not(bFieldsSpecified)) Begin
-            Get FieldCount table.hoDD to iFieldCount
-            For iField from 1 to iFieldCount
-                Move False to bRelated
-                For iParent from 0 to (SizeOfArray(table.aParents) - 1)
-                    Get FieldRelation table.hoDD table.aParents[iParent].hoDD iField (&iRelatedField) to bRelated
-                    If (bRelated) Break
-                Loop
-                If (not(bRelated)) Move iField to table.aFields[-1]
-            Loop
-        End
-
-        // Put this table's sort fields in sort order. The backends apply them in that order.
-        Move (SortArray(table.aOrder, Self, RefFunc(DDPCompareOrderSequence))) to table.aOrder
-        Function_Return oResult
-    End_Function
-
     // Applies constraints from a child or parent query to the constraint owner's
     // SQL filter, VConstrain buffer, or native constraint set. When an optional
     // parent (optParent) is supplied, constraints on FK fields that are physically
@@ -507,25 +181,6 @@ Class cDDPBuilder_Mixin is a Mixin
             Get AddConstrainsToCurrentSet hoConstraintOwner query.aParents[iIndex] query to oResult
             If (oResult.iErr) Function_Return oResult
         Loop
-
-        Function_Return oResult
-    End_Function
-
-    // Full query preparation pipeline: parse the JSON tree into a tDDPQuery,
-    // wire up all DD relationships, then apply constraints so the DD layer is
-    // ready for Request_Read. Called once per top-level table per request.
-    Function ConstructFindScenario String sMainDD Handle hoDDJson tDDPQuery ByRef oQuery Returns tDDPBuilderResult
-        tDDPBuilderResult oResult
-        Integer iOrderSequence
-
-        Get ConstructTableQuery sMainDD hoDDJson (&oQuery.oMain) 0 (&iOrderSequence) to oResult
-        If (oResult.iErr) Function_Return oResult
-
-        Get ValidateOrderScope oQuery.oMain to oResult
-        If (oResult.iErr) Function_Return oResult
-
-        Get DDPPrepareFind oQuery.oMain to oResult
-        If (oResult.iErr) Function_Return oResult
 
         Function_Return oResult
     End_Function
@@ -857,12 +512,14 @@ Class cDDPBuilder_Mixin is a Mixin
         Send DDPRequestFind hoParentDD EQ hParentFile iPrimaryIndex
     End_Procedure
 
-    Procedure FindSchemaParentsFromBuffer Handle hoDD tDDPSaveField[] aFields
+    // Returns DDPERR_VALIDATION_FAILED when a supplied FK value has no matching parent record.
+    Function FindSchemaParentsFromBuffer Handle hoDD tDDPSaveField[] aFields Returns tDDPBuilderResult
         Handle hChildFile hParentFile
         Integer iField iFieldCount iRelatedField iPrimaryIndex iParent iAF
         Boolean bRelated bFieldSupplied
         Handle[] aParents
         String sFKValue
+        tDDPBuilderResult oResult
 
         Get Main_File of hoDD to hChildFile
         Get FieldCount hoDD to iFieldCount
@@ -893,13 +550,20 @@ Class cDDPBuilder_Mixin is a Mixin
                             Send DDPSetFieldValue aParents[iParent] hParentFile iRelatedField sFKValue
                             Get PrimaryDDIndex aParents[iParent] to iPrimaryIndex
                             Send DDPRequestFind aParents[iParent] EQ hParentFile iPrimaryIndex
+                            If (not(Found)) Begin
+                                Move DDPERR_VALIDATION_FAILED to oResult.iErr
+                                Move (SFormat("No '%1' record found for %2 = '%3'.", NameOfDD(Self, aParents[iParent]), FieldName(Self, hoDD, iField), sFKValue)) to oResult.sError
+                                Function_Return oResult
+                            End
                         End
                         Break
                     End
                 Loop
             End
         Loop
-    End_Procedure
+
+        Function_Return oResult
+    End_Function
 
 
     // Clears the DD buffer, writes client-supplied fields, validates, saves, and serialises
@@ -930,7 +594,8 @@ Class cDDPBuilder_Mixin is a Mixin
         // Find parent records before Request_Validate so the parent buffers are populated.
         // Request_Validate checks server-file requirements and validation tables (e.g. State)
         // against the live parent buffer; if the buffer is empty those checks fail.
-        Send FindSchemaParentsFromBuffer record.hoDD record.aFields
+        Get FindSchemaParentsFromBuffer record.hoDD record.aFields to oResult
+        If (oResult.iErr) Function_Return oResult
         Get Request_Validate of record.hoDD to bErr
         If (bErr) Begin
             Move DDPERR_VALIDATION_FAILED to oResult.iErr
@@ -1356,6 +1021,11 @@ Class cDDPBuilder_Mixin is a Mixin
                 Send DDPSetChangedValue record.hoDD hFile record.aFields[iIndex].hField record.aFields[iIndex].sValue
             End
         Loop
+
+        // Load parents for any supplied FK values; otherwise Request_Save re-attaches the
+        // old parent buffer and silently reverts the FK change.
+        Get FindSchemaParentsFromBuffer record.hoDD record.aFields to oResult
+        If (oResult.iErr) Function_Return oResult
 
         Get Request_Validate of record.hoDD to bErr
         If (bErr) Begin

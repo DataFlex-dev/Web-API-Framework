@@ -25,19 +25,22 @@ Class cDDPQueryEndpoint is a cBaseRestDataset
     { MethodType = Event }
     // POST /ddp/v1/query
     //
-    // Expects a JSON body whose top-level keys are table names and whose values are
-    // table query objects (see DataDictionaryProtocol.md for the full schema).
+    // The DDPFormat header selects the body format through the protocol's request parsers
+    // (see DDPRequestParser):
+    //   Legacy    - top-level keys are table names, values are table query objects
+    //               (default; see DataDictionaryProtocol.md)
+    //   DbMessage - one structured query object (see DDP Experimental format.md)
     // The DDPStyle header controls the response shape:
     //   nested     - related tables embedded inside each row (default)
     //   flat       - positionally-aligned parallel arrays
     //   flatlinked - deduplicated parallel arrays joined by FK fields
     Procedure OnHttpPost tWebApiCallContext ByRef webapicallcontext
-        String sStyle sRequestBodyString sDDName
+        String sStyle sDDPFormat sRequestBodyString
         Integer iIndex
         tDDPBuilderContext ctx
         tDDPBuilderResult oResult
-        Handle hoDDJson hoQueryResult hoMainDD
-        tDDPQuery oQuery oEmptyQuery
+        Handle hoParser hoQueryResult hoMainDD
+        tDDPQuery[] aQueries
 
 
         // Read the DDPStyle header; absent means nested.
@@ -61,6 +64,19 @@ Class cDDPQueryEndpoint is a cBaseRestDataset
             Procedure_Return
         End
 
+        // Read the DDPFormat header; absent means Legacy.
+        Move "" to sDDPFormat
+        Get HttpRequestHeader "DDPFormat" to sDDPFormat
+        Move (Replaces(Character(0), sDDPFormat, "")) to sDDPFormat
+        Delegate Get DDPRequestParser sDDPFormat to hoParser
+        If (hoParser = 0) Begin
+            Move True to webapicallcontext.bErr
+            Move C_WEBAPI_NOTALLOWED to webapicallcontext.iStatusCode
+            Move "Invalid format" to webapicallcontext.sShortStatusMessage
+            Move (SFormat("Invalid DDPFormat '%1'.", sDDPFormat)) to webapicallcontext.sErrorMessage
+            Procedure_Return
+        End
+
         // Parse and validate the request body.
         Get RequestDataString to sRequestBodyString
         If (not(ParseString(oJson, sRequestBodyString))) Begin
@@ -69,10 +85,9 @@ Class cDDPQueryEndpoint is a cBaseRestDataset
             Move "Invalid format" to webapicallcontext.sShortStatusMessage
             Procedure_Return
         End
-        Move oJson to ctx.hoJsonReq
 
         // The root must be a JSON object; arrays and primitives are rejected.
-        If (JsonType(ctx.hoJsonReq) <> jsonTypeObject) Begin
+        If (JsonType(oJson) <> jsonTypeObject) Begin
             Move True to webapicallcontext.bErr
             Move C_WEBAPI_NOTALLOWED to webapicallcontext.iStatusCode
             Move "Invalid format" to webapicallcontext.sShortStatusMessage
@@ -80,9 +95,19 @@ Class cDDPQueryEndpoint is a cBaseRestDataset
             Procedure_Return
         End
 
+        // Parse every root query before any DD is touched.
+        Get ParseQueryRequest of hoParser oJson (&aQueries) to oResult
+        If (oResult.iErr) Begin
+            Move True to webapicallcontext.bErr
+            Move C_WEBAPI_NOTALLOWED to webapicallcontext.iStatusCode
+            Move "Not Allowed" to webapicallcontext.sShortStatusMessage
+            Move oResult.sError to webapicallcontext.sErrorMessage
+            Procedure_Return
+        End
+
         // Flat and flatlinked require exactly one top-level table because their
         // positional/deduplicated arrays are undefined for multiple root tables.
-        If (ctx.eStyle <> DDPStyle_Nested and MemberCount(ctx.hoJsonReq) > 1) Begin
+        If (ctx.eStyle <> DDPStyle_Nested and SizeOfArray(aQueries) > 1) Begin
             Move True to webapicallcontext.bErr
             Move C_WEBAPI_NOTALLOWED to webapicallcontext.iStatusCode
             Move "Cannot have multiple mainDDs in flattened style" to webapicallcontext.sShortStatusMessage
@@ -92,15 +117,13 @@ Class cDDPQueryEndpoint is a cBaseRestDataset
         Get Create (RefClass(cJsonObject)) to webapicallcontext.hoResponseBody
         Send InitializeJsonType of webapicallcontext.hoResponseBody jsonTypeObject
 
-        // Iterate over every top-level table name in the request and execute its query.
-        For iIndex from 0 to (MemberCount(ctx.hoJsonReq) - 1)
-            Move (MemberNameByIndex(ctx.hoJsonReq, iIndex)) to sDDName
-            Get Member of ctx.hoJsonReq sDDName to hoDDJson
+        // Prepare and execute every root query in request order.
+        For iIndex from 0 to (SizeOfArray(aQueries) - 1)
+            Move aQueries[iIndex].oMain.hoDD to hoMainDD
 
-            // ConstructFindScenario and Execute* live on cWebAPIDataDictionaryProtocol;
+            // DDPPrepareFind and Execute* live on cWebAPIDataDictionaryProtocol;
             // Delegate walks up the parent chain to find and call them there.
-            Delegate Get ConstructFindScenario sDDName hoDDJson (&oQuery) to oResult
-            Move oQuery.oMain.hoDD to hoMainDD
+            Delegate Get DDPPrepareFind aQueries[iIndex].oMain to oResult
             If (oResult.iErr) Begin
                 Delegate Send DestroyQuery hoMainDD
                 Move True to webapicallcontext.bErr
@@ -112,13 +135,13 @@ Class cDDPQueryEndpoint is a cBaseRestDataset
 
             // Execute every response style through the backend JSON boundary.
             If (ctx.eStyle = DDPStyle_Nested) Begin
-                Delegate Get ExecuteFind (&ctx) oQuery (&hoQueryResult) to oResult
+                Delegate Get ExecuteFind (&ctx) aQueries[iIndex] (&hoQueryResult) to oResult
             End
             Else Begin
-                Delegate Get ExecuteFind (&ctx) oQuery (&webapicallcontext.hoResponseBody) to oResult
+                Delegate Get ExecuteFind (&ctx) aQueries[iIndex] (&webapicallcontext.hoResponseBody) to oResult
             End
             If (ctx.eStyle = DDPStyle_Nested and not(oResult.iErr)) Begin
-                Send SetMember of webapicallcontext.hoResponseBody sDDName hoQueryResult
+                Send SetMember of webapicallcontext.hoResponseBody aQueries[iIndex].oMain.sRequestedName hoQueryResult
                 Send Destroy of hoQueryResult
                 Move 0 to hoQueryResult
             End
@@ -139,7 +162,6 @@ Class cDDPQueryEndpoint is a cBaseRestDataset
             Delegate Send DestroyQuery hoMainDD
             // Reset per-iteration state so stale values don't leak into the next iteration.
             Move 0 to hoQueryResult
-            Move oEmptyQuery to oQuery
         Loop
 
         Move 200 to webapicallcontext.iStatusCode
