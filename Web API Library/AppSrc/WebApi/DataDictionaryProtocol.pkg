@@ -11,6 +11,8 @@ Use WebApi\DDP\Backends\Windows.pkg
 Use WebApi\DDP\cDDPIterator.pkg
 Use WebApi\DDP\cDDPRouter.pkg
 Use WebApi\DDP\cDDPBuilder.pkg
+Use WebApi\DDP\cDDPLegacyRequestParser.pkg
+Use WebApi\DDP\cDDPDbMessageRequestParser.pkg
 
 Use WebApi\DDP\v1\cDDPV1Router.pkg
 Use WebApi\DDP\v1\cDDPQueryEndpoint.pkg
@@ -50,6 +52,13 @@ Class cWebAPIDataDictionaryProtocol is a cWebApiRouter
         Object phoIterator is a cDDPIterator
         End_Object
 
+        // Query request parsers, selected per request by the DDPFormat header
+        // (see DDPRequestParser).
+        Object oLegacyRequestParser is a cDDPLegacyRequestParser
+        End_Object
+        Object oDbMessageRequestParser is a cDDPDbMessageRequestParser
+        End_Object
+
         // v1 versioned sub-router. Its RouteRequest tries children (query/find/delete/save)
         // first and falls back to handling GET /ddp/v1 itself. Sub-endpoints reach back
         // up to this object via Delegate Send/Get to call builder and backend methods.
@@ -84,6 +93,15 @@ Class cWebAPIDataDictionaryProtocol is a cWebApiRouter
         Send End_Define_cDDPDataSet_Mixin
         Send End_Define_cDDPBuilder_Mixin
     End_Procedure
+
+    // Returns the request parser for a DDPFormat header value (case-insensitive):
+    // "" or "legacy" = Legacy, "dbmessage" = DbMessage. Returns 0 for any other value.
+    Function DDPRequestParser String sFormat Returns Handle
+        Move (Lowercase(sFormat)) to sFormat
+        If (sFormat = "" or sFormat = "legacy") Function_Return (oLegacyRequestParser(Self))
+        If (sFormat = "dbmessage") Function_Return (oDbMessageRequestParser(Self))
+        Function_Return 0
+    End_Function
 
     { Visibility = Private }
     // Try versioned sub-routers first (e.g. path contains "v1"). When no child path

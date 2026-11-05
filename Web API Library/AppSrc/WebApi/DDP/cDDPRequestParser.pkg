@@ -1,0 +1,63 @@
+Use WebApi\DDP\Backends\IBackend.pkg
+Use WebApi\DDP\cDDPBuilder.pkg
+
+// Base class for DDP query request parsers. A parser turns one request format into
+// engine-native tDDPQuery values. Parsers only look things up and never change DDs.
+// Parser objects are children of cWebAPIDataDictionaryProtocol (phoProtocol).
+Class cDDPRequestParser is a cObject
+
+    Procedure Construct_Object
+        Forward Send Construct_Object
+        Property Handle phoProtocol 0
+    End_Procedure
+
+    Procedure End_Construct_Object
+        Handle hoParent
+        Forward Send End_Construct_Object
+        Get Parent to hoParent
+        Set phoProtocol to hoParent
+    End_Procedure
+
+    // Parses the root JSON object into one tDDPQuery per root table, in request order.
+    Function ParseQueryRequest Handle hoJson tDDPQuery[] ByRef aQueries Returns tDDPBuilderResult
+        tDDPBuilderResult oResult
+        Move DDPERR_INVALID_FORMAT to oResult.iErr
+        Move "Request format is not supported." to oResult.sError
+        Function_Return oResult
+    End_Function
+
+    // Reads the optional non-negative integer member sMember into iValue. iValue is left
+    // unchanged when the member is absent. A string "10" is rejected to catch client
+    // encoding mistakes early.
+    Function ReadOptionalNonNegativeInteger Handle hoJson String sMember Integer iErr String sError Integer ByRef iValue Returns tDDPBuilderResult
+        tDDPBuilderResult oResult
+        If (not(HasMember(hoJson, sMember))) Function_Return oResult
+        If (MemberJsonType(hoJson, sMember) = jsonTypeInteger) Begin
+            Get MemberValue of hoJson sMember to iValue
+            If (iValue >= 0) Function_Return oResult
+        End
+        Move iErr to oResult.iErr
+        Move sError to oResult.sError
+        Function_Return oResult
+    End_Function
+
+    // Default projection: every field except FK fields that point to one of table.aParents
+    // (the parent object carries that data). Call after the parents are attached.
+    Procedure ApplyDefaultFields tDDPTableQuery ByRef table
+        Handle hoProtocol
+        Integer iField iFieldCount iParent iRelatedField
+        Boolean bRelated
+
+        Get phoProtocol to hoProtocol
+        Get FieldCount of hoProtocol table.hoDD to iFieldCount
+        For iField from 1 to iFieldCount
+            Move False to bRelated
+            For iParent from 0 to (SizeOfArray(table.aParents) - 1)
+                Get FieldRelation of hoProtocol table.hoDD table.aParents[iParent].hoDD iField (&iRelatedField) to bRelated
+                If (bRelated) Break
+            Loop
+            If (not(bRelated)) Move iField to table.aFields[-1]
+        Loop
+    End_Procedure
+
+End_Class

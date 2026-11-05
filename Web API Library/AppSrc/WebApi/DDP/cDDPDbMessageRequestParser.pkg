@@ -1,0 +1,322 @@
+Use WebApi\DDP\cDDPRequestParser.pkg
+
+// Working node while a DbMessage request is parsed. The tree (aParents) is
+// assembled only after every join, field, constraint and ordering is resolved.
+Struct tDDPDbMessageNode
+    tDDPTableQuery oTable   // aParents stays empty until the tree is assembled
+    Integer iJoinedFromNode // index in the node list of the table this one joins from; -1 = root
+End_Struct
+
+// Parses the DbMessage query format (DDPFormat header "DbMessage"): one structured
+// query object that reads as a literal database message:
+// {"table":"OrderHeader",
+//  "join":[{"table":"Customer","from":"OrderHeader"}],
+//  "fields":["OrderHeader.Order_Number","Customer.Name"],
+//  "constraints":[{"field":"Customer.State","op":"eq","value":"TX"}],
+//  "orderBy":[{"field":"Customer.Name","dir":"asc"}],
+//  "limit":20, "offset":0}
+// Joins must point to parent tables. "or" groups, multi-field constraints and "cursor"
+// are rejected as not supported yet.
+Class cDDPDbMessageRequestParser is a cDDPRequestParser
+
+    // JSON type of member sMember, or -1 when it is absent.
+    Function MemberJsonTypeOrAbsent Handle hoJson String sMember Returns Integer
+        If (not(HasMember(hoJson, sMember))) Function_Return -1
+        Function_Return (MemberJsonType(hoJson, sMember))
+    End_Function
+
+    // JSON type of array element iIndex of hoArray.
+    Function ArrayElementJsonType Handle hoArray Integer iIndex Returns Integer
+        Handle hoItem
+        Integer eType
+        Get Member of hoArray iIndex to hoItem
+        Move (JsonType(hoItem)) to eType
+        Send Destroy of hoItem
+        Function_Return eType
+    End_Function
+
+    Function ErrorResult Integer iErr String sError Returns tDDPBuilderResult
+        tDDPBuilderResult oResult
+        Move iErr to oResult.iErr
+        Move sError to oResult.sError
+        Function_Return oResult
+    End_Function
+
+    // Index of the node for hoDD, or -1.
+    Function NodeIndexOfDD tDDPDbMessageNode[] ByRef aNodes Handle hoDD Returns Integer
+        Integer iNode
+        For iNode from 0 to (SizeOfArray(aNodes) - 1)
+            If (aNodes[iNode].oTable.hoDD = hoDD) Function_Return iNode
+        Loop
+        Function_Return -1
+    End_Function
+
+    // Resolves "Table.Field" to the node of Table and the 1-based field number.
+    Function ResolveQualifiedField tDDPDbMessageNode[] ByRef aNodes String sQualifiedField Integer ByRef iNode Integer ByRef iField Returns tDDPBuilderResult
+        tDDPBuilderResult oResult
+        Handle hoProtocol hoDD
+        Integer iDot
+
+        Get phoProtocol to hoProtocol
+        Move (Pos(".", sQualifiedField)) to iDot
+        If (iDot = 0) ;
+            Function_Return (ErrorResult(Self, DDPERR_INVALID_FIELD, SFormat("Field '%1' must be qualified as 'Table.Field'.", sQualifiedField)))
+
+        Get DDByName of hoProtocol (Left(sQualifiedField, iDot - 1)) to hoDD
+        Move -1 to iNode
+        If (hoDD <> 0) Get NodeIndexOfDD (&aNodes) hoDD to iNode
+        If (iNode = -1) ;
+            Function_Return (ErrorResult(Self, DDPERR_INVALID_FIELD, SFormat("Table of field '%1' is not the main table or a joined table.", sQualifiedField)))
+
+        If (not(IsField(hoProtocol, hoDD, Right(sQualifiedField, Length(sQualifiedField) - iDot), &iField))) ;
+            Function_Return (ErrorResult(Self, DDPERR_INVALID_FIELD, SFormat("Invalid field '%1'.", sQualifiedField)))
+        Function_Return oResult
+    End_Function
+
+    // Adds join element iIndex ({"table":..,"from":..}) as a new node.
+    Function ParseJoin Handle hoItem Integer iIndex tDDPDbMessageNode[] ByRef aNodes Returns tDDPBuilderResult
+        tDDPBuilderResult oResult
+        tDDPDbMessageNode oNode
+        Handle hoProtocol hoDD hoFromDD
+        Integer iJoinedFromNode
+        String sName sFrom
+        Boolean bParent
+
+        If (MemberJsonTypeOrAbsent(Self, hoItem, "table") <> jsonTypeString or MemberJsonTypeOrAbsent(Self, hoItem, "from") <> jsonTypeString) ;
+            Function_Return (ErrorResult(Self, DDPERR_INVALID_FORMAT, SFormat("Invalid join at index %1.", iIndex)))
+        Get MemberValue of hoItem "table" to sName
+        Get MemberValue of hoItem "from" to sFrom
+
+        Get phoProtocol to hoProtocol
+        Get DDByName of hoProtocol sName to hoDD
+        If (hoDD = 0) ;
+            Function_Return (ErrorResult(Self, DDPERR_UNKOWN_TABLE, SFormat("'%1', not known.", sName)))
+        If (NodeIndexOfDD(Self, &aNodes, hoDD) <> -1) ;
+            Function_Return (ErrorResult(Self, DDPERR_INVALID_TABLES, SFormat("'%1' is joined more than once.", sName)))
+
+        Get DDByName of hoProtocol sFrom to hoFromDD
+        Move -1 to iJoinedFromNode
+        If (hoFromDD <> 0) Get NodeIndexOfDD (&aNodes) hoFromDD to iJoinedFromNode
+        If (iJoinedFromNode = -1) ;
+            Function_Return (ErrorResult(Self, DDPERR_INVALID_TABLES, SFormat("Join source '%1' is not the main table or an earlier join.", sFrom)))
+
+        If (not(IsDDRelated(hoProtocol, hoFromDD, hoDD, &bParent))) ;
+            Function_Return (ErrorResult(Self, DDPERR_UNKOWN_TABLE, SFormat("'%1', not related.", sName)))
+        If (not(bParent)) ;
+            Function_Return (ErrorResult(Self, DDPERR_INVALID_TABLES, SFormat("'%1' is not a parent of '%2'.", sName, sFrom)))
+
+        Move hoDD to oNode.oTable.hoDD
+        Move sName to oNode.oTable.sRequestedName
+        Move hoFromDD to oNode.oTable.hoParentDD
+        Move C_WebAPIDDP_Default_Limit to oNode.oTable.iLimit
+        Move iJoinedFromNode to oNode.iJoinedFromNode
+        Move oNode to aNodes[-1]
+        Function_Return oResult
+    End_Function
+
+    // Adds constraint element iIndex ({"field":..,"op":..,"value":..}) to its node.
+    Function ParseConstraint Handle hoItem Integer iIndex tDDPDbMessageNode[] ByRef aNodes Returns tDDPBuilderResult
+        tDDPBuilderResult oResult
+        tDDPConstrain oConstrain
+        Integer iNode iField eValueType
+        String sQualifiedField sOp sValue
+
+        If (HasMember(hoItem, "or")) ;
+            Function_Return (ErrorResult(Self, DDPERR_INVALID_CONSTRAIN, "'or' constraints are not supported yet."))
+        If (MemberJsonTypeOrAbsent(Self, hoItem, "field") = jsonTypeArray or HasMember(hoItem, "dir")) ;
+            Function_Return (ErrorResult(Self, DDPERR_INVALID_CONSTRAIN, "Multi-field constraints are not supported yet."))
+
+        Move (MemberJsonTypeOrAbsent(Self, hoItem, "value")) to eValueType
+        If (MemberJsonTypeOrAbsent(Self, hoItem, "field") <> jsonTypeString or MemberJsonTypeOrAbsent(Self, hoItem, "op") <> jsonTypeString or ;
+            eValueType = -1 or eValueType = jsonTypeObject or eValueType = jsonTypeArray) ;
+            Function_Return (ErrorResult(Self, DDPERR_INVALID_CONSTRAIN, SFormat("Invalid constraint at index %1.", iIndex)))
+
+        Get MemberValue of hoItem "op" to sOp
+        Move (Lowercase(sOp)) to sOp
+        If (sOp = "eq") Move DDPFind_EQ to oConstrain.eMode
+        Else If (sOp = "ne") Move DDPFind_NE to oConstrain.eMode
+        Else If (sOp = "gt") Move DDPFind_GT to oConstrain.eMode
+        Else If (sOp = "ge") Move DDPFind_GE to oConstrain.eMode
+        Else If (sOp = "lt") Move DDPFind_LT to oConstrain.eMode
+        Else If (sOp = "le") Move DDPFind_LE to oConstrain.eMode
+        Else Begin
+            Get MemberValue of hoItem "op" to sOp
+            Function_Return (ErrorResult(Self, DDPERR_INVALID_MODE, SFormat("Invalid operator '%1'.", sOp)))
+        End
+
+        Get MemberValue of hoItem "field" to sQualifiedField
+        Get ResolveQualifiedField (&aNodes) sQualifiedField (&iNode) (&iField) to oResult
+        If (oResult.iErr) Function_Return oResult
+
+        Get MemberValue of hoItem "value" to sValue
+        Move iField to oConstrain.hField
+        Move sValue to oConstrain.aParams[0]
+        Move oConstrain to aNodes[iNode].oTable.aConstrains[-1]
+        Function_Return oResult
+    End_Function
+
+    // Adds orderBy element iIndex ({"field":..,"dir":"asc"|"desc"}) to its node.
+    Function ParseOrderBy Handle hoItem Integer iIndex tDDPDbMessageNode[] ByRef aNodes Returns tDDPBuilderResult
+        tDDPBuilderResult oResult
+        tDDPOrder oOrder
+        Integer iNode iField iOrder
+        String sQualifiedField sDir
+
+        If (MemberJsonTypeOrAbsent(Self, hoItem, "field") = jsonTypeString and MemberJsonTypeOrAbsent(Self, hoItem, "dir") = jsonTypeString) ;
+            Get MemberValue of hoItem "dir" to sDir
+        Move (Lowercase(sDir)) to sDir
+        If (sDir = "asc") Move DDPOrder_ASC to oOrder.eMode
+        Else If (sDir = "desc") Move DDPOrder_DESC to oOrder.eMode
+        Else Function_Return (ErrorResult(Self, DDPERR_INVALID_ORDER, SFormat("Invalid ordering at index %1.", iIndex)))
+
+        Get MemberValue of hoItem "field" to sQualifiedField
+        Get ResolveQualifiedField (&aNodes) sQualifiedField (&iNode) (&iField) to oResult
+        If (oResult.iErr) Function_Return oResult
+
+        For iOrder from 0 to (SizeOfArray(aNodes[iNode].oTable.aOrder) - 1)
+            If (aNodes[iNode].oTable.aOrder[iOrder].hField = iField) ;
+                Function_Return (ErrorResult(Self, DDPERR_INVALID_ORDER, SFormat("Field '%1' is ordered more than once.", sQualifiedField)))
+        Loop
+
+        Move aNodes[iNode].oTable.hoDD to oOrder.hoDD
+        Move iField to oOrder.hField
+        Move iIndex to oOrder.iSequence
+        Move True to oOrder.bExplicit
+        Move oOrder to aNodes[iNode].oTable.aOrder[-1]
+        Function_Return oResult
+    End_Function
+
+    // Runs each element of array member sMember ("join", "constraints" or "orderBy") through ParseJoin, ParseConstraint or ParseOrderBy.
+    // An absent member is accepted; a non-array member returns iErr/sError.
+    Function ParseArrayMember Handle hoJson String sMember Integer iErr String sError tDDPDbMessageNode[] ByRef aNodes Returns tDDPBuilderResult
+        tDDPBuilderResult oResult
+        Handle hoArray hoItem
+        Integer iIndex eType
+
+        Move (MemberJsonTypeOrAbsent(Self, hoJson, sMember)) to eType
+        If (eType = -1) Function_Return oResult
+        If (eType <> jsonTypeArray) Function_Return (ErrorResult(Self, iErr, sError))
+
+        Get Member of hoJson sMember to hoArray
+        For iIndex from 0 to (MemberCount(hoArray) - 1)
+            Get Member of hoArray iIndex to hoItem
+            If (JsonType(hoItem) <> jsonTypeObject) Begin
+                If (sMember = "join") Get ErrorResult iErr (SFormat("Invalid join at index %1.", iIndex)) to oResult
+                Else If (sMember = "constraints") Get ErrorResult iErr (SFormat("Invalid constraint at index %1.", iIndex)) to oResult
+                Else Get ErrorResult iErr (SFormat("Invalid ordering at index %1.", iIndex)) to oResult
+            End
+            Else If (sMember = "join") Get ParseJoin hoItem iIndex (&aNodes) to oResult
+            Else If (sMember = "constraints") Get ParseConstraint hoItem iIndex (&aNodes) to oResult
+            Else Get ParseOrderBy hoItem iIndex (&aNodes) to oResult
+            Send Destroy of hoItem
+            If (oResult.iErr) Break
+        Loop
+        Send Destroy of hoArray
+        Function_Return oResult
+    End_Function
+
+    // Applies the "fields" array: each node gets exactly the fields listed for it.
+    Function ParseFields Handle hoJson tDDPDbMessageNode[] ByRef aNodes Returns tDDPBuilderResult
+        tDDPBuilderResult oResult
+        Handle hoArray
+        Integer iIndex iNode iField
+        String sQualifiedField
+
+        Get Member of hoJson "fields" to hoArray
+        For iIndex from 0 to (MemberCount(hoArray) - 1)
+            If (ArrayElementJsonType(Self, hoArray, iIndex) <> jsonTypeString) Begin
+                Get ErrorResult DDPERR_INVALID_FIELDS "Invalid fields." to oResult
+                Break
+            End
+            Get MemberValue of hoArray iIndex to sQualifiedField
+            Get ResolveQualifiedField (&aNodes) sQualifiedField (&iNode) (&iField) to oResult
+            If (oResult.iErr) Break
+            If (SearchArray(iField, aNodes[iNode].oTable.aFields) = -1) ;
+                Move iField to aNodes[iNode].oTable.aFields[-1]
+        Loop
+        Send Destroy of hoArray
+        Function_Return oResult
+    End_Function
+
+    // Exactly one tDDPQuery per request.
+    Function ParseQueryRequest Handle hoJson tDDPQuery[] ByRef aQueries Returns tDDPBuilderResult
+        tDDPBuilderResult oResult
+        tDDPDbMessageNode[] aNodes
+        tDDPDbMessageNode oNode
+        tDDPTableQuery oTable
+        tDDPQuery oQuery
+        Handle hoProtocol hoDD
+        Integer iIndex eFieldsType
+        String sKey sName
+        Boolean bFieldsGiven
+
+        // 1. Root members.
+        For iIndex from 0 to (MemberCount(hoJson) - 1)
+            Move (MemberNameByIndex(hoJson, iIndex)) to sKey
+            If (sKey <> "table" and sKey <> "join" and sKey <> "fields" and sKey <> "constraints" and ;
+                sKey <> "orderBy" and sKey <> "limit" and sKey <> "offset" and sKey <> "cursor") ;
+                Function_Return (ErrorResult(Self, DDPERR_INVALID_FORMAT, SFormat("Unknown member '%1'.", sKey)))
+        Loop
+        If (HasMember(hoJson, "cursor")) ;
+            Function_Return (ErrorResult(Self, DDPERR_INVALID_FORMAT, "'cursor' is not supported yet."))
+
+        // 2. Root table, limit and offset.
+        If (MemberJsonTypeOrAbsent(Self, hoJson, "table") <> jsonTypeString) ;
+            Function_Return (ErrorResult(Self, DDPERR_INVALID_MAIN_TABLE, "Member 'table' must be a table name."))
+        Get MemberValue of hoJson "table" to sName
+        Get phoProtocol to hoProtocol
+        Get DDByName of hoProtocol sName to hoDD
+        If (hoDD = 0) ;
+            Function_Return (ErrorResult(Self, DDPERR_UNKOWN_TABLE, SFormat("'%1', not known.", sName)))
+        Move hoDD to oNode.oTable.hoDD
+        Move sName to oNode.oTable.sRequestedName
+        Move 0 to oNode.oTable.hoParentDD
+        Move C_WebAPIDDP_Default_Limit to oNode.oTable.iLimit
+        Move -1 to oNode.iJoinedFromNode
+        Get ReadOptionalNonNegativeInteger hoJson "limit" DDPERR_INVALID_LIMIT "Invalid limit." (&oNode.oTable.iLimit) to oResult
+        If (oResult.iErr) Function_Return oResult
+        Get ReadOptionalNonNegativeInteger hoJson "offset" DDPERR_INVALID_OFFSET "Invalid offset." (&oNode.oTable.iOffset) to oResult
+        If (oResult.iErr) Function_Return oResult
+        Move oNode to aNodes[0]
+
+        // 3. Joins.
+        Get ParseArrayMember hoJson "join" DDPERR_INVALID_FORMAT "Member 'join' must be an array." (&aNodes) to oResult
+        If (oResult.iErr) Function_Return oResult
+
+        // 5. Fields (step 4, field references, is ResolveQualifiedField).
+        Move (MemberJsonTypeOrAbsent(Self, hoJson, "fields")) to eFieldsType
+        Move (eFieldsType <> -1) to bFieldsGiven
+        If (bFieldsGiven) Begin
+            If (eFieldsType <> jsonTypeArray) ;
+                Function_Return (ErrorResult(Self, DDPERR_INVALID_FIELDS, "Invalid fields."))
+            Get ParseFields hoJson (&aNodes) to oResult
+            If (oResult.iErr) Function_Return oResult
+        End
+
+        // 6. Constraints.
+        Get ParseArrayMember hoJson "constraints" DDPERR_INVALID_CONSTRAIN "Member 'constraints' must be an array." (&aNodes) to oResult
+        If (oResult.iErr) Function_Return oResult
+
+        // 7. Ordering. iSequence is the request position, so each node's aOrder is already sorted.
+        Get ParseArrayMember hoJson "orderBy" DDPERR_INVALID_ORDER "Member 'orderBy' must be an array." (&aNodes) to oResult
+        If (oResult.iErr) Function_Return oResult
+
+        // 8. Assemble the tree. Joins only reference earlier nodes, so walking backwards
+        // attaches all parents of a node before the node itself is attached.
+        Move (SizeOfArray(aNodes) - 1) to iIndex
+        While (iIndex >= 0)
+            Move aNodes[iIndex].oTable to oTable
+            If (not(bFieldsGiven)) Send ApplyDefaultFields (&oTable)
+            If (iIndex > 0) Begin
+                Move (InsertInArray(aNodes[aNodes[iIndex].iJoinedFromNode].oTable.aParents, 0, oTable)) to aNodes[aNodes[iIndex].iJoinedFromNode].oTable.aParents
+            End
+            Else Begin
+                Move oTable to oQuery.oMain
+            End
+            Decrement iIndex
+        Loop
+        Move oQuery to aQueries[-1]
+        Function_Return oResult
+    End_Function
+
+End_Class
