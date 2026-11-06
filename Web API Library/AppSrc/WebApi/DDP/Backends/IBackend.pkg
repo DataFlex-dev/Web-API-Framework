@@ -94,6 +94,15 @@ Struct tDDPSerializedField
     Integer eJsonType
 End_Struct
 
+// A multi-field (index) constraint: the rows after (GT/GE) or before (LT/LE) aValues in the order of
+// aFields, each field ascending or descending per aDirections. eMode DDPFind_Auto (0) = none. Root table only.
+Struct tDDPIndexConstrain
+    Integer eMode          // DDPFind_GT, DDPFind_GE, DDPFind_LT or DDPFind_LE
+    Integer[] aFields      // 1-based field numbers of the root table
+    String[] aValues       // values as sent, one per field
+    Integer[] aDirections  // DDPOrder_ASC or DDPOrder_DESC, one per field
+End_Struct
+
 Struct tDDPTableQuery
     Handle hoDD
     String sRequestedName
@@ -102,6 +111,7 @@ Struct tDDPTableQuery
     Integer iOffset
     Integer eCursorMode   // DDPFind_GT: rows after the cursor row; DDPFind_LT: rows before it, nearest first. DDPFind_Auto (0): no cursor. Root table only.
     String[] aCursorKey   // the cursor row's primary-key values as sent, in DDPPrimaryKeyFields order
+    tDDPIndexConstrain oIndexConstrain
     tDDPConstrain[] aConstrains
     tDDPOrder[] aOrder
     tDDPTableQuery[] aParents

@@ -17,8 +17,8 @@ End_Struct
 //  "constraints":[{"field":"Customer.State","op":"eq","value":"TX"}],
 //  "orderBy":[{"field":"Customer.Name","dir":"asc"}],
 //  "limit":20, "offset":0}
-// Joins must point to parent tables. "or" groups and multi-field constraints are
-// rejected as not supported yet.
+// Joins must point to parent tables. "or" groups are rejected as not supported yet.
+// Multi-field constraints ({"field":[..],"op":"gt","value":[..],"dir":[..]}) are supported on main-table fields only.
 Class cDDPDbMessageRequestParser is a cDDPRequestParser
 
     // JSON type of member sMember, or -1 when it is absent.
@@ -125,8 +125,12 @@ Class cDDPDbMessageRequestParser is a cDDPRequestParser
 
         If (HasMember(hoItem, "or")) ;
             Function_Return (ErrorResult(Self, DDPERR_INVALID_CONSTRAIN, "'or' constraints are not supported yet."))
-        If (MemberJsonTypeOrAbsent(Self, hoItem, "field") = jsonTypeArray or HasMember(hoItem, "dir")) ;
-            Function_Return (ErrorResult(Self, DDPERR_INVALID_CONSTRAIN, "Multi-field constraints are not supported yet."))
+        If (MemberJsonTypeOrAbsent(Self, hoItem, "field") = jsonTypeArray) Begin
+            Get ParseIndexConstraint hoItem iIndex (&aNodes) to oResult
+            Function_Return oResult
+        End
+        If (HasMember(hoItem, "dir")) ;
+            Function_Return (ErrorResult(Self, DDPERR_INVALID_CONSTRAIN, SFormat("Invalid constraint at index %1.", iIndex)))
 
         Move (MemberJsonTypeOrAbsent(Self, hoItem, "value")) to eValueType
         If (MemberJsonTypeOrAbsent(Self, hoItem, "field") <> jsonTypeString or MemberJsonTypeOrAbsent(Self, hoItem, "op") <> jsonTypeString or ;
@@ -154,6 +158,76 @@ Class cDDPDbMessageRequestParser is a cDDPRequestParser
         Move iField to oConstrain.hField
         Move sValue to oConstrain.aParams[0]
         Move oConstrain to aNodes[iNode].oTable.aConstrains[-1]
+        Function_Return oResult
+    End_Function
+
+    // Reads multi-field constraint element iIndex ({"field":[..],"op":"gt"|"ge"|"lt"|"le","value":[..],"dir":[..]})
+    // into the root node's oIndexConstrain. "dir" is optional (default "asc"); all fields must belong to the main table.
+    Function ParseIndexConstraint Handle hoItem Integer iIndex tDDPDbMessageNode[] ByRef aNodes Returns tDDPBuilderResult
+        tDDPBuilderResult oResult
+        tDDPIndexConstrain index
+        Handle hoFields hoValues hoDirs
+        Integer iCount iElement iNode iField eType
+        String sOp sField sValue sDir
+        Boolean bHasDir bValid
+
+        If (aNodes[0].oTable.oIndexConstrain.eMode <> DDPFind_Auto) ;
+            Function_Return (ErrorResult(Self, DDPERR_INVALID_CONSTRAIN, "Only one multi-field constraint is allowed."))
+
+        If (MemberJsonTypeOrAbsent(Self, hoItem, "op") = jsonTypeString) ;
+            Get MemberValue of hoItem "op" to sOp
+        Move (Lowercase(sOp)) to sOp
+        If (sOp = "gt") Move DDPFind_GT to index.eMode
+        Else If (sOp = "ge") Move DDPFind_GE to index.eMode
+        Else If (sOp = "lt") Move DDPFind_LT to index.eMode
+        Else If (sOp = "le") Move DDPFind_LE to index.eMode
+        Else Function_Return (ErrorResult(Self, DDPERR_INVALID_MODE, "Multi-field constraints support 'gt', 'ge', 'lt' and 'le'."))
+
+        Move (MemberJsonTypeOrAbsent(Self, hoItem, "dir")) to eType
+        Move (eType <> -1) to bHasDir
+        If (MemberJsonTypeOrAbsent(Self, hoItem, "value") <> jsonTypeArray or (bHasDir and eType <> jsonTypeArray)) ;
+            Function_Return (ErrorResult(Self, DDPERR_INVALID_CONSTRAIN, SFormat("Invalid constraint at index %1.", iIndex)))
+
+        Get Member of hoItem "field" to hoFields
+        Get Member of hoItem "value" to hoValues
+        Move (MemberCount(hoFields)) to iCount
+        Move (iCount >= 1 and MemberCount(hoValues) = iCount) to bValid
+        If (bHasDir) Begin
+            Get Member of hoItem "dir" to hoDirs
+            If (MemberCount(hoDirs) <> iCount) Move False to bValid
+        End
+
+        For iElement from 0 to (iCount - 1)
+            If (not(bValid) or oResult.iErr) Break
+            If (ArrayElementJsonType(Self, hoFields, iElement) <> jsonTypeString) Move False to bValid
+            Move (ArrayElementJsonType(Self, hoValues, iElement)) to eType
+            If (eType = jsonTypeObject or eType = jsonTypeArray) Move False to bValid
+            Move DDPOrder_ASC to index.aDirections[iElement]
+            If (bValid and bHasDir) Begin
+                Move "" to sDir
+                If (ArrayElementJsonType(Self, hoDirs, iElement) = jsonTypeString) ;
+                    Get MemberValue of hoDirs iElement to sDir
+                Move (Lowercase(sDir)) to sDir
+                If (sDir = "desc") Move DDPOrder_DESC to index.aDirections[iElement]
+                Else If (sDir <> "asc") Move False to bValid
+            End
+            If (bValid) Begin
+                Get MemberValue of hoFields iElement to sField
+                Get ResolveQualifiedField (&aNodes) sField (&iNode) (&iField) to oResult
+                If (oResult.iErr = 0 and iNode <> 0) ;
+                    Get ErrorResult DDPERR_INVALID_CONSTRAIN "Multi-field constraint fields must belong to the main table." to oResult
+                Get MemberValue of hoValues iElement to sValue
+                Move iField to index.aFields[iElement]
+                Move sValue to index.aValues[iElement]
+            End
+        Loop
+
+        Send Destroy of hoFields
+        Send Destroy of hoValues
+        If (bHasDir) Send Destroy of hoDirs
+        If (oResult.iErr) Function_Return oResult
+        If (not(bValid)) Function_Return (ErrorResult(Self, DDPERR_INVALID_CONSTRAIN, SFormat("Invalid constraint at index %1.", iIndex)))
+        Move index to aNodes[0].oTable.oIndexConstrain
         Function_Return oResult
     End_Function
 
@@ -350,6 +424,8 @@ Class cDDPDbMessageRequestParser is a cDDPRequestParser
         // 6. Constraints.
         Get ParseArrayMember hoJson "constraints" DDPERR_INVALID_CONSTRAIN "Member 'constraints' must be an array." (&aNodes) to oResult
         If (oResult.iErr) Function_Return oResult
+        If (aNodes[0].oTable.eCursorMode <> DDPFind_Auto and aNodes[0].oTable.oIndexConstrain.eMode <> DDPFind_Auto) ;
+            Function_Return (ErrorResult(Self, DDPERR_INVALID_FORMAT, "'cursor' cannot be combined with a multi-field constraint."))
 
         // 7. Ordering. iSequence is the request position, so each node's aOrder is already sorted.
         Get ParseArrayMember hoJson "orderBy" DDPERR_INVALID_ORDER "Member 'orderBy' must be an array." (&aNodes) to oResult
