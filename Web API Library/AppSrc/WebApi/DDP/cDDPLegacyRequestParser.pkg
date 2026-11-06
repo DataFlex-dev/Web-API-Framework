@@ -315,8 +315,7 @@ Class cDDPLegacyRequestParser is a cDDPRequestParser
                 Increment iConstrainIndex
             End
         Loop
-        // Resolve the default field selection after parents have been parsed.
-        // Parent relation fields are omitted unless explicitly requested.
+        // No __fields: return every field.
         If (not(bFieldsSpecified)) Send ApplyDefaultFields (&table)
 
         // Put this table's sort fields in sort order. The backends apply them in that order.
