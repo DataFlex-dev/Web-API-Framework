@@ -63,7 +63,7 @@ Enum_List
     Define DDPFind_GE
     Define DDPFind_GT
     Define DDPFind_NE
-    Define DDPFind_LAST for DDPFind_NE
+    Define DDPFind_CONTAINS
 End_Enum_List
 
 Enum_List 

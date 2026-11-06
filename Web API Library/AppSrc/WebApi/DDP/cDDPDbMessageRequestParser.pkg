@@ -141,6 +141,7 @@ Class cDDPDbMessageRequestParser is a cDDPRequestParser
         Move (Lowercase(sOp)) to sOp
         If (sOp = "eq") Move DDPFind_EQ to oConstrain.eMode
         Else If (sOp = "ne") Move DDPFind_NE to oConstrain.eMode
+        Else If (sOp = "contains") Move DDPFind_CONTAINS to oConstrain.eMode
         Else If (sOp = "gt") Move DDPFind_GT to oConstrain.eMode
         Else If (sOp = "ge") Move DDPFind_GE to oConstrain.eMode
         Else If (sOp = "lt") Move DDPFind_LT to oConstrain.eMode

@@ -527,6 +527,9 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
                 Move DDPERR_INVALID_CONSTRAIN to oResult.iErr
                 Move "Constraint '_ne' is not supported." to oResult.sError
                 Function_Return oResult
+            Case (eConstrain = DDPFind_CONTAINS)
+                Move C_DbConstraint_Contains to eDbConstrain
+                Case Break
             Case Else
                 Move DDPERR_INVALID_CONSTRAIN to oResult.iErr
                 Move "Invalid constrain." to oResult.sError
@@ -534,6 +537,11 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Case End
 
         Get FieldType hoDD hField to eType
+        If (eDbConstrain = C_DbConstraint_Contains and eType <> C_TypeString) Begin
+            Move DDPERR_INVALID_CONSTRAIN to oResult.iErr
+            Move "Constraint 'contains' is only supported on text fields." to oResult.sError
+            Function_Return oResult
+        End
         If (eType = C_TypeDate) Begin
             If (not(DDPParseISODate(sFilter, &dValue))) Begin
                 Move DDPERR_INVALID_CONSTRAIN to oResult.iErr
