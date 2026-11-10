@@ -1,17 +1,10 @@
 ﻿Use UI
 
-#COMMAND Register_Property R of R
-Register_Function !1 Returns !3 !4 !5 !6 !7 !8 !9
-Register_Procedure Set !1 !3 !4 !5 !6 !7 !8 !9 Value
-#ENDCOMMAND
-
 Struct tDDPBuilderResult
     { Name="err" }
     Integer iErr
     { Name="errtext" }
     String sError
-    { Name="result" }
-    Variant vResult
 End_Struct
 
 Enum_List
@@ -48,12 +41,6 @@ Struct tDDPFileDD
     Handle hFile
     Handle hoDD
 End_Struct
-
-Enum_List
-    Define DDP_None for 0
-    Define DDP_Parent
-    Define DDP_Child
-End_Enum_List
 
 Enum_List
     Define DDPFind_Auto for 0

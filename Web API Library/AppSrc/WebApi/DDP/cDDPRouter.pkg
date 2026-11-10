@@ -48,35 +48,26 @@ Class cDDPDataSet_Mixin is a cWebComponent
     { Visibility = Private }
     // Central dispatcher: validates the verb then routes to the appropriate OnHttp* handler.
     Procedure OnHttpRequest tWebApiCallContext ByRef webapicallcontext
-        Boolean bExposedVerb bHasID
-        Integer iSizeOfPathPieces
-        String sID
-        String[] asPathPieces
-
-        Move (StrSplitToArray(webapicallcontext.sPath, "/")) to asPathPieces
-        Move (SizeOfArray(asPathPieces)-1) to iSizeOfPathPieces
+        Boolean bExposedVerb
 
         Get IsVerbAllowed webapicallcontext.sVerb to bExposedVerb
 
         If (bExposedVerb) Begin
             Case Begin
-                Case (webapicallcontext.sVerb = C_WEBAPI_GET and not(bHasID))
-                    Send OnHttpGet (&webapicallcontext)
-                    Case Break
                 Case (webapicallcontext.sVerb = C_WEBAPI_GET)
-                    Send OnHttpGetByID (&webapicallcontext) sID
+                    Send OnHttpGet (&webapicallcontext)
                     Case Break
                 Case (webapicallcontext.sVerb = C_WEBAPI_POST)
                     Send OnHttpPost (&webapicallcontext)
                     Case Break
                 Case (webapicallcontext.sVerb = C_WEBAPI_PUT)
-                    Send OnHttpPut (&webapicallcontext) sID
+                    Send OnHttpPut (&webapicallcontext) ""
                     Case Break
                 Case (webapicallcontext.sVerb = C_WEBAPI_PATCH)
-                    Send OnHttpPatch (&webapicallcontext) sID
+                    Send OnHttpPatch (&webapicallcontext) ""
                     Case Break
                 Case (webapicallcontext.sVerb = C_WEBAPI_DELETE)
-                    Send OnHttpDelete (&webapicallcontext) sID
+                    Send OnHttpDelete (&webapicallcontext) ""
                     Case Break
                 Case (webapicallcontext.sVerb = C_WEBAPI_OPTIONS)
                     Send OnHttpOptions (&webapicallcontext)

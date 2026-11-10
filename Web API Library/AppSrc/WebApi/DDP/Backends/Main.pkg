@@ -1234,7 +1234,6 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
                 Move (NameOfDD(Self, query.aChilds[iChild].hoDD)) to aChildNames[-1]
             Loop
         End
-        Get DDPTableResultLayoutIndex query.hoDD aTableLayouts to iRootLayout
 
         Get DDPFetchLimit query.iLimit query.iOffset to iFetchLimit
         If (query.eCursorMode <> DDPFind_Auto) Begin
@@ -1395,7 +1394,6 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
                                     aRowIds[iRow] ahChilds[iChild] aChildSeenSets[iChild] True to oResult
                             End
                             Else Begin
-                                If bFlattened Move 0 to hoChildJson
                                 Get Create (RefClass(cJsonObject)) to hoChildJson
                                 If (hoChildJson <> 0) Send InitializeJsonType of hoChildJson jsonTypeArray
                                 If (hoChildJson = 0 or Err) Begin

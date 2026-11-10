@@ -38,36 +38,6 @@ Class cDDPBuilder_Mixin is a Mixin
         Set pbIsCollecting to False
     End_Procedure
 
-    // Returns the first (main) table name from a list, or "" if the list is
-    // empty. Used to identify the primary table in a multi-table query.
-    Function MainTableOfList String[] aTables Returns String
-        If (SizeOfArray(aTables) = 0) Begin
-            Function_Return ""
-        End
-        Function_Return aTables[0]
-    End_Function
-
-    // Looks up a parent table query by its underlying file handle.
-    // Used during serialization to check whether a FK field in the current
-    // table points to one of the requested parent tables — if so, the FK
-    // field is omitted from the child row (the parent object carries the data).
-    // Returns an empty tDDPTableQuery if no match is found.
-    Function FindParentFileInQuery tDDPTableQuery query Handle hFile Returns tDDPTableQuery
-        Integer iIndex
-        Handle hMainFile
-        tDDPTableQuery empty
-
-        For iIndex from 0 to (SizeOfArray(query.aParents) - 1)
-            Get Main_File of query.aParents[iIndex].hoDD to hMainFile
-            If (hMainFile = hFile) Begin
-                Function_Return query.aParents[iIndex]
-            End
-        Loop
-
-        // No matching parent found — return zero-initialised struct.
-        Function_Return empty
-    End_Function
-
     // Resets request-specific DD relationships, constraints, and buffers before
     // shared DD objects are reused by another request.
     // Classic cleanup detaches live DDO links; native cleanup preserves

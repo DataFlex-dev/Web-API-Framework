@@ -26,30 +26,12 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
     End_Procedure
 
     { Visibility = Private }
-    // Returns True when every character in sNumber is a digit or a leading minus sign.
-    // Used to validate integer constraint values before embedding them in SQL WHERE clauses.
-    Function IsNumeric String sNumber Returns Boolean
-        String sCompare
-        Integer iLength iPosition
-        Integer iDecimalSeparator iThousandSeparator
-
-        Move "-0123456789" to sCompare
-
-        Move (Length(sNumber)) to iLength
-        For iPosition from 1 to iLength
-            If (not(sCompare contains Mid(sNumber, 1, iPosition))) Function_Return False
-        Loop
-        Function_Return True
-    End_Function
-
-    { Visibility = Private }
     // Accepts integers, decimals, and thousands-separated numbers.
     // Used for BCD field values that may carry a decimal point or comma
     // separator before they are embedded in a SQL predicate.
     Function IsOptDottedNumeric String sNumber Returns Boolean
         String sCompare
         Integer iLength iPosition
-        Integer iDecimalSeparator iThousandSeparator
 
         Move "-0123456789.," to sCompare
 
@@ -95,32 +77,12 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Function_Return sName
     End_Function
 
-    // Lower-cased variant used for case-insensitive matching against table names
-    // that arrive in the request body (client may use any casing).
-    Function LoweredNameOfDD Handle hoDD Returns String
-        String sName
-        Integer iFile
-        Get Main_File of hoDD to iFile
-        Get_Attribute DF_FILE_LOGICAL_NAME of iFile to sName
-        Function_Return (Lowercase(sName))
-    End_Function
-
-    // Returns True when iIndex falls within the range of indexes defined on hoDD's table.
-    Function IsValidIndexForDD Handle hoDD Integer iIndex Returns Boolean
-        Handle hFile
-        Integer iLastIndex
-        Get Main_File of hoDD to hFile
-        Get_Attribute DF_FILE_LAST_INDEX_NUMBER of hFile to iLastIndex
-        Function_Return (iIndex <= iLastIndex)
-    End_Function
-
     // Returns True when hoTest is a direct parent or child of hoDD in the pre-cached
     // topology. The optional third argument bOptParent is set to True if hoTest is a
     // server-file (parent) or False if it is a client-file (child).
     // Rejects queries that try to join unrelated tables by returning False.
     Function IsDDRelated Handle hoDD Handle hoTest Boolean ByRef bOptParent Returns Boolean
         Integer iInfoIndex iIndex
-        Handle[] aHandles
         tDDPClassicFileInfo oInfo
         tDDPClassicFileInfo[] aInfo
         Get paFileInfo to aInfo
@@ -1025,9 +987,6 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         For iChild from 0 to (SizeOfArray(aChildSeenSets) - 1)
             If (aChildSeenSets[iChild] <> 0) Send Destroy of aChildSeenSets[iChild]
         Loop
-
-        If (not(bFailed)) Begin
-        End
         Function_Return oResult
     End_Function
 
