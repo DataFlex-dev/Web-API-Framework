@@ -196,8 +196,9 @@ Register_Function AddConstrainsToCurrentSet Handle hoConstraintOwner tDDPTableQu
 Register_Function DDPPrepareFind tDDPTableQuery query Returns tDDPBuilderResult
 Register_Function DDPSerializedFields tDDPTableQuery query Boolean bForceRelated Returns tDDPSerializedField[]
 Register_Function DDPFetchJson tDDPTableQuery query Integer eStyle Handle ByRef hoJson Returns tDDPBuilderResult
-// Sort-field comparer from cDDPBuilder_Mixin, also used by the backends.
+// From cDDPBuilder_Mixin, also used by the backends.
 Register_Function DDPCompareOrderSequence tDDPOrder oLeft tDDPOrder oRight Returns Integer
+Register_Function DDPError Integer iErr String sError Returns tDDPBuilderResult
 
 Class IDDP_Backend_Mixin is a Mixin
     Procedure Define_DDP_Backend_Mixin

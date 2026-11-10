@@ -482,9 +482,7 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         End
         Else If (not(IsOptDottedNumeric(Self, sFilter))) Begin
             // Reject non-numeric values for numeric fields before they touch SQL.
-            Move DDPERR_INVALID_CONSTRAIN to oResult.iErr
-            Move "Invalid constrain should be numeric." to oResult.sError
-            Function_Return oResult
+            Function_Return (DDPError(Self, DDPERR_INVALID_CONSTRAIN, "Invalid constrain should be numeric."))
         End
 
         Set pbUseDDSQLFilters of hoMainDD to True
@@ -508,9 +506,7 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
             Get SQLStrAppend of hoMainDD sQuery (SQLStrFileFieldName(hoDD, hField) + " != " + sFilter) to sQuery
         End
         Else Begin
-            Move DDPERR_INVALID_CONSTRAIN to oResult.iErr
-            Move "Invalid contrain." to oResult.sError
-            Function_Return oResult
+            Function_Return (DDPError(Self, DDPERR_INVALID_CONSTRAIN, "Invalid contrain."))
         End
         Set psSQLFilter of hoMainDD to sQuery
         Function_Return oResult
@@ -687,8 +683,7 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
             Get Create (RefClass(cJsonObject)) to hoMain
             If (hoMain <> 0 and not(Err)) Send InitializeJsonType of hoMain jsonTypeArray
             If (hoMain = 0 or Err) Begin
-                Move DDPERR_FIND_FAILED to oResult.iErr
-                Get DDPErrorText "JSON response construction failed." to oResult.sError
+                Move (DDPError(Self, DDPERR_FIND_FAILED, DDPErrorText(Self, "JSON response construction failed."))) to oResult
                 Move True to bFailed
             End
             For iParent from 0 to (SizeOfArray(aParentNames) - 1)
@@ -697,8 +692,7 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
                     If (hoParentJson <> 0 and not(Err)) ;
                         Send InitializeJsonType of hoParentJson jsonTypeArray
                     If (hoParentJson = 0 or Err) Begin
-                        Move DDPERR_FIND_FAILED to oResult.iErr
-                        Get DDPErrorText "JSON response construction failed." to oResult.sError
+                        Move (DDPError(Self, DDPERR_FIND_FAILED, DDPErrorText(Self, "JSON response construction failed."))) to oResult
                         Move True to bFailed
                     End
                     Else Begin
@@ -709,8 +703,7 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
                             If (hoParentJson <> 0 and not(Err)) ;
                                 Send InitializeJsonType of hoParentJson jsonTypeObject
                             If (hoParentJson = 0 or Err) Begin
-                                Move DDPERR_FIND_FAILED to oResult.iErr
-                                Get DDPErrorText "JSON response construction failed." to oResult.sError
+                                Move (DDPError(Self, DDPERR_FIND_FAILED, DDPErrorText(Self, "JSON response construction failed."))) to oResult
                                 Move True to bFailed
                             End
                             Else Begin
@@ -728,8 +721,7 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
                     If (hoChildJson <> 0 and not(Err)) ;
                         Send InitializeJsonType of hoChildJson jsonTypeArray
                     If (hoChildJson = 0 or Err) Begin
-                        Move DDPERR_FIND_FAILED to oResult.iErr
-                        Get DDPErrorText "JSON response construction failed." to oResult.sError
+                        Move (DDPError(Self, DDPERR_FIND_FAILED, DDPErrorText(Self, "JSON response construction failed."))) to oResult
                         Move True to bFailed
                     End
                     Else Begin
@@ -740,8 +732,7 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
                             If (hoChildJson <> 0 and not(Err)) ;
                                 Send InitializeJsonType of hoChildJson jsonTypeObject
                             If (hoChildJson = 0 or Err) Begin
-                                Move DDPERR_FIND_FAILED to oResult.iErr
-                                Get DDPErrorText "JSON response construction failed." to oResult.sError
+                                Move (DDPError(Self, DDPERR_FIND_FAILED, DDPErrorText(Self, "JSON response construction failed."))) to oResult
                                 Move True to bFailed
                             End
                             Else Begin
@@ -759,8 +750,7 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
             Get Create (RefClass(cJsonObject)) to hoParentJson
         If (not(bFailed)) Get Create (RefClass(cJsonObject)) to hoRow
         If (Err and not(bFailed)) Begin
-            Move DDPERR_FIND_FAILED to oResult.iErr
-            Get DDPErrorText "JSON response construction failed." to oResult.sError
+            Move (DDPError(Self, DDPERR_FIND_FAILED, DDPErrorText(Self, "JSON response construction failed."))) to oResult
             Move True to bFailed
         End
 
@@ -775,8 +765,7 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
             Move False to Err
             Send DDPRequestRead query.hoDD iFindMode hFile iIndex
             If Err Begin
-                Move DDPERR_FIND_FAILED to oResult.iErr
-                Get DDPErrorText "Find failed." to oResult.sError
+                Move (DDPError(Self, DDPERR_FIND_FAILED, DDPErrorText(Self, "Find failed."))) to oResult
                 Move True to bFailed
             End
         End
@@ -787,8 +776,7 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
             Move False to Err
             Send DDPRequestRead query.hoDD NEXT_RECORD hFile iIndex
             If Err Begin
-                Move DDPERR_FIND_FAILED to oResult.iErr
-                Get DDPErrorText "Find failed." to oResult.sError
+                Move (DDPError(Self, DDPERR_FIND_FAILED, DDPErrorText(Self, "Find failed."))) to oResult
                 Move True to bFailed
             End
         Loop
@@ -815,8 +803,7 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
                 End
             End
             If Err Begin
-                Move DDPERR_FIND_FAILED to oResult.iErr
-                Get DDPErrorText "JSON response construction failed." to oResult.sError
+                Move (DDPError(Self, DDPERR_FIND_FAILED, DDPErrorText(Self, "JSON response construction failed."))) to oResult
                 Move True to bFailed
             End
 
@@ -826,8 +813,7 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
                 If bRootPresent ;
                     Send DDPSerializeFieldsToJson hoRow query.hoDD aFields
                 If Err Begin
-                    Move DDPERR_FIND_FAILED to oResult.iErr
-                    Get DDPErrorText "JSON response construction failed." to oResult.sError
+                    Move (DDPError(Self, DDPERR_FIND_FAILED, DDPErrorText(Self, "JSON response construction failed."))) to oResult
                     Move True to bFailed
                 End
 
@@ -862,8 +848,7 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
                             End
                         End
                         If Err Begin
-                            Move DDPERR_FIND_FAILED to oResult.iErr
-                            Get DDPErrorText "JSON response construction failed." to oResult.sError
+                            Move (DDPError(Self, DDPERR_FIND_FAILED, DDPErrorText(Self, "JSON response construction failed."))) to oResult
                             Move True to bFailed
                             Break
                         End
@@ -886,8 +871,7 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
                         If (hoChildJson <> 0 and not(Err)) Begin
                             Send InitializeJsonType of hoChildJson jsonTypeArray
                             If Err Begin
-                                Move DDPERR_FIND_FAILED to oResult.iErr
-                                Get DDPErrorText "JSON response construction failed." to oResult.sError
+                                Move (DDPError(Self, DDPERR_FIND_FAILED, DDPErrorText(Self, "JSON response construction failed."))) to oResult
                             End
                             Else ;
                                 Get DDPAppendQueryJson childQuery DDPStyle_Nested query.hoDD riCurrent ;
@@ -900,12 +884,10 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
                             End
                         End
                         Else If (not(oResult.iErr)) Begin
-                            Move DDPERR_FIND_FAILED to oResult.iErr
-                            Get DDPErrorText "JSON response construction failed." to oResult.sError
+                            Move (DDPError(Self, DDPERR_FIND_FAILED, DDPErrorText(Self, "JSON response construction failed."))) to oResult
                         End
                         If (Err and not(oResult.iErr)) Begin
-                            Move DDPERR_FIND_FAILED to oResult.iErr
-                            Get DDPErrorText "JSON response construction failed." to oResult.sError
+                            Move (DDPError(Self, DDPERR_FIND_FAILED, DDPErrorText(Self, "JSON response construction failed."))) to oResult
                         End
                         If (hoChildJson <> 0) Send Destroy of hoChildJson
                         Move 0 to hoChildJson
@@ -915,8 +897,7 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
                         Break
                     End
                     If Err Begin
-                        Move DDPERR_FIND_FAILED to oResult.iErr
-                        Get DDPErrorText "JSON response construction failed." to oResult.sError
+                        Move (DDPError(Self, DDPERR_FIND_FAILED, DDPErrorText(Self, "JSON response construction failed."))) to oResult
                         Move True to bFailed
                         Break
                     End
@@ -929,8 +910,7 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
                 Else ;
                     Send AddMember of hoJson hoRow
                 If Err Begin
-                    Move DDPERR_FIND_FAILED to oResult.iErr
-                    Get DDPErrorText "JSON response construction failed." to oResult.sError
+                    Move (DDPError(Self, DDPERR_FIND_FAILED, DDPErrorText(Self, "JSON response construction failed."))) to oResult
                     Move True to bFailed
                 End
             End
@@ -940,8 +920,7 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
                 Move False to Err
                 Send DDPRequestRead query.hoDD NEXT_RECORD hFile iIndex
                 If Err Begin
-                    Move DDPERR_FIND_FAILED to oResult.iErr
-                    Get DDPErrorText "Find failed." to oResult.sError
+                    Move (DDPError(Self, DDPERR_FIND_FAILED, DDPErrorText(Self, "Find failed."))) to oResult
                     Move True to bFailed
                 End
             End
@@ -958,15 +937,13 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
                 If (not(Err)) Send SetMember of hoJson aChildNames[iChild] ahChilds[iChild]
             Loop
             If Err Begin
-                Move DDPERR_FIND_FAILED to oResult.iErr
-                Get DDPErrorText "JSON response construction failed." to oResult.sError
+                Move (DDPError(Self, DDPERR_FIND_FAILED, DDPErrorText(Self, "JSON response construction failed."))) to oResult
                 Move True to bFailed
             End
         End
 
         If (not(bFailed) and Err) Begin
-            Move DDPERR_FIND_FAILED to oResult.iErr
-            Get DDPErrorText "JSON response construction failed." to oResult.sError
+            Move (DDPError(Self, DDPERR_FIND_FAILED, DDPErrorText(Self, "JSON response construction failed."))) to oResult
             Move True to bFailed
         End
 
@@ -997,14 +974,10 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
 
         Move 0 to hoJson
         If (query.eCursorMode <> DDPFind_Auto) Begin
-            Move DDPERR_INVALID_FORMAT to oResult.iErr
-            Move "'cursor' is not supported by the Windows backend yet." to oResult.sError
-            Function_Return oResult
+            Function_Return (DDPError(Self, DDPERR_INVALID_FORMAT, "'cursor' is not supported by the Windows backend yet."))
         End
         If (query.oIndexConstrain.eMode <> DDPFind_Auto) Begin
-            Move DDPERR_INVALID_FORMAT to oResult.iErr
-            Move "Multi-field constraints are not supported by the Windows backend yet." to oResult.sError
-            Function_Return oResult
+            Function_Return (DDPError(Self, DDPERR_INVALID_FORMAT, "Multi-field constraints are not supported by the Windows backend yet."))
         End
         Move False to Err
         Get Create (RefClass(cJsonObject)) to hoJson
@@ -1018,13 +991,11 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         If bInitialized Begin
             Get DDPAppendQueryJson query eStyle 0 (NullRowID()) hoJson 0 False to oResult
             If (Err and not(oResult.iErr)) Begin
-                Move DDPERR_FIND_FAILED to oResult.iErr
-                Get DDPErrorText "JSON response construction failed." to oResult.sError
+                Move (DDPError(Self, DDPERR_FIND_FAILED, DDPErrorText(Self, "JSON response construction failed."))) to oResult
             End
         End
         Else Begin
-            Move DDPERR_FIND_FAILED to oResult.iErr
-            Get DDPErrorText "JSON response construction failed." to oResult.sError
+            Move (DDPError(Self, DDPERR_FIND_FAILED, DDPErrorText(Self, "JSON response construction failed."))) to oResult
         End
 
         If (oResult.iErr) Begin

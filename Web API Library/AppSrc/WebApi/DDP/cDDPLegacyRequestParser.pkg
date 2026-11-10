@@ -129,8 +129,7 @@ Class cDDPLegacyRequestParser is a cDDPRequestParser
         If (bValid and sValue = "asc") Move DDPOrder_ASC to oOrder.eMode
         Else If (bValid and sValue = "desc") Move DDPOrder_DESC to oOrder.eMode
         Else Begin
-            Move DDPERR_INVALID_ORDER to oResult.iErr
-            Move (SFormat("Invalid ordering on field '%1' in '%2'.", sKey, sDDName)) to oResult.sError
+            Move (DDPError(Self, DDPERR_INVALID_ORDER, SFormat("Invalid ordering on field '%1' in '%2'.", sKey, sDDName))) to oResult
         End
         Function_Return oResult
     End_Function
@@ -148,14 +147,10 @@ Class cDDPLegacyRequestParser is a cDDPRequestParser
         Move (SortArray(aOrder, hoProtocol, RefFunc(DDPCompareOrderSequence))) to aOrder
         For iIndex from 1 to (SizeOfArray(aOrder) - 1)
             If (aOrder[iIndex].bExplicit <> aOrder[0].bExplicit) Begin
-                Move DDPERR_INVALID_ORDER to oResult.iErr
-                Move (SFormat("Ordering in '%1' mixes 'asc'/'desc' strings with {dir, seq} objects; use one form.", NameOfDD(hoProtocol, query.hoDD))) to oResult.sError
-                Function_Return oResult
+                Function_Return (DDPError(Self, DDPERR_INVALID_ORDER, SFormat("Ordering in '%1' mixes 'asc'/'desc' strings with {dir, seq} objects; use one form.", NameOfDD(hoProtocol, query.hoDD))))
             End
             If (aOrder[iIndex].iSequence = aOrder[iIndex - 1].iSequence) Begin
-                Move DDPERR_INVALID_ORDER to oResult.iErr
-                Move (SFormat("Ordering in '%1' uses seq %2 more than once.", NameOfDD(hoProtocol, query.hoDD), aOrder[iIndex].iSequence)) to oResult.sError
-                Function_Return oResult
+                Function_Return (DDPError(Self, DDPERR_INVALID_ORDER, SFormat("Ordering in '%1' uses seq %2 more than once.", NameOfDD(hoProtocol, query.hoDD), aOrder[iIndex].iSequence)))
             End
         Loop
 
@@ -186,9 +181,7 @@ Class cDDPLegacyRequestParser is a cDDPRequestParser
         // case-insensitive because Expose lowercases names on registration.
         Get DDByName of hoProtocol sDDName to table.hoDD
         If (table.hoDD = 0) Begin
-            Move DDPERR_UNKOWN_TABLE to oResult.iErr
-            Move (SFormat("'%1', not known.", sDDName)) to oResult.sError
-            Function_Return oResult
+            Function_Return (DDPError(Self, DDPERR_UNKOWN_TABLE, SFormat("'%1', not known.", sDDName)))
         End
 
         // __limit — optional integer cap on rows returned for this table.
@@ -211,9 +204,7 @@ Class cDDPLegacyRequestParser is a cDDPRequestParser
             Move True to bFieldsSpecified
             Move (MemberJsonType(hoJson, "__fields")) to eType
             If (eType <> jsonTypeArray) Begin
-                Move DDPERR_INVALID_FIELDS to oResult.iErr
-                Move "Invalid fields." to oResult.sError
-                Function_Return oResult
+                Function_Return (DDPError(Self, DDPERR_INVALID_FIELDS, "Invalid fields."))
             End
 
             Get Member of hoJson "__fields" to hoFields
@@ -223,9 +214,7 @@ Class cDDPLegacyRequestParser is a cDDPRequestParser
                 // Reject any name that does not exist on this DD — prevents
                 // silent data leakage if a client typos a sensitive field name.
                 If (not(IsField(hoProtocol, table.hoDD, sValue, &iField))) Begin
-                    Move DDPERR_INVALID_FIELD to oResult.iErr
-                    Move "Invalid field." to oResult.sError
-                    Function_Return oResult
+                    Function_Return (DDPError(Self, DDPERR_INVALID_FIELD, "Invalid field."))
                 End
                 // Store each resolved field once for later serialization.
                 If (SearchArray(iField, table.aFields) = -1) ;
@@ -261,18 +250,14 @@ Class cDDPLegacyRequestParser is a cDDPRequestParser
                 // Nested object — must be a related table name.
                 Get DDByName of hoProtocol sKey to oTable.hoDD
                 If (oTable.hoDD = 0) Begin
-                    Move DDPERR_UNKOWN_TABLE to oResult.iErr
-                    Move (SFormat("'%1', not known.", sKey)) to oResult.sError
-                    Function_Return oResult
+                    Function_Return (DDPError(Self, DDPERR_UNKOWN_TABLE, SFormat("'%1', not known.", sKey)))
                 End
 
                 // Verify a direct relationship exists between this table and
                 // the nested one. IsDDRelated also sets bParent to distinguish
                 // server-file (parent) from client-file (child) direction.
                 If (not(IsDDRelated(hoProtocol, table.hoDD, oTable.hoDD, &bParent))) Begin
-                    Move DDPERR_UNKOWN_TABLE to oResult.iErr
-                    Move (SFormat("'%1', not related.", sKey)) to oResult.sError
-                    Function_Return oResult
+                    Function_Return (DDPError(Self, DDPERR_UNKOWN_TABLE, SFormat("'%1', not related.", sKey)))
                 End
 
                 // Recurse to parse the nested table's own constraints and relations.
@@ -297,15 +282,11 @@ Class cDDPLegacyRequestParser is a cDDPRequestParser
                 // Scalar value — reject arrays/objects that sneaked past the
                 // object branch (defensive check; should not normally occur).
                 If (eType = jsonTypeObject or eType = jsonTypeArray) Begin
-                    Move DDPERR_INVALID_CONSTRAIN to oResult.iErr
-                    Move (SFormat("Invalid parameter '%1' in '%2'.", sKey, sDDName)) to oResult.sError
-                    Function_Return oResult
+                    Function_Return (DDPError(Self, DDPERR_INVALID_CONSTRAIN, SFormat("Invalid parameter '%1' in '%2'.", sKey, sDDName)))
                 End
 
                 If (not(bResolved)) Begin
-                    Move DDPERR_INVALID_CONSTRAIN to oResult.iErr
-                    Move (SFormat("Invalid parameter field '%1' in '%2'.", sKey, sDDName)) to oResult.sError
-                    Function_Return oResult
+                    Function_Return (DDPError(Self, DDPERR_INVALID_CONSTRAIN, SFormat("Invalid parameter field '%1' in '%2'.", sKey, sDDName)))
                 End
 
                 Get MemberValue of hoJson sKey to sValue

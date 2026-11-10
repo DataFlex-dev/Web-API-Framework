@@ -494,17 +494,13 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         tDDPBuilderResult oResult
 
         If (hoDD = 0) Begin
-            Move DDPERR_INVALID_FIELD to oResult.iErr
-            Move "Invalid constrain field." to oResult.sError
-            Function_Return oResult
+            Function_Return (DDPError(Self, DDPERR_INVALID_FIELD, "Invalid constrain field."))
         End
 
         Get FieldCount hoDD to iFieldCount
         Move (hField - 1) to iField
         If (iField < 0 or iField >= iFieldCount) Begin
-            Move DDPERR_INVALID_FIELD to oResult.iErr
-            Move "Invalid constrain field." to oResult.sError
-            Function_Return oResult
+            Function_Return (DDPError(Self, DDPERR_INVALID_FIELD, "Invalid constrain field."))
         End
 
         Case Begin
@@ -524,38 +520,28 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
                 Move C_DbConstraint_GT to eDbConstrain
                 Case Break
             Case (eConstrain = DDPFind_NE)
-                Move DDPERR_INVALID_CONSTRAIN to oResult.iErr
-                Move "Constraint '_ne' is not supported." to oResult.sError
-                Function_Return oResult
+                Function_Return (DDPError(Self, DDPERR_INVALID_CONSTRAIN, "Constraint '_ne' is not supported."))
             Case (eConstrain = DDPFind_CONTAINS)
                 Move C_DbConstraint_Contains to eDbConstrain
                 Case Break
             Case Else
-                Move DDPERR_INVALID_CONSTRAIN to oResult.iErr
-                Move "Invalid constrain." to oResult.sError
-                Function_Return oResult
+                Function_Return (DDPError(Self, DDPERR_INVALID_CONSTRAIN, "Invalid constrain."))
         Case End
 
         Get FieldType hoDD hField to eType
         If (eDbConstrain = C_DbConstraint_Contains and eType <> C_TypeString) Begin
-            Move DDPERR_INVALID_CONSTRAIN to oResult.iErr
-            Move "Constraint 'contains' is only supported on text fields." to oResult.sError
-            Function_Return oResult
+            Function_Return (DDPError(Self, DDPERR_INVALID_CONSTRAIN, "Constraint 'contains' is only supported on text fields."))
         End
         If (eType = C_TypeDate) Begin
             If (not(DDPParseISODate(sFilter, &dValue))) Begin
-                Move DDPERR_INVALID_CONSTRAIN to oResult.iErr
-                Move "Invalid date constraint; expected YYYY-MM-DD." to oResult.sError
-                Function_Return oResult
+                Function_Return (DDPError(Self, DDPERR_INVALID_CONSTRAIN, "Invalid date constraint; expected YYYY-MM-DD."))
             End
             Send Add_Value_Constraint of hoDD hoMainDD iField eDbConstrain dValue
         End
         // Compare numeric fields as numbers, because the filter value is read as text.
         Else If (sFilter <> "" and (DFTypeToJson(Self, eType, 0) = jsonTypeInteger or DFTypeToJson(Self, eType, 0) = jsonTypeDouble)) Begin
             If (not(DDPIsNumericFilter(Self, sFilter))) Begin
-                Move DDPERR_INVALID_CONSTRAIN to oResult.iErr
-                Move "Invalid numeric constraint." to oResult.sError
-                Function_Return oResult
+                Function_Return (DDPError(Self, DDPERR_INVALID_CONSTRAIN, "Invalid numeric constraint."))
             End
             Send Add_Value_Constraint of hoDD hoMainDD iField eDbConstrain (Convert(sFilter, Number))
         End
@@ -673,11 +659,7 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
 
     { Visibility = Private }
     Function DDPFindFailure Returns tDDPBuilderResult
-        tDDPBuilderResult oResult
-
-        Move DDPERR_FIND_FAILED to oResult.iErr
-        Get DDPErrorText "Find failed." to oResult.sError
-        Function_Return oResult
+        Function_Return (DDPError(Self, DDPERR_FIND_FAILED, DDPErrorText(Self, "Find failed.")))
     End_Function
 
     { Visibility = Private }
@@ -733,9 +715,7 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         For iKey from 0 to (SizeOfArray(aPKFields) - 1)
             If (FieldType(Self, query.hoDD, aPKFields[iKey]) = C_TypeDate) Begin
                 If (not(DDPParseISODate(query.aCursorKey[iKey], &dValue))) Begin
-                    Move DDPERR_INVALID_FORMAT to oResult.iErr
-                    Move "Invalid cursor date; expected YYYY-MM-DD." to oResult.sError
-                    Function_Return oResult
+                    Function_Return (DDPError(Self, DDPERR_INVALID_FORMAT, "Invalid cursor date; expected YYYY-MM-DD."))
                 End
                 Send StructSetMember (&vBuffer) (aPKFields[iKey] - 1) dValue
             End
@@ -1134,11 +1114,7 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
 
     { Visibility = Private }
     Function DDPJsonConstructionFailure Returns tDDPBuilderResult
-        tDDPBuilderResult oResult
-
-        Move DDPERR_FIND_FAILED to oResult.iErr
-        Move "JSON response construction failed." to oResult.sError
-        Function_Return oResult
+        Function_Return (DDPError(Self, DDPERR_FIND_FAILED, "JSON response construction failed."))
     End_Function
 
     { Visibility = Private }

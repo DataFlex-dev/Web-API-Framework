@@ -18,12 +18,17 @@ Class cDDPRequestParser is a cObject
         Set phoProtocol to hoParent
     End_Procedure
 
+    // Builds a failed tDDPBuilderResult: Function_Return (DDPError(Self, DDPERR_..., "...")).
+    Function DDPError Integer iErr String sError Returns tDDPBuilderResult
+        tDDPBuilderResult oResult
+        Move iErr to oResult.iErr
+        Move sError to oResult.sError
+        Function_Return oResult
+    End_Function
+
     // Parses the root JSON object into one tDDPQuery per root table, in request order.
     Function ParseQueryRequest Handle hoJson tDDPQuery[] ByRef aQueries Returns tDDPBuilderResult
-        tDDPBuilderResult oResult
-        Move DDPERR_INVALID_FORMAT to oResult.iErr
-        Move "Request format is not supported." to oResult.sError
-        Function_Return oResult
+        Function_Return (DDPError(Self, DDPERR_INVALID_FORMAT, "Request format is not supported."))
     End_Function
 
     // Reads the optional non-negative integer member sMember into iValue. iValue is left
@@ -36,9 +41,7 @@ Class cDDPRequestParser is a cObject
             Get MemberValue of hoJson sMember to iValue
             If (iValue >= 0) Function_Return oResult
         End
-        Move iErr to oResult.iErr
-        Move sError to oResult.sError
-        Function_Return oResult
+        Function_Return (DDPError(Self, iErr, sError))
     End_Function
 
     // Default projection: every field, including FK fields to the parents, which a client

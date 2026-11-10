@@ -38,6 +38,14 @@ Class cDDPBuilder_Mixin is a Mixin
         Set pbIsCollecting to False
     End_Procedure
 
+    // Builds a failed tDDPBuilderResult: Function_Return (DDPError(Self, DDPERR_..., "...")).
+    Function DDPError Integer iErr String sError Returns tDDPBuilderResult
+        tDDPBuilderResult oResult
+        Move iErr to oResult.iErr
+        Move sError to oResult.sError
+        Function_Return oResult
+    End_Function
+
     // Resets request-specific DD relationships, constraints, and buffers before
     // shared DD objects are reused by another request.
     // Classic cleanup detaches live DDO links; native cleanup preserves
@@ -290,9 +298,7 @@ Class cDDPBuilder_Mixin is a Mixin
 
         Get DDByName sDDName to record.hoDD
         If (record.hoDD = 0) Begin
-            Move DDPERR_UNKOWN_TABLE to oResult.iErr
-            Move (SFormat("'%1', not known.", sDDName)) to oResult.sError
-            Function_Return oResult
+            Function_Return (DDPError(Self, DDPERR_UNKOWN_TABLE, SFormat("'%1', not known.", sDDName)))
         End
 
         For iIndex from 0 to (MemberCount(hoJson) - 1)
@@ -303,20 +309,14 @@ Class cDDPBuilder_Mixin is a Mixin
                 // Nested table must be an exposed child of this table.
                 Get DDByName sKey to hoChildDD
                 If (hoChildDD = 0) Begin
-                    Move DDPERR_UNKOWN_TABLE to oResult.iErr
-                    Move (SFormat("'%1', not known.", sKey)) to oResult.sError
-                    Function_Return oResult
+                    Function_Return (DDPError(Self, DDPERR_UNKOWN_TABLE, SFormat("'%1', not known.", sKey)))
                 End
                 If (not(IsDDRelated(Self, record.hoDD, hoChildDD, &bParent))) Begin
-                    Move DDPERR_UNKOWN_TABLE to oResult.iErr
-                    Move (SFormat("'%1', not related.", sKey)) to oResult.sError
-                    Function_Return oResult
+                    Function_Return (DDPError(Self, DDPERR_UNKOWN_TABLE, SFormat("'%1', not related.", sKey)))
                 End
                 If (bParent) Begin
                     // The related table is a parent only children may be nested for store.
-                    Move DDPERR_UNKOWN_TABLE to oResult.iErr
-                    Move (SFormat("'%1', is a parent table.", sKey)) to oResult.sError
-                    Function_Return oResult
+                    Function_Return (DDPError(Self, DDPERR_UNKOWN_TABLE, SFormat("'%1', is a parent table.", sKey)))
                 End
 
                 If (eType = jsonTypeArray) Begin
@@ -346,9 +346,7 @@ Class cDDPBuilder_Mixin is a Mixin
             Else If (eType <> jsonTypeNull) Begin
                 // Scalar field assignment — validate the name then store number + value.
                 If (not(IsField(Self, record.hoDD, sKey, &iField))) Begin
-                    Move DDPERR_INVALID_FIELD to oResult.iErr
-                    Move (SFormat("Unknown field '%1' in '%2'.", sKey, sDDName)) to oResult.sError
-                    Function_Return oResult
+                    Function_Return (DDPError(Self, DDPERR_INVALID_FIELD, SFormat("Unknown field '%1' in '%2'.", sKey, sDDName)))
                 End
                 Get MemberValue of hoJson sKey to sValue
                 Move iField to oField.hField
@@ -521,9 +519,7 @@ Class cDDPBuilder_Mixin is a Mixin
                             Get PrimaryDDIndex aParents[iParent] to iPrimaryIndex
                             Send DDPRequestFind aParents[iParent] EQ hParentFile iPrimaryIndex
                             If (not(Found)) Begin
-                                Move DDPERR_VALIDATION_FAILED to oResult.iErr
-                                Move (SFormat("No '%1' record found for %2 = '%3'.", NameOfDD(Self, aParents[iParent]), FieldName(Self, hoDD, iField), sFKValue)) to oResult.sError
-                                Function_Return oResult
+                                Function_Return (DDPError(Self, DDPERR_VALIDATION_FAILED, SFormat("No '%1' record found for %2 = '%3'.", NameOfDD(Self, aParents[iParent]), FieldName(Self, hoDD, iField), sFKValue)))
                             End
                         End
                         Break
@@ -568,17 +564,13 @@ Class cDDPBuilder_Mixin is a Mixin
         If (oResult.iErr) Function_Return oResult
         Get Request_Validate of record.hoDD to bErr
         If (bErr) Begin
-            Move DDPERR_VALIDATION_FAILED to oResult.iErr
-            Get DDPErrorText "Validation failed." to oResult.sError
-            Function_Return oResult
+            Function_Return (DDPError(Self, DDPERR_VALIDATION_FAILED, DDPErrorText(Self, "Validation failed.")))
         End
 
         Send Request_Save of record.hoDD
         Move (Err) to bErr
         If (bErr) Begin
-            Move DDPERR_SAVE_FAILED to oResult.iErr
-            Get DDPErrorText "Save failed." to oResult.sError
-            Function_Return oResult
+            Function_Return (DDPError(Self, DDPERR_SAVE_FAILED, DDPErrorText(Self, "Save failed.")))
         End
 
         // Serialise the saved buffer (all fields; no field projection applied).
@@ -654,9 +646,7 @@ Class cDDPBuilder_Mixin is a Mixin
 
         Get DDByName sDDName to record.hoDD
         If (record.hoDD = 0) Begin
-            Move DDPERR_UNKOWN_TABLE to oResult.iErr
-            Move (SFormat("'%1', not known.", sDDName)) to oResult.sError
-            Function_Return oResult
+            Function_Return (DDPError(Self, DDPERR_UNKOWN_TABLE, SFormat("'%1', not known.", sDDName)))
         End
 
         For iIndex from 0 to (MemberCount(hoJson) - 1)
@@ -665,17 +655,13 @@ Class cDDPBuilder_Mixin is a Mixin
 
             // Nested objects and arrays are not valid in a delete request.
             If (eType = jsonTypeObject or eType = jsonTypeArray) Begin
-                Move DDPERR_INVALID_FORMAT to oResult.iErr
-                Move (SFormat("Nested tables are not allowed in a delete request ('%1').", sKey)) to oResult.sError
-                Function_Return oResult
+                Function_Return (DDPError(Self, DDPERR_INVALID_FORMAT, SFormat("Nested tables are not allowed in a delete request ('%1').", sKey)))
             End
 
             // Skip null values silently.
             If (eType <> jsonTypeNull) Begin
                 If (not(IsField(Self, record.hoDD, sKey, &iField))) Begin
-                    Move DDPERR_INVALID_FIELD to oResult.iErr
-                    Move (SFormat("Unknown field '%1' in '%2'.", sKey, sDDName)) to oResult.sError
-                    Function_Return oResult
+                    Function_Return (DDPError(Self, DDPERR_INVALID_FIELD, SFormat("Unknown field '%1' in '%2'.", sKey, sDDName)))
                 End
                 Get MemberValue of hoJson sKey to sValue
                 Move iField to oField.hField
@@ -742,9 +728,7 @@ Class cDDPBuilder_Mixin is a Mixin
 
         Get DDPPrimaryKeyFields record.hoDD to aPKFields
         If (SizeOfArray(aPKFields) = 0) Begin
-            Move DDPERR_MISSING_KEY_FIELD to oResult.iErr
-            Move (SFormat("No primary key is defined for '%1'.", NameOfDD(Self, record.hoDD))) to oResult.sError
-            Function_Return oResult
+            Function_Return (DDPError(Self, DDPERR_MISSING_KEY_FIELD, SFormat("No primary key is defined for '%1'.", NameOfDD(Self, record.hoDD))))
         End
 
         // Verify all PK fields were supplied by the client.
@@ -757,9 +741,7 @@ Class cDDPBuilder_Mixin is a Mixin
                 End
             Loop
             If (not(bPKFound)) Begin
-                Move DDPERR_MISSING_KEY_FIELD to oResult.iErr
-                Move (SFormat("Primary key field %1 is required for delete.", aPKFields[iPKIndex])) to oResult.sError
-                Function_Return oResult
+                Function_Return (DDPError(Self, DDPERR_MISSING_KEY_FIELD, SFormat("Primary key field %1 is required for delete.", aPKFields[iPKIndex])))
             End
         Loop
 
@@ -778,9 +760,7 @@ Class cDDPBuilder_Mixin is a Mixin
         Send Rebuild_Constraints of record.hoDD
         Send DDPRequestFind record.hoDD EQ hFile (PrimaryDDIndex(Self, record.hoDD))
         If (not(Found) or Err) Begin
-            Move DDPERR_RECORD_NOT_FOUND to oResult.iErr
-            Move "Record not found." to oResult.sError
-            Function_Return oResult
+            Function_Return (DDPError(Self, DDPERR_RECORD_NOT_FOUND, "Record not found."))
         End
 
         // Verify any non-PK fields the client supplied match the found record.
@@ -795,9 +775,7 @@ Class cDDPBuilder_Mixin is a Mixin
             If (not(bPKFound)) Begin
                 Move (DDPGetFieldValue(Self, record.hoDD, hFile, record.aFields[iIndex].hField)) to sCurrentValue
                 If (sCurrentValue <> record.aFields[iIndex].sValue) Begin
-                    Move DDPERR_RECORD_CHANGED to oResult.iErr
-                    Move "Record has been modified since it was last read." to oResult.sError
-                    Function_Return oResult
+                    Function_Return (DDPError(Self, DDPERR_RECORD_CHANGED, "Record has been modified since it was last read."))
                 End
             End
         Loop
@@ -813,9 +791,7 @@ Class cDDPBuilder_Mixin is a Mixin
         If (bErr) Begin
             Send Destroy of hoJson
             Move 0 to hoJson
-            Move DDPERR_VALIDATION_FAILED to oResult.iErr
-            Get DDPErrorText "Delete validation failed." to oResult.sError
-            Function_Return oResult
+            Function_Return (DDPError(Self, DDPERR_VALIDATION_FAILED, DDPErrorText(Self, "Delete validation failed.")))
         End
 
         Send Request_Delete of record.hoDD
@@ -823,9 +799,7 @@ Class cDDPBuilder_Mixin is a Mixin
         If (bErr) Begin
             Send Destroy of hoJson
             Move 0 to hoJson
-            Move DDPERR_DELETE_FAILED to oResult.iErr
-            Get DDPErrorText "Delete failed." to oResult.sError
-            Function_Return oResult
+            Function_Return (DDPError(Self, DDPERR_DELETE_FAILED, DDPErrorText(Self, "Delete failed.")))
         End
 
         Function_Return oResult
@@ -865,9 +839,7 @@ Class cDDPBuilder_Mixin is a Mixin
 
         Get DDByName sDDName to record.hoDD
         If (record.hoDD = 0) Begin
-            Move DDPERR_UNKOWN_TABLE to oResult.iErr
-            Move (SFormat("'%1', not known.", sDDName)) to oResult.sError
-            Function_Return oResult
+            Function_Return (DDPError(Self, DDPERR_UNKOWN_TABLE, SFormat("'%1', not known.", sDDName)))
         End
 
         For iIndex from 0 to (MemberCount(hoJson) - 1)
@@ -875,16 +847,12 @@ Class cDDPBuilder_Mixin is a Mixin
             Move (MemberJsonType(hoJson, sKey)) to eType
 
             If (eType = jsonTypeObject or eType = jsonTypeArray) Begin
-                Move DDPERR_INVALID_FORMAT to oResult.iErr
-                Move (SFormat("Nested tables are not allowed in an update request ('%1').", sKey)) to oResult.sError
-                Function_Return oResult
+                Function_Return (DDPError(Self, DDPERR_INVALID_FORMAT, SFormat("Nested tables are not allowed in an update request ('%1').", sKey)))
             End
 
             If (eType <> jsonTypeNull) Begin
                 If (not(IsField(Self, record.hoDD, sKey, &iField))) Begin
-                    Move DDPERR_INVALID_FIELD to oResult.iErr
-                    Move (SFormat("Unknown field '%1' in '%2'.", sKey, sDDName)) to oResult.sError
-                    Function_Return oResult
+                    Function_Return (DDPError(Self, DDPERR_INVALID_FIELD, SFormat("Unknown field '%1' in '%2'.", sKey, sDDName)))
                 End
                 Get MemberValue of hoJson sKey to sValue
                 Move iField to oField.hField
@@ -938,9 +906,7 @@ Class cDDPBuilder_Mixin is a Mixin
 
         Get DDPPrimaryKeyFields record.hoDD to aPKFields
         If (SizeOfArray(aPKFields) = 0) Begin
-            Move DDPERR_MISSING_KEY_FIELD to oResult.iErr
-            Move (SFormat("No primary key is defined for '%1'.", NameOfDD(Self, record.hoDD))) to oResult.sError
-            Function_Return oResult
+            Function_Return (DDPError(Self, DDPERR_MISSING_KEY_FIELD, SFormat("No primary key is defined for '%1'.", NameOfDD(Self, record.hoDD))))
         End
 
         // Verify all PK fields were supplied by the client.
@@ -953,9 +919,7 @@ Class cDDPBuilder_Mixin is a Mixin
                 End
             Loop
             If (not(bPKFound)) Begin
-                Move DDPERR_MISSING_KEY_FIELD to oResult.iErr
-                Move (SFormat("Primary key field %1 is required for update.", aPKFields[iPKIndex])) to oResult.sError
-                Function_Return oResult
+                Function_Return (DDPError(Self, DDPERR_MISSING_KEY_FIELD, SFormat("Primary key field %1 is required for update.", aPKFields[iPKIndex])))
             End
         Loop
 
@@ -973,9 +937,7 @@ Class cDDPBuilder_Mixin is a Mixin
 
         Send DDPRequestFind record.hoDD EQ hFile (PrimaryDDIndex(Self, record.hoDD))
         If (not(Found) or Err) Begin
-            Move DDPERR_RECORD_NOT_FOUND to oResult.iErr
-            Move "Record not found." to oResult.sError
-            Function_Return oResult
+            Function_Return (DDPError(Self, DDPERR_RECORD_NOT_FOUND, "Record not found."))
         End
 
         // Apply non-PK fields via File_Field_Changed_Value so the DD layer tracks the dirty set.
@@ -999,17 +961,13 @@ Class cDDPBuilder_Mixin is a Mixin
 
         Get Request_Validate of record.hoDD to bErr
         If (bErr) Begin
-            Move DDPERR_VALIDATION_FAILED to oResult.iErr
-            Get DDPErrorText "Validation failed." to oResult.sError
-            Function_Return oResult
+            Function_Return (DDPError(Self, DDPERR_VALIDATION_FAILED, DDPErrorText(Self, "Validation failed.")))
         End
 
         Send Request_Save of record.hoDD
         Move (Err) to bErr
         If (bErr) Begin
-            Move DDPERR_UPDATE_FAILED to oResult.iErr
-            Get DDPErrorText "Update failed." to oResult.sError
-            Function_Return oResult
+            Function_Return (DDPError(Self, DDPERR_UPDATE_FAILED, DDPErrorText(Self, "Update failed.")))
         End
 
         // Re-find the saved row before serializing; Request_Save may leave the DD buffer elsewhere.
@@ -1024,9 +982,7 @@ Class cDDPBuilder_Mixin is a Mixin
         Loop
         Send DDPRequestFind record.hoDD EQ hFile (PrimaryDDIndex(Self, record.hoDD))
         If (not(Found) or Err) Begin
-            Move DDPERR_RECORD_NOT_FOUND to oResult.iErr
-            Move "Record not found after update." to oResult.sError
-            Function_Return oResult
+            Function_Return (DDPError(Self, DDPERR_RECORD_NOT_FOUND, "Record not found after update."))
         End
 
         // Serialise the updated buffer (all fields; no field projection applied).

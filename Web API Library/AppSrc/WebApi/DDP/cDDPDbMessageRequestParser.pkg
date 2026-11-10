@@ -37,13 +37,6 @@ Class cDDPDbMessageRequestParser is a cDDPRequestParser
         Function_Return eType
     End_Function
 
-    Function ErrorResult Integer iErr String sError Returns tDDPBuilderResult
-        tDDPBuilderResult oResult
-        Move iErr to oResult.iErr
-        Move sError to oResult.sError
-        Function_Return oResult
-    End_Function
-
     // Index of the node for hoDD, or -1.
     Function NodeIndexOfDD tDDPDbMessageNode[] ByRef aNodes Handle hoDD Returns Integer
         Integer iNode
@@ -62,16 +55,16 @@ Class cDDPDbMessageRequestParser is a cDDPRequestParser
         Get phoProtocol to hoProtocol
         Move (Pos(".", sQualifiedField)) to iDot
         If (iDot = 0) ;
-            Function_Return (ErrorResult(Self, DDPERR_INVALID_FIELD, SFormat("Field '%1' must be qualified as 'Table.Field'.", sQualifiedField)))
+            Function_Return (DDPError(Self, DDPERR_INVALID_FIELD, SFormat("Field '%1' must be qualified as 'Table.Field'.", sQualifiedField)))
 
         Get DDByName of hoProtocol (Left(sQualifiedField, iDot - 1)) to hoDD
         Move -1 to iNode
         If (hoDD <> 0) Get NodeIndexOfDD (&aNodes) hoDD to iNode
         If (iNode = -1) ;
-            Function_Return (ErrorResult(Self, DDPERR_INVALID_FIELD, SFormat("Table of field '%1' is not the main table or a joined table.", sQualifiedField)))
+            Function_Return (DDPError(Self, DDPERR_INVALID_FIELD, SFormat("Table of field '%1' is not the main table or a joined table.", sQualifiedField)))
 
         If (not(IsField(hoProtocol, hoDD, Right(sQualifiedField, Length(sQualifiedField) - iDot), &iField))) ;
-            Function_Return (ErrorResult(Self, DDPERR_INVALID_FIELD, SFormat("Invalid field '%1'.", sQualifiedField)))
+            Function_Return (DDPError(Self, DDPERR_INVALID_FIELD, SFormat("Invalid field '%1'.", sQualifiedField)))
         Function_Return oResult
     End_Function
 
@@ -85,27 +78,27 @@ Class cDDPDbMessageRequestParser is a cDDPRequestParser
         Boolean bParent
 
         If (MemberJsonTypeOrAbsent(Self, hoItem, "table") <> jsonTypeString or MemberJsonTypeOrAbsent(Self, hoItem, "from") <> jsonTypeString) ;
-            Function_Return (ErrorResult(Self, DDPERR_INVALID_FORMAT, SFormat("Invalid join at index %1.", iIndex)))
+            Function_Return (DDPError(Self, DDPERR_INVALID_FORMAT, SFormat("Invalid join at index %1.", iIndex)))
         Get MemberValue of hoItem "table" to sName
         Get MemberValue of hoItem "from" to sFrom
 
         Get phoProtocol to hoProtocol
         Get DDByName of hoProtocol sName to hoDD
         If (hoDD = 0) ;
-            Function_Return (ErrorResult(Self, DDPERR_UNKOWN_TABLE, SFormat("'%1', not known.", sName)))
+            Function_Return (DDPError(Self, DDPERR_UNKOWN_TABLE, SFormat("'%1', not known.", sName)))
         If (NodeIndexOfDD(Self, &aNodes, hoDD) <> -1) ;
-            Function_Return (ErrorResult(Self, DDPERR_INVALID_TABLES, SFormat("'%1' is joined more than once.", sName)))
+            Function_Return (DDPError(Self, DDPERR_INVALID_TABLES, SFormat("'%1' is joined more than once.", sName)))
 
         Get DDByName of hoProtocol sFrom to hoFromDD
         Move -1 to iJoinedFromNode
         If (hoFromDD <> 0) Get NodeIndexOfDD (&aNodes) hoFromDD to iJoinedFromNode
         If (iJoinedFromNode = -1) ;
-            Function_Return (ErrorResult(Self, DDPERR_INVALID_TABLES, SFormat("Join source '%1' is not the main table or an earlier join.", sFrom)))
+            Function_Return (DDPError(Self, DDPERR_INVALID_TABLES, SFormat("Join source '%1' is not the main table or an earlier join.", sFrom)))
 
         If (not(IsDDRelated(hoProtocol, hoFromDD, hoDD, &bParent))) ;
-            Function_Return (ErrorResult(Self, DDPERR_UNKOWN_TABLE, SFormat("'%1', not related.", sName)))
+            Function_Return (DDPError(Self, DDPERR_UNKOWN_TABLE, SFormat("'%1', not related.", sName)))
         If (not(bParent)) ;
-            Function_Return (ErrorResult(Self, DDPERR_INVALID_TABLES, SFormat("'%1' is not a parent of '%2'.", sName, sFrom)))
+            Function_Return (DDPError(Self, DDPERR_INVALID_TABLES, SFormat("'%1' is not a parent of '%2'.", sName, sFrom)))
 
         Move hoDD to oNode.oTable.hoDD
         Move sName to oNode.oTable.sRequestedName
@@ -124,18 +117,18 @@ Class cDDPDbMessageRequestParser is a cDDPRequestParser
         String sQualifiedField sOp sValue
 
         If (HasMember(hoItem, "or")) ;
-            Function_Return (ErrorResult(Self, DDPERR_INVALID_CONSTRAIN, "'or' constraints are not supported yet."))
+            Function_Return (DDPError(Self, DDPERR_INVALID_CONSTRAIN, "'or' constraints are not supported yet."))
         If (MemberJsonTypeOrAbsent(Self, hoItem, "field") = jsonTypeArray) Begin
             Get ParseIndexConstraint hoItem iIndex (&aNodes) to oResult
             Function_Return oResult
         End
         If (HasMember(hoItem, "dir")) ;
-            Function_Return (ErrorResult(Self, DDPERR_INVALID_CONSTRAIN, SFormat("Invalid constraint at index %1.", iIndex)))
+            Function_Return (DDPError(Self, DDPERR_INVALID_CONSTRAIN, SFormat("Invalid constraint at index %1.", iIndex)))
 
         Move (MemberJsonTypeOrAbsent(Self, hoItem, "value")) to eValueType
         If (MemberJsonTypeOrAbsent(Self, hoItem, "field") <> jsonTypeString or MemberJsonTypeOrAbsent(Self, hoItem, "op") <> jsonTypeString or ;
             eValueType = -1 or eValueType = jsonTypeObject or eValueType = jsonTypeArray) ;
-            Function_Return (ErrorResult(Self, DDPERR_INVALID_CONSTRAIN, SFormat("Invalid constraint at index %1.", iIndex)))
+            Function_Return (DDPError(Self, DDPERR_INVALID_CONSTRAIN, SFormat("Invalid constraint at index %1.", iIndex)))
 
         Get MemberValue of hoItem "op" to sOp
         Move (Lowercase(sOp)) to sOp
@@ -148,7 +141,7 @@ Class cDDPDbMessageRequestParser is a cDDPRequestParser
         Else If (sOp = "le") Move DDPFind_LE to oConstrain.eMode
         Else Begin
             Get MemberValue of hoItem "op" to sOp
-            Function_Return (ErrorResult(Self, DDPERR_INVALID_MODE, SFormat("Invalid operator '%1'.", sOp)))
+            Function_Return (DDPError(Self, DDPERR_INVALID_MODE, SFormat("Invalid operator '%1'.", sOp)))
         End
 
         Get MemberValue of hoItem "field" to sQualifiedField
@@ -173,7 +166,7 @@ Class cDDPDbMessageRequestParser is a cDDPRequestParser
         Boolean bHasDir bValid
 
         If (aNodes[0].oTable.oIndexConstrain.eMode <> DDPFind_Auto) ;
-            Function_Return (ErrorResult(Self, DDPERR_INVALID_CONSTRAIN, "Only one multi-field constraint is allowed."))
+            Function_Return (DDPError(Self, DDPERR_INVALID_CONSTRAIN, "Only one multi-field constraint is allowed."))
 
         If (MemberJsonTypeOrAbsent(Self, hoItem, "op") = jsonTypeString) ;
             Get MemberValue of hoItem "op" to sOp
@@ -182,12 +175,12 @@ Class cDDPDbMessageRequestParser is a cDDPRequestParser
         Else If (sOp = "ge") Move DDPFind_GE to index.eMode
         Else If (sOp = "lt") Move DDPFind_LT to index.eMode
         Else If (sOp = "le") Move DDPFind_LE to index.eMode
-        Else Function_Return (ErrorResult(Self, DDPERR_INVALID_MODE, "Multi-field constraints support 'gt', 'ge', 'lt' and 'le'."))
+        Else Function_Return (DDPError(Self, DDPERR_INVALID_MODE, "Multi-field constraints support 'gt', 'ge', 'lt' and 'le'."))
 
         Move (MemberJsonTypeOrAbsent(Self, hoItem, "dir")) to eType
         Move (eType <> -1) to bHasDir
         If (MemberJsonTypeOrAbsent(Self, hoItem, "value") <> jsonTypeArray or (bHasDir and eType <> jsonTypeArray)) ;
-            Function_Return (ErrorResult(Self, DDPERR_INVALID_CONSTRAIN, SFormat("Invalid constraint at index %1.", iIndex)))
+            Function_Return (DDPError(Self, DDPERR_INVALID_CONSTRAIN, SFormat("Invalid constraint at index %1.", iIndex)))
 
         Get Member of hoItem "field" to hoFields
         Get Member of hoItem "value" to hoValues
@@ -216,7 +209,7 @@ Class cDDPDbMessageRequestParser is a cDDPRequestParser
                 Get MemberValue of hoFields iElement to sField
                 Get ResolveQualifiedField (&aNodes) sField (&iNode) (&iField) to oResult
                 If (oResult.iErr = 0 and iNode <> 0) ;
-                    Get ErrorResult DDPERR_INVALID_CONSTRAIN "Multi-field constraint fields must belong to the main table." to oResult
+                    Move (DDPError(Self, DDPERR_INVALID_CONSTRAIN, "Multi-field constraint fields must belong to the main table.")) to oResult
                 Get MemberValue of hoValues iElement to sValue
                 Move iField to index.aFields[iElement]
                 Move sValue to index.aValues[iElement]
@@ -227,7 +220,7 @@ Class cDDPDbMessageRequestParser is a cDDPRequestParser
         Send Destroy of hoValues
         If (bHasDir) Send Destroy of hoDirs
         If (oResult.iErr) Function_Return oResult
-        If (not(bValid)) Function_Return (ErrorResult(Self, DDPERR_INVALID_CONSTRAIN, SFormat("Invalid constraint at index %1.", iIndex)))
+        If (not(bValid)) Function_Return (DDPError(Self, DDPERR_INVALID_CONSTRAIN, SFormat("Invalid constraint at index %1.", iIndex)))
         Move index to aNodes[0].oTable.oIndexConstrain
         Function_Return oResult
     End_Function
@@ -244,7 +237,7 @@ Class cDDPDbMessageRequestParser is a cDDPRequestParser
         Move (Lowercase(sDir)) to sDir
         If (sDir = "asc") Move DDPOrder_ASC to oOrder.eMode
         Else If (sDir = "desc") Move DDPOrder_DESC to oOrder.eMode
-        Else Function_Return (ErrorResult(Self, DDPERR_INVALID_ORDER, SFormat("Invalid ordering at index %1.", iIndex)))
+        Else Function_Return (DDPError(Self, DDPERR_INVALID_ORDER, SFormat("Invalid ordering at index %1.", iIndex)))
 
         Get MemberValue of hoItem "field" to sQualifiedField
         Get ResolveQualifiedField (&aNodes) sQualifiedField (&iNode) (&iField) to oResult
@@ -252,7 +245,7 @@ Class cDDPDbMessageRequestParser is a cDDPRequestParser
 
         For iOrder from 0 to (SizeOfArray(aNodes[iNode].oTable.aOrder) - 1)
             If (aNodes[iNode].oTable.aOrder[iOrder].hField = iField) ;
-                Function_Return (ErrorResult(Self, DDPERR_INVALID_ORDER, SFormat("Field '%1' is ordered more than once.", sQualifiedField)))
+                Function_Return (DDPError(Self, DDPERR_INVALID_ORDER, SFormat("Field '%1' is ordered more than once.", sQualifiedField)))
         Loop
 
         Move aNodes[iNode].oTable.hoDD to oOrder.hoDD
@@ -274,7 +267,7 @@ Class cDDPDbMessageRequestParser is a cDDPRequestParser
         Boolean bValid
 
         If (MemberJsonType(hoJson, "cursor") <> jsonTypeObject) ;
-            Function_Return (ErrorResult(Self, DDPERR_INVALID_FORMAT, C_DDPInvalidCursor))
+            Function_Return (DDPError(Self, DDPERR_INVALID_FORMAT, C_DDPInvalidCursor))
         Get DDPPrimaryKeyFields of (phoProtocol(Self)) table.hoDD to aPKFields
         Get Member of hoJson "cursor" to hoCursor
 
@@ -308,7 +301,7 @@ Class cDDPDbMessageRequestParser is a cDDPRequestParser
         End
         Send Destroy of hoCursor
 
-        If (not(bValid)) Function_Return (ErrorResult(Self, DDPERR_INVALID_FORMAT, C_DDPInvalidCursor))
+        If (not(bValid)) Function_Return (DDPError(Self, DDPERR_INVALID_FORMAT, C_DDPInvalidCursor))
         Move (If(sMode = "gt", DDPFind_GT, DDPFind_LT)) to table.eCursorMode
         Function_Return oResult
     End_Function
@@ -322,15 +315,15 @@ Class cDDPDbMessageRequestParser is a cDDPRequestParser
 
         Move (MemberJsonTypeOrAbsent(Self, hoJson, sMember)) to eType
         If (eType = -1) Function_Return oResult
-        If (eType <> jsonTypeArray) Function_Return (ErrorResult(Self, iErr, sError))
+        If (eType <> jsonTypeArray) Function_Return (DDPError(Self, iErr, sError))
 
         Get Member of hoJson sMember to hoArray
         For iIndex from 0 to (MemberCount(hoArray) - 1)
             Get Member of hoArray iIndex to hoItem
             If (JsonType(hoItem) <> jsonTypeObject) Begin
-                If (sMember = "join") Get ErrorResult iErr (SFormat("Invalid join at index %1.", iIndex)) to oResult
-                Else If (sMember = "constraints") Get ErrorResult iErr (SFormat("Invalid constraint at index %1.", iIndex)) to oResult
-                Else Get ErrorResult iErr (SFormat("Invalid ordering at index %1.", iIndex)) to oResult
+                If (sMember = "join") Move (DDPError(Self, iErr, SFormat("Invalid join at index %1.", iIndex))) to oResult
+                Else If (sMember = "constraints") Move (DDPError(Self, iErr, SFormat("Invalid constraint at index %1.", iIndex))) to oResult
+                Else Move (DDPError(Self, iErr, SFormat("Invalid ordering at index %1.", iIndex))) to oResult
             End
             Else If (sMember = "join") Get ParseJoin hoItem iIndex (&aNodes) to oResult
             Else If (sMember = "constraints") Get ParseConstraint hoItem iIndex (&aNodes) to oResult
@@ -352,7 +345,7 @@ Class cDDPDbMessageRequestParser is a cDDPRequestParser
         Get Member of hoJson "fields" to hoArray
         For iIndex from 0 to (MemberCount(hoArray) - 1)
             If (ArrayElementJsonType(Self, hoArray, iIndex) <> jsonTypeString) Begin
-                Get ErrorResult DDPERR_INVALID_FIELDS "Invalid fields." to oResult
+                Move (DDPError(Self, DDPERR_INVALID_FIELDS, "Invalid fields.")) to oResult
                 Break
             End
             Get MemberValue of hoArray iIndex to sQualifiedField
@@ -382,17 +375,17 @@ Class cDDPDbMessageRequestParser is a cDDPRequestParser
             Move (MemberNameByIndex(hoJson, iIndex)) to sKey
             If (sKey <> "table" and sKey <> "join" and sKey <> "fields" and sKey <> "constraints" and ;
                 sKey <> "orderBy" and sKey <> "limit" and sKey <> "offset" and sKey <> "cursor") ;
-                Function_Return (ErrorResult(Self, DDPERR_INVALID_FORMAT, SFormat("Unknown member '%1'.", sKey)))
+                Function_Return (DDPError(Self, DDPERR_INVALID_FORMAT, SFormat("Unknown member '%1'.", sKey)))
         Loop
 
         // 2. Root table, limit and offset.
         If (MemberJsonTypeOrAbsent(Self, hoJson, "table") <> jsonTypeString) ;
-            Function_Return (ErrorResult(Self, DDPERR_INVALID_MAIN_TABLE, "Member 'table' must be a table name."))
+            Function_Return (DDPError(Self, DDPERR_INVALID_MAIN_TABLE, "Member 'table' must be a table name."))
         Get MemberValue of hoJson "table" to sName
         Get phoProtocol to hoProtocol
         Get DDByName of hoProtocol sName to hoDD
         If (hoDD = 0) ;
-            Function_Return (ErrorResult(Self, DDPERR_UNKOWN_TABLE, SFormat("'%1', not known.", sName)))
+            Function_Return (DDPError(Self, DDPERR_UNKOWN_TABLE, SFormat("'%1', not known.", sName)))
         Move hoDD to oNode.oTable.hoDD
         Move sName to oNode.oTable.sRequestedName
         Move 0 to oNode.oTable.hoParentDD
@@ -417,7 +410,7 @@ Class cDDPDbMessageRequestParser is a cDDPRequestParser
         Move (eFieldsType <> -1) to bFieldsGiven
         If (bFieldsGiven) Begin
             If (eFieldsType <> jsonTypeArray) ;
-                Function_Return (ErrorResult(Self, DDPERR_INVALID_FIELDS, "Invalid fields."))
+                Function_Return (DDPError(Self, DDPERR_INVALID_FIELDS, "Invalid fields."))
             Get ParseFields hoJson (&aNodes) to oResult
             If (oResult.iErr) Function_Return oResult
         End
@@ -426,7 +419,7 @@ Class cDDPDbMessageRequestParser is a cDDPRequestParser
         Get ParseArrayMember hoJson "constraints" DDPERR_INVALID_CONSTRAIN "Member 'constraints' must be an array." (&aNodes) to oResult
         If (oResult.iErr) Function_Return oResult
         If (aNodes[0].oTable.eCursorMode <> DDPFind_Auto and aNodes[0].oTable.oIndexConstrain.eMode <> DDPFind_Auto) ;
-            Function_Return (ErrorResult(Self, DDPERR_INVALID_FORMAT, "'cursor' cannot be combined with a multi-field constraint."))
+            Function_Return (DDPError(Self, DDPERR_INVALID_FORMAT, "'cursor' cannot be combined with a multi-field constraint."))
 
         // 7. Ordering. iSequence is the request position, so each node's aOrder is already sorted.
         Get ParseArrayMember hoJson "orderBy" DDPERR_INVALID_ORDER "Member 'orderBy' must be an array." (&aNodes) to oResult
