@@ -1,0 +1,47 @@
+Use WebApi\cBaseRestDataset.pkg
+Use WebApi\DDP\Backends\IBackend.pkg
+
+// Base class for the DDP v1 endpoints: owns the request-body parser and the
+// rejection helper. Builder and backend logic live on the parent
+// cWebAPIDataDictionaryProtocol; use Delegate Send/Get to reach them.
+Class cDDPEndpoint is a cBaseRestDataset
+
+    Procedure Construct_Object
+        Forward Send Construct_Object
+
+        // Shared JSON parser; lenient so partial bodies do not error at parse time.
+        Object oJson is a cJsonObject
+            Set pbRequireAllMembers to False
+        End_Object
+    End_Procedure
+
+    // Fails the request with the given status, title and detail.
+    Procedure RejectRequest tWebApiCallContext ByRef webapicallcontext Integer iStatus String sTitle String sDetail
+        Move True to webapicallcontext.bErr
+        Move iStatus to webapicallcontext.iStatusCode
+        Move sTitle to webapicallcontext.sShortStatusMessage
+        Move sDetail to webapicallcontext.sErrorMessage
+    End_Procedure
+
+    // Parses the request body into oJson. Rejects the request and returns False when
+    // the body is not JSON or its root is not an object (or an array, if bAllowArray).
+    Function ReadJsonBody tWebApiCallContext ByRef webapicallcontext Boolean bAllowArray Returns Boolean
+        String sRequestBodyString
+        Integer eType
+
+        Get RequestDataString to sRequestBodyString
+        If (not(ParseString(oJson, sRequestBodyString))) Begin
+            Send RejectRequest (&webapicallcontext) C_WEBAPI_NOTALLOWED "Invalid format" ""
+            Function_Return False
+        End
+
+        Move (JsonType(oJson)) to eType
+        If (eType <> jsonTypeObject and not(bAllowArray and eType = jsonTypeArray)) Begin
+            Send RejectRequest (&webapicallcontext) C_WEBAPI_NOTALLOWED "Invalid format" ;
+                (If(bAllowArray, "root must be an object or array.", "root should be an object."))
+            Function_Return False
+        End
+        Function_Return True
+    End_Function
+
+End_Class

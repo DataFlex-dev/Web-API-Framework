@@ -1,10 +1,9 @@
-﻿Use WebApi\cBaseRestDataset.pkg
-Use WebApi\DDP\Backends\IBackend.pkg
+﻿Use WebApi\DDP\v1\cDDPEndpoint.pkg
 
 // Handles POST /ddp/v1/query - executes a DDP query described by the JSON request body.
 // Builder and backend logic live on the parent cWebAPIDataDictionaryProtocol object;
 // Delegate Send/Get walks up the parent chain to reach them without explicit wiring.
-Class cDDPQueryEndpoint is a cBaseRestDataset
+Class cDDPQueryEndpoint is a cDDPEndpoint
 
     Procedure Construct_Object
         Forward Send Construct_Object
@@ -13,12 +12,6 @@ Class cDDPQueryEndpoint is a cBaseRestDataset
         Set pbAllowRead to False
         Set pbAllowEdit to False
         Set pbAllowDelete to False
-
-        // Shared JSON parser; lenient so partial bodies do not error at parse time.
-        Object oJson is a cJsonObject
-            Set pbRequireAllMembers to False
-        End_Object
-
     End_Procedure
 
 
@@ -35,7 +28,7 @@ Class cDDPQueryEndpoint is a cBaseRestDataset
     //   flat       - positionally-aligned parallel arrays
     //   flatlinked - deduplicated parallel arrays joined by FK fields
     Procedure OnHttpPost tWebApiCallContext ByRef webapicallcontext
-        String sStyle sDDPFormat sRequestBodyString
+        String sStyle sDDPFormat
         Integer iIndex
         tDDPBuilderContext ctx
         tDDPBuilderResult oResult
@@ -57,10 +50,7 @@ Class cDDPQueryEndpoint is a cBaseRestDataset
             Move DDPStyle_Nested to ctx.eStyle
         End
         Else Begin
-            Move True to webapicallcontext.bErr
-            Move C_WEBAPI_NOTALLOWED to webapicallcontext.iStatusCode
-            Move "Invalid style" to webapicallcontext.sShortStatusMessage
-            Move (SFormat("Invalid DDPStyle '%1'.", sStyle)) to webapicallcontext.sErrorMessage
+            Send RejectRequest (&webapicallcontext) C_WEBAPI_NOTALLOWED "Invalid style" (SFormat("Invalid DDPStyle '%1'.", sStyle))
             Procedure_Return
         End
 
@@ -70,47 +60,24 @@ Class cDDPQueryEndpoint is a cBaseRestDataset
         Move (Replaces(Character(0), sDDPFormat, "")) to sDDPFormat
         Delegate Get DDPRequestParser sDDPFormat to hoParser
         If (hoParser = 0) Begin
-            Move True to webapicallcontext.bErr
-            Move C_WEBAPI_NOTALLOWED to webapicallcontext.iStatusCode
-            Move "Invalid format" to webapicallcontext.sShortStatusMessage
-            Move (SFormat("Invalid DDPFormat '%1'.", sDDPFormat)) to webapicallcontext.sErrorMessage
+            Send RejectRequest (&webapicallcontext) C_WEBAPI_NOTALLOWED "Invalid format" (SFormat("Invalid DDPFormat '%1'.", sDDPFormat))
             Procedure_Return
         End
 
-        // Parse and validate the request body.
-        Get RequestDataString to sRequestBodyString
-        If (not(ParseString(oJson, sRequestBodyString))) Begin
-            Move True to webapicallcontext.bErr
-            Move C_WEBAPI_NOTALLOWED to webapicallcontext.iStatusCode
-            Move "Invalid format" to webapicallcontext.sShortStatusMessage
-            Procedure_Return
-        End
-
-        // The root must be a JSON object; arrays and primitives are rejected.
-        If (JsonType(oJson) <> jsonTypeObject) Begin
-            Move True to webapicallcontext.bErr
-            Move C_WEBAPI_NOTALLOWED to webapicallcontext.iStatusCode
-            Move "Invalid format" to webapicallcontext.sShortStatusMessage
-            Move "root should be an object." to webapicallcontext.sErrorMessage
-            Procedure_Return
-        End
+        // Parse the request body; the root must be a JSON object.
+        If (not(ReadJsonBody(Self, &webapicallcontext, False))) Procedure_Return
 
         // Parse every root query before any DD is touched.
         Get ParseQueryRequest of hoParser oJson (&aQueries) to oResult
         If (oResult.iErr) Begin
-            Move True to webapicallcontext.bErr
-            Move C_WEBAPI_NOTALLOWED to webapicallcontext.iStatusCode
-            Move "Not Allowed" to webapicallcontext.sShortStatusMessage
-            Move oResult.sError to webapicallcontext.sErrorMessage
+            Send RejectRequest (&webapicallcontext) C_WEBAPI_NOTALLOWED "Not Allowed" oResult.sError
             Procedure_Return
         End
 
         // Flat and flatlinked require exactly one top-level table because their
         // positional/deduplicated arrays are undefined for multiple root tables.
         If (ctx.eStyle <> DDPStyle_Nested and SizeOfArray(aQueries) > 1) Begin
-            Move True to webapicallcontext.bErr
-            Move C_WEBAPI_NOTALLOWED to webapicallcontext.iStatusCode
-            Move "Cannot have multiple mainDDs in flattened style" to webapicallcontext.sShortStatusMessage
+            Send RejectRequest (&webapicallcontext) C_WEBAPI_NOTALLOWED "Cannot have multiple mainDDs in flattened style" ""
             Procedure_Return
         End
 
@@ -126,10 +93,7 @@ Class cDDPQueryEndpoint is a cBaseRestDataset
             Delegate Get DDPPrepareFind aQueries[iIndex].oMain to oResult
             If (oResult.iErr) Begin
                 Delegate Send DestroyQuery hoMainDD
-                Move True to webapicallcontext.bErr
-                Move C_WEBAPI_NOTALLOWED to webapicallcontext.iStatusCode
-                Move "Not Allowed" to webapicallcontext.sShortStatusMessage
-                Move oResult.sError to webapicallcontext.sErrorMessage
+                Send RejectRequest (&webapicallcontext) C_WEBAPI_NOTALLOWED "Not Allowed" oResult.sError
                 Procedure_Return
             End
 
@@ -151,11 +115,8 @@ Class cDDPQueryEndpoint is a cBaseRestDataset
                     Move 0 to hoQueryResult
                 End
                 Delegate Send DestroyQuery hoMainDD
-                Move True to webapicallcontext.bErr
-                Move C_WEBAPI_NOTALLOWED to webapicallcontext.iStatusCode
-                Move "Not Allowed" to webapicallcontext.sShortStatusMessage
-                If (oResult.iErr) Move oResult.sError to webapicallcontext.sErrorMessage
-                Else Move "JSON response construction failed." to webapicallcontext.sErrorMessage
+                Send RejectRequest (&webapicallcontext) C_WEBAPI_NOTALLOWED "Not Allowed" ;
+                    (If(oResult.iErr, oResult.sError, "JSON response construction failed."))
                 Procedure_Return
             End
 

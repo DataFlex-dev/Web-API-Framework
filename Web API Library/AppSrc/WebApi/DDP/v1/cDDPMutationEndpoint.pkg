@@ -1,0 +1,74 @@
+Use WebApi\DDP\v1\cDDPEndpoint.pkg
+
+// Hooks every cDDPMutationEndpoint subclass implements.
+// ExecuteRecord: construct, execute and release one table entry. hoRecord receives the
+// response record. Set bInvalidRequest when construction failed (answered with 405).
+Register_Function ExecuteRecord String sTable Handle hoTableJson Handle ByRef hoRecord Boolean ByRef bInvalidRequest Returns tDDPBuilderResult
+// MapExecuteError: HTTP status and title for an execute error.
+Register_Procedure MapExecuteError Integer iErr Integer ByRef iStatus String ByRef sTitle
+
+// Shared request loop of the store, update and delete endpoints.
+// The body is one { "Table": { ... } } object or an array of them. The response holds
+// the processed record(s): an object keyed by table name, or an array.
+Class cDDPMutationEndpoint is a cDDPEndpoint
+
+    Procedure ProcessMutation tWebApiCallContext ByRef webapicallcontext Integer iSuccessStatus
+        String sTableName sTitle
+        tDDPBuilderResult oResult
+        Handle hoElement hoTableJson hoRecord
+        Integer iIndex eJsonType iElementCount iStatus
+        Boolean bInvalidRequest
+
+        If (not(ReadJsonBody(Self, &webapicallcontext, True))) Procedure_Return
+
+        Move (JsonType(oJson)) to eJsonType
+        Get Create (RefClass(cJsonObject)) to webapicallcontext.hoResponseBody
+        If (eJsonType = jsonTypeArray) Begin
+            Send InitializeJsonType of webapicallcontext.hoResponseBody jsonTypeArray
+            Move (MemberCount(oJson)) to iElementCount
+        End
+        Else Begin
+            Send InitializeJsonType of webapicallcontext.hoResponseBody jsonTypeObject
+            Move 1 to iElementCount
+        End
+
+        For iIndex from 0 to (iElementCount - 1)
+            If (eJsonType = jsonTypeArray) Get Member of oJson iIndex to hoElement
+            Else Move oJson to hoElement
+
+            // Each element must be a JSON object with exactly one top-level key.
+            If (JsonType(hoElement) <> jsonTypeObject or MemberCount(hoElement) <> 1) Begin
+                If (eJsonType = jsonTypeArray) Send Destroy of hoElement
+                Send RejectRequest (&webapicallcontext) C_WEBAPI_NOTALLOWED "Invalid format" ;
+                    "each entry must be a JSON object with exactly one table key."
+                Procedure_Return
+            End
+
+            Get MemberNameByIndex of hoElement 0 to sTableName
+            Get Member of hoElement sTableName to hoTableJson
+            Move 0 to hoRecord
+            Move False to bInvalidRequest
+            Get ExecuteRecord sTableName hoTableJson (&hoRecord) (&bInvalidRequest) to oResult
+            Send Destroy of hoTableJson
+            If (eJsonType = jsonTypeArray) Send Destroy of hoElement
+
+            If (oResult.iErr) Begin
+                If (hoRecord <> 0) Send Destroy of hoRecord
+                If (bInvalidRequest) Begin
+                    Move C_WEBAPI_NOTALLOWED to iStatus
+                    Move "Invalid request" to sTitle
+                End
+                Else Send MapExecuteError oResult.iErr (&iStatus) (&sTitle)
+                Send RejectRequest (&webapicallcontext) iStatus sTitle oResult.sError
+                Procedure_Return
+            End
+
+            If (eJsonType = jsonTypeArray) Send AddMember of webapicallcontext.hoResponseBody hoRecord
+            Else Send SetMember of webapicallcontext.hoResponseBody sTableName hoRecord
+            Send Destroy of hoRecord
+        Loop
+
+        Move iSuccessStatus to webapicallcontext.iStatusCode
+    End_Procedure
+
+End_Class
