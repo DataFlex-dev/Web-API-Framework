@@ -162,15 +162,11 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
     End_Procedure
 
     Function DFTypeToJson Integer eType Integer iPrecision Returns Integer
-        If (eType = C_TypeNumber) Begin
-            If (iPrecision > 0) Function_Return jsonTypeDouble
-            Function_Return jsonTypeInteger
-        End
-
         If (eType = C_TypeBoolean or eType = C_TypeBit) ;
             Function_Return jsonTypeBoolean
 
-        If (eType = C_TypeReal or eType = C_TypeFloat or ;
+        // A framework Number without Size has precision 0 but no fixed precision: never an integer
+        If (eType = C_TypeReal or eType = C_TypeFloat or eType = C_TypeNumber or ;
             eType = C_TypeCurrency or eType = C_TypeDecimal) ;
             Function_Return jsonTypeDouble
 
@@ -441,12 +437,8 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
     Function DDPTypeString Integer eType Integer iPrecision Returns String
         If (eType = C_TypeDate) Function_Return "date"
 
-        If (eType = C_TypeNumber) Begin
-            If (iPrecision > 0) Function_Return "decimal"
-            Function_Return "integer"
-        End
-
-        If (eType = C_TypeReal or eType = C_TypeFloat or ;
+        // A framework Number without Size has precision 0 but no fixed precision: never an integer
+        If (eType = C_TypeReal or eType = C_TypeFloat or eType = C_TypeNumber or ;
             eType = C_TypeCurrency or eType = C_TypeDecimal) ;
             Function_Return "decimal"
 
