@@ -133,6 +133,13 @@ Struct tDDPSaveQuery
     tDDPSaveRecord oMain
 End_Struct
 
+// One item of a /save request: create or update one record of one table.
+Struct tDDPSaveItem
+    Boolean bCreate          // True: create, False: update
+    String sTable            // table name as sent; key of the response record
+    tDDPSaveRecord oRecord   // hoDD + field values (aChilds stays empty)
+End_Struct
+
 // One field value supplied for identifying or verifying a record during delete.
 // PK fields are used for the find; any additional fields are verified against the
 // found record to detect concurrent modifications (optimistic concurrency check).
@@ -199,6 +206,7 @@ Register_Function DDPFetchJson tDDPTableQuery query Integer eStyle Handle ByRef 
 // From cDDPBuilder_Mixin, also used by the backends.
 Register_Function DDPCompareOrderSequence tDDPOrder oLeft tDDPOrder oRight Returns Integer
 Register_Function DDPError Integer iErr String sError Returns tDDPBuilderResult
+Register_Function ConstructSaveRecord String sDDName Handle hoJson tDDPSaveRecord ByRef record Returns tDDPBuilderResult
 
 Class IDDP_Backend_Mixin is a Mixin
     Procedure Define_DDP_Backend_Mixin

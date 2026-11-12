@@ -551,7 +551,7 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
 
     { Visibility = Private }
     Procedure DDPClearRelationsVisit Handle hoDD Handle[] ByRef aVisited
-        Handle[] aChildren
+        tDDChild[] aChildren
         tDDParent[] aParents
         Integer iIndex
 
@@ -560,7 +560,8 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
 
         Get paChildren of hoDD to aChildren
         For iIndex from 0 to (SizeOfArray(aChildren) - 1)
-            Send DDPClearRelationsVisit aChildren[iIndex] (&aVisited)
+            If (aChildren[iIndex].hoDD <> 0) ;
+                Send DDPClearRelationsVisit aChildren[iIndex].hoDD (&aVisited)
         Loop
 
         Get paParents of hoDD to aParents
@@ -773,12 +774,12 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
     // that compares the last field, because those rows come first in index order; in the example there,
     // the remaining customers with Balance 100 come before those with a higher balance. It stops as soon as
     // iFetchLimit rows are found (0 = no limit).
-    Function DDPFetchIndexRows tDDPTableQuery query Handle hoScopeDD RowID riScope Integer iFetchLimit DbRowId[] ByRef aRowIds Variant[][] ByRef aData Returns tDDPBuilderResult
+    Function DDPFetchIndexRows tDDPTableQuery query Handle hoScopeDD RowID riScope Integer iFetchLimit RowID[] ByRef aRowIds Variant[][] ByRef aData Returns tDDPBuilderResult
         tDDPBuilderResult oResult
         tDDPTableQuery stepQuery
         tDDPConstrain[] aStepConstrains
         tDDPTableResultLayout[] aStepLayouts aEmptyLayouts
-        DbRowId[] aStepRowIds
+        RowID[] aStepRowIds
         Variant[][] aStepData
         Handle hoQuery hoAdapter
         Integer iCompareField iConstrain iRow iRemaining
@@ -1141,7 +1142,7 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Integer[] aFieldColumns aParentLayoutIndices aParentFieldColumns aEmptyFieldColumns
         Integer[][] aParentColumnSets
         Variant[][] aData
-        DbRowId[] aRowIds
+        RowID[] aRowIds
         String[] aParentNames aChildNames
         String sRootName sRowId
         RowID riParent
@@ -1455,6 +1456,212 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
 
         If (Err and not(oResult.iErr)) Get DDPJsonConstructionFailure to oResult
         If (bFailed and not(oResult.iErr)) Get DDPJsonConstructionFailure to oResult
+        Function_Return oResult
+    End_Function
+
+    // ---------------------------------------------------------------------------
+    // Save pipeline (POST /ddp/v1/save): the records of one client Request_Save,
+    // written exactly as sent, in one transaction.
+    // ---------------------------------------------------------------------------
+
+    { Visibility = Private }
+    // Parses [{"create"|"update": {"<Table>": {fields}}}, ...] into aItems.
+    Function DDPParseSaveItems Handle hoItems tDDPSaveItem[] ByRef aItems Returns tDDPBuilderResult
+        Integer iItem
+        Handle hoItem hoOp hoTableJson
+        String sOpName sOp
+        Boolean bOk
+        tDDPSaveItem item oEmptyItem
+        tDDPBuilderResult oResult
+
+        For iItem from 0 to (MemberCount(hoItems) - 1)
+            Move oEmptyItem to item
+            Move 0 to hoOp
+            Get Member of hoItems iItem to hoItem
+
+            // Checked one by one: "and" does not short-circuit.
+            Move (JsonType(hoItem) = jsonTypeObject) to bOk
+            If (bOk) Move (MemberCount(hoItem) = 1) to bOk
+            If (bOk) Begin
+                Get MemberNameByIndex of hoItem 0 to sOpName
+                Move (Lowercase(sOpName)) to sOp
+                Move (sOp = "create" or sOp = "update") to bOk
+            End
+            If (bOk) Move (MemberJsonType(hoItem, sOpName) = jsonTypeObject) to bOk
+            If (bOk) Begin
+                Get Member of hoItem sOpName to hoOp
+                Move (MemberCount(hoOp) = 1) to bOk
+            End
+            If (bOk) Begin
+                Get MemberNameByIndex of hoOp 0 to item.sTable
+                Move (MemberJsonType(hoOp, item.sTable) = jsonTypeObject) to bOk
+            End
+            If (not(bOk)) Begin
+                If (hoOp <> 0) Send Destroy of hoOp
+                Send Destroy of hoItem
+                Function_Return (DDPError(Self, DDPERR_INVALID_FORMAT, SFormat('Save item %1 must be {"create": {"<Table>": {...}}} or {"update": {"<Table>": {...}}}.', iItem + 1)))
+            End
+
+            Move (sOp = "create") to item.bCreate
+            Get Member of hoOp item.sTable to hoTableJson
+            // Used for create and update: resolves the DD, validates field names, skips nulls.
+            Get ConstructSaveRecord item.sTable hoTableJson (&item.oRecord) to oResult
+            If (oResult.iErr = 0 and SizeOfArray(item.oRecord.aChilds) > 0) ;
+                Move (DDPError(Self, DDPERR_INVALID_FORMAT, SFormat("Nested tables are not allowed in a save request ('%1').", item.sTable))) to oResult
+
+            Send Destroy of hoTableJson
+            Send Destroy of hoOp
+            Send Destroy of hoItem
+            If (oResult.iErr) Begin
+                Move (SFormat("Save item %1: ", iItem + 1) + oResult.sError) to oResult.sError
+                Function_Return oResult
+            End
+            Move item to aItems[iItem]
+        Loop
+
+        Function_Return oResult
+    End_Function
+
+    { Visibility = Private }
+    // Writes the record of one save item (update: found by primary key first) without touching
+    // its parents, and serialises it to hoRecord.
+    Function DDPSaveItem tDDPSaveItem item Handle ByRef hoRecord Returns tDDPBuilderResult
+        Handle hoDD
+        tDDPSaveField[] aFields
+        Integer[] aPKFields
+        Integer iField iPK iIndex iFieldNr
+        Boolean bInvalid
+        tDDPTableQuery serialQuery
+        tDDPBuilderResult oResult
+
+        Move item.oRecord.hoDD to hoDD
+        Move item.oRecord.aFields to aFields
+        Move False to Err
+        Send Clear of hoDD
+
+        If (item.bCreate) Begin
+            For iField from 0 to (SizeOfArray(aFields) - 1)
+                Send DDPSetChangedValue hoDD 0 aFields[iField].hField aFields[iField].sValue
+            Loop
+        End
+        Else Begin
+            Get DDPPrimaryKeyFields hoDD to aPKFields
+            If (SizeOfArray(aPKFields) = 0) ;
+                Function_Return (DDPError(Self, DDPERR_MISSING_KEY_FIELD, SFormat("No primary key is defined for '%1'.", NameOfDD(Self, hoDD))))
+
+            For iPK from 0 to (SizeOfArray(aPKFields) - 1)
+                Move -1 to iIndex
+                For iField from 0 to (SizeOfArray(aFields) - 1)
+                    If (aFields[iField].hField = aPKFields[iPK]) Move iField to iIndex
+                Loop
+                If (iIndex = -1) ;
+                    Function_Return (DDPError(Self, DDPERR_MISSING_KEY_FIELD, SFormat("Primary key field '%1' is required for update.", FieldName(Self, hoDD, aPKFields[iPK]))))
+                Send DDPSetFieldValue hoDD 0 aFields[iIndex].hField aFields[iIndex].sValue
+            Loop
+
+            Send DDPRequestFind hoDD EQ 0 (PrimaryDDIndex(Self, hoDD))
+            If (not(Found) or Err) ;
+                Function_Return (DDPError(Self, DDPERR_RECORD_NOT_FOUND, "Record not found."))
+
+            For iField from 0 to (SizeOfArray(aFields) - 1)
+                Move aFields[iField].hField to iFieldNr
+                If (SearchArray(iFieldNr, aPKFields) = -1) ;
+                    Send DDPSetChangedValue hoDD 0 aFields[iField].hField aFields[iField].sValue
+            Loop
+        End
+
+        // Only this record: Request_Validate would walk into the parent DDs that Clear emptied.
+        Get Validate_self of hoDD hoDD False to bInvalid
+        If (bInvalid) ;
+            Function_Return (DDPError(Self, DDPERR_VALIDATION_FAILED, DDPErrorText(Self, "Validation failed.")))
+
+        // SaveRecord: single-record create/update, no parent logic.
+        Move False to Err
+        Send SaveRecord of hoDD
+        If (Err) ;
+            Function_Return (DDPError(Self, DDPERR_SAVE_FAILED, DDPErrorText(Self, "Save failed.")))
+
+        Move hoDD to serialQuery.hoDD
+        Get Create (RefClass(cJsonObject)) to hoRecord
+        Send InitializeJsonType of hoRecord jsonTypeObject
+        Send SerializeBufferToJson hoRecord serialQuery False
+        Function_Return oResult
+    End_Function
+
+    { Visibility = Private }
+    // Copies the key of the record just created by aItems[iCreated] into the foreign key fields
+    // of every later item whose table relates to it.
+    Procedure DDPForwardCreatedKey tDDPSaveItem[] ByRef aItems Integer iCreated
+        Handle hoParent hoChild
+        Integer iItem iField iRelated iIndex iFieldIndex
+        String sValue
+
+        Move aItems[iCreated].oRecord.hoDD to hoParent
+        For iItem from (iCreated + 1) to (SizeOfArray(aItems) - 1)
+            Move aItems[iItem].oRecord.hoDD to hoChild
+            For iField from 1 to (FieldCount(Self, hoChild))
+                If (FieldRelation(Self, hoChild, hoParent, iField, &iRelated)) Begin
+                    Get DDPGetFieldValue hoParent 0 iRelated to sValue
+                    Move -1 to iIndex
+                    For iFieldIndex from 0 to (SizeOfArray(aItems[iItem].oRecord.aFields) - 1)
+                        If (aItems[iItem].oRecord.aFields[iFieldIndex].hField = iField) Move iFieldIndex to iIndex
+                    Loop
+                    If (iIndex = -1) Move (SizeOfArray(aItems[iItem].oRecord.aFields)) to iIndex
+                    Move iField to aItems[iItem].oRecord.aFields[iIndex].hField
+                    Move sValue to aItems[iItem].oRecord.aFields[iIndex].sValue
+                End
+            Loop
+        Loop
+    End_Procedure
+
+    // Executes a parsed /save body (array of save items). hoResponse receives
+    // [{"<Table>": {record}}, ...] in item order; 0 on error (everything is rolled back).
+    Function DDPExecuteSave Handle hoItems Handle ByRef hoResponse Returns tDDPBuilderResult
+        tDDPSaveItem[] aItems
+        tDDPBuilderResult oResult
+        Handle hoRecord hoEntry
+        Integer iItem
+
+        Move 0 to hoResponse
+        Get DDPParseSaveItems hoItems (&aItems) to oResult
+        If (oResult.iErr) Function_Return oResult
+
+        Get Create (RefClass(cJsonObject)) to hoResponse
+        Send InitializeJsonType of hoResponse jsonTypeArray
+
+        // Not Begin_Transaction: that only rolls back on a raised Error, failures here are returned.
+        Send BeginTransaction of ghoDbTransactionManager
+        For iItem from 0 to (SizeOfArray(aItems) - 1)
+            Move 0 to hoRecord
+            Get DDPSaveItem aItems[iItem] (&hoRecord) to oResult
+            If (oResult.iErr) Begin
+                If (hoRecord <> 0) Send Destroy of hoRecord
+                Move (SFormat("Save item %1: %2", iItem + 1, oResult.sError)) to oResult.sError
+            End
+            // Break only at loop level: inside a Begin block it leaves the block, not the loop.
+            If (oResult.iErr) Break
+            If (aItems[iItem].bCreate) Send DDPForwardCreatedKey (&aItems) iItem
+
+            // {"<Table>": {record}}
+            Get Create (RefClass(cJsonObject)) to hoEntry
+            Send InitializeJsonType of hoEntry jsonTypeObject
+            Send SetMember of hoEntry aItems[iItem].sTable hoRecord
+            Send AddMember of hoResponse hoEntry
+            Send Destroy of hoEntry
+            Send Destroy of hoRecord
+        Loop
+
+        If (oResult.iErr) Begin
+            Send RollbackTransaction of ghoDbTransactionManager
+            Send Destroy of hoResponse
+            Move 0 to hoResponse
+        End
+        Else Send CommitTransaction of ghoDbTransactionManager
+
+        // Reset the buffers of every DD the request touched (same as DestroySaveQuery).
+        For iItem from 0 to (SizeOfArray(aItems) - 1)
+            Send DDPClearRelations aItems[iItem].oRecord.hoDD 0
+        Loop
         Function_Return oResult
     End_Function
 

@@ -1,0 +1,64 @@
+Use WebApi\DDP\v1\cDDPEndpoint.pkg
+Use WebApi\DDP\Backends\Main.pkg
+
+// Handles POST /ddp/v1/save: one Request_Save of a client (cDDPClient.SaveRecords).
+// Body: [{"create": {"<Table>": {fields}}}, {"update": {"<Table>": {PK + changed fields}}}, ...],
+// parents before children. All items are written in one transaction, exactly as sent; the key of
+// a created record is copied into the foreign keys of the later items that relate to it.
+// Response: 200 with [{"<Table>": {record}}, ...] in the same order. Cross-platform backend only.
+Class cDDPSaveEndpoint is a cDDPEndpoint
+
+    Procedure Construct_Object
+        Forward Send Construct_Object
+
+        Set pbAllowRead to False
+        Set pbAllowEdit to False
+        Set pbAllowDelete to False
+    End_Procedure
+
+    { MethodType = Event }
+    Procedure OnHttpPost tWebApiCallContext ByRef webapicallcontext
+        Handle hoItems hoResponse
+        tDDPBuilderResult oResult
+        Integer iStatus
+        String sTitle
+
+        If (not(ReadJsonBody(Self, &webapicallcontext, True))) Procedure_Return
+        If (JsonType(oJson) <> jsonTypeArray) Begin
+            Send RejectRequest (&webapicallcontext) C_WEBAPI_NOTALLOWED "Invalid format" "root must be an array of save items."
+            Procedure_Return
+        End
+
+        Move oJson to hoItems
+        Delegate Get DDPExecuteSave hoItems (&hoResponse) to oResult
+        If (oResult.iErr) Begin
+            Case Begin
+                Case (oResult.iErr = DDPERR_INVALID_FORMAT or oResult.iErr = DDPERR_UNKOWN_TABLE or oResult.iErr = DDPERR_INVALID_FIELD)
+                    Move C_WEBAPI_NOTALLOWED to iStatus
+                    Move "Invalid request" to sTitle
+                    Case Break
+                Case (oResult.iErr = DDPERR_MISSING_KEY_FIELD)
+                    Move C_WEBAPI_NOTALLOWED to iStatus
+                    Move "Missing key field" to sTitle
+                    Case Break
+                Case (oResult.iErr = DDPERR_RECORD_NOT_FOUND)
+                    Move C_WEBAPI_NOTFOUND to iStatus
+                    Move "Not Found" to sTitle
+                    Case Break
+                Case (oResult.iErr = DDPERR_VALIDATION_FAILED)
+                    Move 422 to iStatus
+                    Move "Validation Error" to sTitle
+                    Case Break
+                Case Else
+                    Move 422 to iStatus
+                    Move "Save Error" to sTitle
+            Case End
+            Send RejectRequest (&webapicallcontext) iStatus sTitle oResult.sError
+            Procedure_Return
+        End
+
+        Move hoResponse to webapicallcontext.hoResponseBody
+        Move C_WEBAPI_OK to webapicallcontext.iStatusCode
+    End_Procedure
+
+End_Class
