@@ -483,6 +483,7 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
     Function AddConstrain Handle hoMainDD Handle hoDD Handle hField Integer eConstrain String sFilter Returns tDDPBuilderResult
         Integer eDbConstrain iField iFieldCount eType
         Date dValue
+        TimeSpan tsValue
         tDDPBuilderResult oResult
 
         If (hoDD = 0) Begin
@@ -525,13 +526,22 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
             Function_Return (DDPError(Self, DDPERR_INVALID_CONSTRAIN, "Constraint 'contains' is only supported on text fields."))
         End
         If (eType = C_TypeDate) Begin
-            If (not(DDPParseISODate(sFilter, &dValue))) Begin
-                Function_Return (DDPError(Self, DDPERR_INVALID_CONSTRAIN, "Invalid date constraint; expected YYYY-MM-DD."))
+            // An empty value is the empty date, the lowest date ("0" is how an empty Date reads as text, see SerializeFieldValue).
+            If (sFilter <> "" and sFilter <> "0") Begin
+                If (not(DDPParseISODate(sFilter, &dValue))) Begin
+                    Function_Return (DDPError(Self, DDPERR_INVALID_CONSTRAIN, "Invalid date constraint; expected YYYY-MM-DD."))
+                End
             End
             Send Add_Value_Constraint of hoDD hoMainDD iField eDbConstrain dValue
         End
+        // Compare a time span as a time span: its text does not sort in value order.
+        Else If (eType = C_TypeTimeSpan and sFilter <> "") Begin
+            Move sFilter to tsValue
+            Send Add_Value_Constraint of hoDD hoMainDD iField eDbConstrain tsValue
+        End
         // Compare numeric fields as numbers, because the filter value is read as text.
-        Else If (sFilter <> "" and (DFTypeToJson(Self, eType, 0) = jsonTypeInteger or DFTypeToJson(Self, eType, 0) = jsonTypeDouble)) Begin
+        // Char and UChar are numbers too, although DFTypeToJson serialises them as strings.
+        Else If (sFilter <> "" and (DFTypeToJson(Self, eType, 0) = jsonTypeInteger or DFTypeToJson(Self, eType, 0) = jsonTypeDouble or eType = C_TypeByte or eType = C_TypeUByte)) Begin
             If (not(DDPIsNumericFilter(Self, sFilter))) Begin
                 Function_Return (DDPError(Self, DDPERR_INVALID_CONSTRAIN, "Invalid numeric constraint."))
             End
