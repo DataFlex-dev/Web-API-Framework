@@ -731,103 +731,36 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
     End_Function
 
     { Visibility = Private }
-    // The database can only combine simple constraints with AND, so "find the records after
-    // Balance 100, Customer_Number 5 in index order" can't be asked in one go. Instead it is split into
-    // one search per index field, and each search is a set of simple constraints:
-    //   step 1: Balance = 100 and Customer_Number > 5   (same balance, a higher number)
-    //   step 0: Balance > 100                           (any higher balance)
-    // With three index fields there are three steps, and so on. This function returns the constraints
-    // of one step: iCompareField is the field that gets the comparison, and every field before it must
-    // equal its value.
-    // Two details:
-    // - "From this record onward" (GE/LE) only includes the record itself in the step that compares the
-    //   last field. Earlier steps use "after" (GT/LT), otherwise they would return the same records again.
-    // - For a descending field, "after" means a lower value, so the comparison is reversed.
-    Function DDPIndexStepConstrains tDDPIndexConstrain index Integer iCompareField Returns tDDPConstrain[]
-        tDDPConstrain[] aConstrains
-        Integer iField eMode
-
-        For iField from 0 to iCompareField
-            Move index.aFields[iField] to aConstrains[iField].hField
-            Move index.aValues[iField] to aConstrains[iField].aParams[0]
-            Move DDPFind_EQ to aConstrains[iField].eMode
-        Loop
-
-        Move index.eMode to eMode
-        If (iCompareField < SizeOfArray(index.aFields) - 1) Begin
-            If (eMode = DDPFind_GE) Move DDPFind_GT to eMode
-            Else If (eMode = DDPFind_LE) Move DDPFind_LT to eMode
-        End
-        If (index.aDirections[iCompareField] = DDPOrder_DESC) Begin
-            Case Begin
-                Case (eMode = DDPFind_GT)
-                    Move DDPFind_LT to eMode
-                    Case Break
-                Case (eMode = DDPFind_LT)
-                    Move DDPFind_GT to eMode
-                    Case Break
-                Case (eMode = DDPFind_GE)
-                    Move DDPFind_LE to eMode
-                    Case Break
-                Case (eMode = DDPFind_LE)
-                    Move DDPFind_GE to eMode
-                    Case Break
-            Case End
-        End
-        Move eMode to aConstrains[iCompareField].eMode
-        Function_Return aConstrains
-    End_Function
-
-    { Visibility = Private }
-    // Finds the rows for a multi-field constraint (query.oIndexConstrain) by running each search step from
-    // DDPIndexStepConstrains as its own query, and adding the results together. It starts with the step
-    // that compares the last field, because those rows come first in index order; in the example there,
-    // the remaining customers with Balance 100 come before those with a higher balance. It stops as soon as
-    // iFetchLimit rows are found (0 = no limit).
-    Function DDPFetchIndexRows tDDPTableQuery query Handle hoScopeDD RowID riScope Integer iFetchLimit RowID[] ByRef aRowIds Variant[][] ByRef aData Returns tDDPBuilderResult
+    // Adds the multi-field constraint index to hoQuery as one OR group: the rows after (GT/GE) or before (LT/LE)
+    // aValues in the order of aFields. For GT on Balance 100, Customer_Number 5 this is:
+    //   (Balance > 100) OR (Balance = 100 AND Customer_Number > 5)
+    // Only the branch that compares the last field includes the row itself for GE/LE, and a descending field
+    // reverses its comparison.
+    Function DDPAddIndexConstrain Handle hoQuery Handle hoDD tDDPIndexConstrain index Returns tDDPBuilderResult
         tDDPBuilderResult oResult
-        tDDPTableQuery stepQuery
-        tDDPConstrain[] aStepConstrains
-        tDDPTableResultLayout[] aStepLayouts aEmptyLayouts
-        RowID[] aStepRowIds
-        Variant[][] aStepData
-        Handle hoQuery hoAdapter
-        Integer iCompareField iConstrain iRow iRemaining
+        Integer iCompare iField iLast eMode
+        Boolean bAfter bInclusive
 
-        Move (SizeOfArray(query.oIndexConstrain.aFields) - 1) to iCompareField
-        While (iCompareField >= 0 and (iFetchLimit = 0 or SizeOfArray(aData) < iFetchLimit))
-            Move query to stepQuery
-            Get DDPIndexStepConstrains query.oIndexConstrain iCompareField to aStepConstrains
-            For iConstrain from 0 to (SizeOfArray(aStepConstrains) - 1)
-                Move aStepConstrains[iConstrain] to stepQuery.aConstrains[-1]
+        If (index.eMode = DDPFind_Auto) Function_Return oResult
+        Move (SizeOfArray(index.aFields) - 1) to iLast
+        Begin_ConstrainOr
+        For iCompare from 0 to iLast
+            Begin_ConstrainAnd
+            For iField from 0 to (iCompare - 1)
+                Get AddConstrain hoQuery hoDD index.aFields[iField] DDPFind_EQ index.aValues[iField] to oResult
+                If (oResult.iErr) Break
             Loop
-
-            Get DDPCreateQuery query.hoDD (&hoQuery) (&hoAdapter) to oResult
-            If (oResult.iErr) Function_Return oResult
-            Move aEmptyLayouts to aStepLayouts
-            Get DDPConfigureQuery stepQuery hoScopeDD riScope hoQuery (&aStepLayouts) to oResult
-            If (oResult.iErr) Begin
-                Send Destroy of hoQuery
-                Function_Return oResult
-            End
-
-            Move 0 to iRemaining
-            If (iFetchLimit > 0) Move (iFetchLimit - SizeOfArray(aData)) to iRemaining
-            Move False to Err
-            Get FetchFirst of hoQuery iRemaining (&aStepRowIds) to aStepData
-            If (Err or SizeOfArray(aStepData) <> SizeOfArray(aStepRowIds)) Begin
-                Get DDPFindFailure to oResult
-                Send Destroy of hoQuery
-                Function_Return oResult
-            End
-            Send Destroy of hoQuery
-
-            For iRow from 0 to (SizeOfArray(aStepData) - 1)
-                Move aStepData[iRow] to aData[-1]
-                Move aStepRowIds[iRow] to aRowIds[-1]
-            Loop
-            Decrement iCompareField
+            If (oResult.iErr) Break
+            Move ((index.eMode = DDPFind_GT or index.eMode = DDPFind_GE) <> (index.aDirections[iCompare] = DDPOrder_DESC)) to bAfter
+            Move (iCompare = iLast and (index.eMode = DDPFind_GE or index.eMode = DDPFind_LE)) to bInclusive
+            Move (If(bAfter, If(bInclusive, DDPFind_GE, DDPFind_GT), If(bInclusive, DDPFind_LE, DDPFind_LT))) to eMode
+            Get AddConstrain hoQuery hoDD index.aFields[iCompare] eMode index.aValues[iCompare] to oResult
+            If (oResult.iErr) Break
+            End_ConstrainAnd
         Loop
+        // A failed value leaves the groups open; drop them so they don't leak into the next constraint.
+        If (oResult.iErr) Send ResetConstraintGroups of ghoDbConstraintGroupBuilder
+        Else End_ConstrainOr
         Function_Return oResult
     End_Function
 
@@ -943,6 +876,8 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Set phoServer of hoQuery to query.hoDD
         Get AddConstrainsToCurrentSet hoQuery query to oResult
         If (oResult.iErr) Function_Return oResult
+        Get DDPAddIndexConstrain hoQuery query.hoDD query.oIndexConstrain to oResult
+        If (oResult.iErr) Function_Return oResult
 
         Get ConstraintSet of hoQuery to hoSet
         If (hoSet = 0 or hoSet = C_UnresolvedObject) Begin
@@ -984,7 +919,7 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
             Function_Return oResult
         End
         Move False to Err
-        Send DetermineConstraints of query.hoDD (&operationDetails)
+        Send DetermineConstraints of query.hoDD (&operationDetails) C_UnresolvedObject
         If (Err) Begin
             Get DDPFindFailure to oResult
             Function_Return oResult
@@ -1222,20 +1157,11 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
                 Function_Return oResult
             End
         End
-        If (query.oIndexConstrain.eMode <> DDPFind_Auto) Begin
-            Get DDPFetchIndexRows query hoScopeDD riScope iFetchLimit (&aRowIds) (&aData) to oResult
-            If (oResult.iErr) Begin
-                Send Destroy of hoQuery
-                Function_Return oResult
-            End
-        End
+        Move False to Err
+        If (query.eCursorMode = DDPFind_Auto) Get FetchFirst of hoQuery iFetchLimit (&aRowIds) to aData
         Else Begin
-            Move False to Err
-            If (query.eCursorMode = DDPFind_Auto) Get FetchFirst of hoQuery iFetchLimit (&aRowIds) to aData
-            Else Begin
-                Move (If(query.eCursorMode = DDPFind_GT, C_DbQuery_Next, C_DbQuery_Prev)) to eQueryMode
-                Get FetchEx of hoQuery eQueryMode vStartAt iFetchLimit (&aRowIds) to aData
-            End
+            Move (If(query.eCursorMode = DDPFind_GT, C_DbQuery_Next, C_DbQuery_Prev)) to eQueryMode
+            Get FetchEx of hoQuery eQueryMode vStartAt iFetchLimit (&aRowIds) to aData
         End
         If (Err or SizeOfArray(aData) <> SizeOfArray(aRowIds)) Begin
             Get DDPFindFailure to oResult
