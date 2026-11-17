@@ -811,7 +811,8 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
     End_Procedure
 
     { Visibility = Private }
-    // Applies find constraints recursively.
+    // Applies the constraints of query (and of its parents) to the SQL filter of hoMainDD, then
+    // those of each child to the child's own DD: a child is read per parent row with its own find.
     Function DDPApplyFindConstraints Handle hoMainDD tDDPTableQuery query Returns tDDPBuilderResult
         tDDPBuilderResult oResult
         Integer iChild
@@ -820,7 +821,7 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         If (oResult.iErr) Function_Return oResult
 
         For iChild from 0 to (SizeOfArray(query.aChilds) - 1)
-            Get DDPApplyFindConstraints hoMainDD query.aChilds[iChild] to oResult
+            Get DDPApplyFindConstraints query.aChilds[iChild].hoDD query.aChilds[iChild] to oResult
             If (oResult.iErr) Function_Return oResult
         Loop
 
