@@ -378,55 +378,85 @@ Class cDDPBuilder_Mixin is a Mixin
         Function_Return oResult
     End_Function
 
-    // Wires up live DD relationships for a save cascade. Unlike QueryLinkUp, no
-    // Constrain_File is needed -- children are new records and the DataFlex DD layer
-    // auto-seeds FK fields when Clear is called on a child whose DDO_Server points to
-    // the saved parent.
-    //
-    // Two wiring passes:
-    // 1. Wire ALL schema-declared server files for the current record as Add_Server_File
-    //    so DD procedures (e.g. Adjust_Balances) can access related tables during save.
-    // 2. For each JSON-specified child: wire the parent->child link and set DDO_Server
-    //    so the DataFlex DD layer seeds FK fields on Clear, then recurse.
-    Function SaveLinkUp tDDPSaveRecord record Returns tDDPBuilderResult
-        Integer iIndex iDupIdx iParentIdx
+    // The error for a write through hoDD that needs the table sTable, which is not exposed.
+    Function DDPUnexposedError Handle hoDD String sTable Returns tDDPBuilderResult
+        Function_Return (DDPError(Self, DDPERR_UNKOWN_TABLE, SFormat("'%1' is related to '%2' but not exposed; expose it to write '%2'.", sTable, NameOfDD(Self, hoDD))))
+    End_Function
+
+    // Links the exposed DDs a write through hoDD needs, the way a DDO structure would hold them:
+    // every parent, recursively up (a save or delete also updates the parent records), and with
+    // bDown every child, recursively down (a cascade delete deletes their records too, which
+    // again updates their other parents). A related table the backend's DD layer requires but
+    // that is not exposed fails the write (DDPUnexposedRelation), instead of being skipped.
+    // aLinked holds the DDs whose parents are linked, aDescended those whose children are, so
+    // each relation is linked once.
+    Function DDPLinkWriteStructure Handle hoDD Boolean bDown Handle[] ByRef aLinked Handle[] ByRef aDescended Returns tDDPBuilderResult
         tDDPBuilderResult oResult
-        Handle hChildFile hDupFile
-        Handle[] aSchemaParents
-        Boolean bAlreadyWired
+        Handle[] aRelated
+        Integer iIndex
+        String sTable
 
-        // Pass 1: wire this record's own schema-declared server files.
-        // Add_Server_File registers the file number; Set DDO_Server attaches the live DD
-        // object. Valid_Servers checks that every registered file number has a matching
-        // DD object — so both calls are required for every parent, not just the first.
-        Get DDParents record.hoDD to aSchemaParents
-        For iParentIdx from 0 to (SizeOfArray(aSchemaParents) - 1)
-            If (aSchemaParents[iParentIdx] <> 0) Begin
-                Send DDPLink record.hoDD aSchemaParents[iParentIdx] False False
-            End
-        Loop
-
-        // Pass 2: wire each JSON-specified child and recurse.
-        For iIndex from 0 to (SizeOfArray(record.aChilds) - 1)
-            Get Main_File of record.aChilds[iIndex].hoDD to hChildFile
-
-            Move False to bAlreadyWired
-            For iDupIdx from 0 to (iIndex - 1)
-                Get Main_File of record.aChilds[iDupIdx].hoDD to hDupFile
-                If (hDupFile = hChildFile) Begin
-                    Move True to bAlreadyWired
-                    Break
+        If (SearchArray(hoDD, aLinked) = -1) Begin
+            Move hoDD to aLinked[-1]
+            Get DDPUnexposedRelation hoDD False to sTable
+            If (sTable <> "") Function_Return (DDPUnexposedError(Self, hoDD, sTable))
+            Get DDParents hoDD to aRelated
+            For iIndex from 0 to (SizeOfArray(aRelated) - 1)
+                If (aRelated[iIndex] <> 0 and aRelated[iIndex] <> hoDD) Begin
+                    Send DDPLink hoDD aRelated[iIndex] True False
+                    Get DDPLinkWriteStructure aRelated[iIndex] False (&aLinked) (&aDescended) to oResult
+                    If (oResult.iErr) Function_Return oResult
                 End
             Loop
+        End
 
-            If (not(bAlreadyWired)) Begin
-                Send DDPLink record.aChilds[iIndex].hoDD record.hoDD True False
+        If (bDown and SearchArray(hoDD, aDescended) = -1) Begin
+            Move hoDD to aDescended[-1]
+            Get DDPUnexposedRelation hoDD True to sTable
+            If (sTable <> "") Function_Return (DDPUnexposedError(Self, hoDD, sTable))
+            Get DDChilds hoDD to aRelated
+            For iIndex from 0 to (SizeOfArray(aRelated) - 1)
+                If (aRelated[iIndex] <> 0 and aRelated[iIndex] <> hoDD) Begin
+                    Get DDPLinkWriteStructure aRelated[iIndex] True (&aLinked) (&aDescended) to oResult
+                    If (oResult.iErr) Function_Return oResult
+                End
+            Loop
+        End
+        Function_Return oResult
+    End_Function
+
+    // Links the structure of one record of a store and of its nested child records (see
+    // DDPLinkWriteStructure). A nested child is linked to its parent record even when the child's
+    // DD doesn't list that parent, so the DD layer seeds its foreign key on Clear.
+    Function DDPLinkSaveRecord tDDPSaveRecord record Handle[] ByRef aLinked Handle[] ByRef aDescended Returns tDDPBuilderResult
+        tDDPBuilderResult oResult
+        Integer iIndex
+        Handle hoChild
+        Handle[] aParents
+
+        Get DDPLinkWriteStructure record.hoDD False (&aLinked) (&aDescended) to oResult
+        If (oResult.iErr) Function_Return oResult
+        For iIndex from 0 to (SizeOfArray(record.aChilds) - 1)
+            Move record.aChilds[iIndex].hoDD to hoChild
+            If (SearchArray(hoChild, aLinked) = -1) Begin
+                Get DDParents hoChild to aParents
+                If (SearchArray(record.hoDD, aParents) = -1) ;
+                    Send DDPLink hoChild record.hoDD True False
             End
-
-            Get SaveLinkUp record.aChilds[iIndex] to oResult
+            Get DDPLinkSaveRecord record.aChilds[iIndex] (&aLinked) (&aDescended) to oResult
             If (oResult.iErr) Function_Return oResult
         Loop
+        Function_Return oResult
+    End_Function
 
+    // Wires up live DD relationships for a store: the parents of every record, recursively, and
+    // each nested child to its parent record. Unlike QueryLinkUp, no Constrain_File is needed:
+    // children are new records and the DD layer seeds their foreign keys from the parent on Clear.
+    Function SaveLinkUp tDDPSaveRecord record Returns tDDPBuilderResult
+        tDDPBuilderResult oResult
+        Handle[] aLinked aDescended
+
+        Get DDPLinkSaveRecord record (&aLinked) (&aDescended) to oResult
         Function_Return oResult
     End_Function
 
@@ -693,33 +723,29 @@ Class cDDPBuilder_Mixin is a Mixin
         Function_Return oResult
     End_Function
 
-    // Wires up live DD relationships for a delete operation.
-    // Parent DDs (server files) are always wired so the DD layer can read parent buffers.
-    // Child DDs (client files) are wired only when Cascade_Delete_State is True so the
-    // DataFlex DD layer can cascade-delete child records automatically.
+    // Wires up live DD relationships for a delete (see DDPLinkWriteStructure): the parents,
+    // recursively, so the DD layer updates the parent records. With Cascade_Delete_State True all
+    // descendants, so the cascade reaches every level; otherwise the direct children, so the
+    // delete is refused while child records exist. Fails when a table the delete needs is not exposed.
     Function DeleteLinkUp tDDPDeleteRecord record Returns tDDPBuilderResult
         Integer iIndex
         tDDPBuilderResult oResult
-        Handle[] aParents aChilds
+        Handle[] aChilds aLinked aDescended
         Boolean bCascade
-
-        Get DDParents record.hoDD to aParents
-        For iIndex from 0 to (SizeOfArray(aParents) - 1)
-            If (aParents[iIndex] <> 0) Begin
-                Send DDPLink record.hoDD aParents[iIndex] False False
-            End
-        Loop
+        String sTable
 
         Get Cascade_Delete_State of record.hoDD to bCascade
-        If (bCascade) Begin
-            Get DDChilds record.hoDD to aChilds
-            For iIndex from 0 to (SizeOfArray(aChilds) - 1)
-                If (aChilds[iIndex] <> 0) Begin
-                    Send DDPLink aChilds[iIndex] record.hoDD True False
-                End
-            Loop
-        End
+        Get DDPLinkWriteStructure record.hoDD bCascade (&aLinked) (&aDescended) to oResult
+        If (oResult.iErr or bCascade) Function_Return oResult
 
+        // No cascade: only the direct children are needed, for the child records check.
+        Get DDPUnexposedRelation record.hoDD True to sTable
+        If (sTable <> "") Function_Return (DDPUnexposedError(Self, record.hoDD, sTable))
+        Get DDChilds record.hoDD to aChilds
+        For iIndex from 0 to (SizeOfArray(aChilds) - 1)
+            If (aChilds[iIndex] <> 0 and aChilds[iIndex] <> record.hoDD) ;
+                Send DDPLink aChilds[iIndex] record.hoDD True False
+        Loop
         Function_Return oResult
     End_Function
 
@@ -884,21 +910,14 @@ Class cDDPBuilder_Mixin is a Mixin
         Function_Return oResult
     End_Function
 
-    // Wires up live DD relationships for an update operation.
-    // Parent DDs (server files) are always wired so the DD layer can validate FK integrity.
-    // Children are not wired — updates do not cascade.
+    // Wires up live DD relationships for an update: the parents, recursively (see
+    // DDPLinkWriteStructure), so the DD layer validates the foreign keys and updates the parent
+    // records. Children are not wired: updates do not cascade.
     Function UpdateLinkUp tDDPUpdateRecord record Returns tDDPBuilderResult
-        Integer iIndex
         tDDPBuilderResult oResult
-        Handle[] aParents
+        Handle[] aLinked aDescended
 
-        Get DDParents record.hoDD to aParents
-        For iIndex from 0 to (SizeOfArray(aParents) - 1)
-            If (aParents[iIndex] <> 0) Begin
-                Send DDPLink record.hoDD aParents[iIndex] False False
-            End
-        Loop
-
+        Get DDPLinkWriteStructure record.hoDD False (&aLinked) (&aDescended) to oResult
         Function_Return oResult
     End_Function
 

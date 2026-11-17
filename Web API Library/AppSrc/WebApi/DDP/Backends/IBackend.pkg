@@ -232,6 +232,9 @@ Register_Procedure DDPSetChangedValue Handle hoDD Handle hFile Integer iField St
 Register_Function DDPGetFieldValue Handle hoDD Handle hFile Integer iField Returns String
 Register_Function DDPValidateDelete Handle hoDD Returns Boolean
 Register_Function DDPErrorText String sFallback Returns String
+// The name of the first table related to hoDD (a child with bChildren, otherwise a parent) that
+// the backend's DD layer requires for a write but that is not exposed; "" when there is none.
+Register_Function DDPUnexposedRelation Handle hoDD Boolean bChildren Returns String
 // Save hooks: validate and save only this record, and run a /save body in one transaction.
 Register_Function DDPValidateSaveRecord Handle hoDD Returns Boolean
 Register_Procedure DDPSaveRecord Handle hoDD

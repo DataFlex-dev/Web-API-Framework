@@ -310,6 +310,32 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Function_Return aHandles
     End_Function
 
+    // The first server file (or client file with bChildren) the DD class of hoDD declares that has
+    // no exposed DD, as its logical name. The classic DD requires a DD for every server file on
+    // save and delete, and for every client file on a cascade delete; Windows takes that rule for
+    // the client files of a delete without cascade too, which must all be checked for records.
+    Function DDPUnexposedRelation Handle hoDD Boolean bChildren Returns String
+        Integer iIndex iInfoIndex
+        Handle hFile
+        Handle[] aFiles
+        String sName
+        tDDPClassicFileInfo[] aInfo
+        Get paFileInfo to aInfo
+
+        Get DDPFileInfoIndex (Main_File(hoDD)) (&aInfo) to iInfoIndex
+        If (iInfoIndex = -1) Function_Return ""
+        If bChildren Move aInfo[iInfoIndex].aChilds to aFiles
+        Else Move aInfo[iInfoIndex].aParents to aFiles
+        For iIndex from 0 to (SizeOfArray(aFiles) - 1)
+            Move aFiles[iIndex] to hFile
+            If (hFile <> aInfo[iInfoIndex].hFile and DDByFile(Self, hFile) = 0) Begin
+                Get_Attribute DF_FILE_LOGICAL_NAME of hFile to sName
+                Function_Return sName
+            End
+        Loop
+        Function_Return ""
+    End_Function
+
     // Returns the primary index number declared by hoDD's underlying table.
 
     Function PrimaryDDIndex Handle hoDD Returns Integer

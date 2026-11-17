@@ -312,6 +312,13 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Function_Return aHandles
     End_Function
 
+    // Always "": the native DD requires only the parents and children declared with ParentRequired
+    // and ChildRequired, and checks those itself when saving or deleting (ValidateRequiredParents,
+    // ValidateRequiredChildren). Other related tables without a DD are skipped by design.
+    Function DDPUnexposedRelation Handle hoDD Boolean bChildren Returns String
+        Function_Return ""
+    End_Function
+
 
     Function PrimaryDDIndex Handle hoDD Returns Integer
         Integer iIndexCount
