@@ -821,17 +821,81 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
     End_Procedure
 
     { Visibility = Private }
-    // Applies the constraints of query (and of its parents) to the SQL filter of hoMainDD, then
-    // those of each child to the child's own DD: a child is read per parent row with its own find.
-    Function DDPApplyFindConstraints Handle hoMainDD tDDPTableQuery query Returns tDDPBuilderResult
+    // The SQL name of hoDD's table for a FROM clause: "Schema"."Table", or "Table" without a schema.
+    Function DDPSQLTableName Handle hoDD Returns String
+        Handle hFile
+        String sSchema sQuote
+
+        Get Main_File of hoDD to hFile
+        Get_Attribute DF_FILE_OWNER of hFile to sSchema
+        If (Trim(sSchema) = "") Function_Return (SQLStrFileName(hoDD))
+        Get SQLIdentifierQuote of (phoSQLHelper(hoDD)) hFile to sQuote
+        Function_Return (sQuote + Trim(sSchema) + sQuote + "." + SQLStrFileName(hoDD))
+    End_Function
+
+    { Visibility = Private }
+    // Builds the SQL filter, on the table of hoChildDD, for the constraints of parent and of its own
+    // parents: the child rows whose parent row matches them. The parent's columns are not part of the
+    // child's SQL query, so this is a correlated subquery on the relation fields, for example:
+    //   EXISTS (SELECT 1 FROM "dbo"."Vendor" WHERE ("Vendor"."ID" = "Item"."Vendor_ID") AND ("Vendor"."Name" = N'One'))
+    // A grandparent constraint nests one more EXISTS inside. sSQLFilter is "" when there is nothing to filter.
+    Function DDPSQLParentFilter Handle hoChildDD tDDPTableQuery parent String ByRef sSQLFilter Returns tDDPBuilderResult
         tDDPBuilderResult oResult
-        Integer iChild
+        Integer iIndex iField iRelated
+        String sWhere sCompare sJoin
 
-        Get AddConstrainsToCurrentSet hoMainDD query to oResult
-        If (oResult.iErr) Function_Return oResult
+        Move "" to sSQLFilter
+        For iIndex from 0 to (SizeOfArray(parent.aConstrains) - 1)
+            Get DDPSQLFilter parent.hoDD parent.hoDD parent.aConstrains[iIndex].hField parent.aConstrains[iIndex].eMode parent.aConstrains[iIndex].aParams[0] (&sCompare) to oResult
+            If (oResult.iErr) Function_Return oResult
+            Get SQLStrAppend of parent.hoDD sWhere sCompare to sWhere
+        Loop
+        For iIndex from 0 to (SizeOfArray(parent.aParents) - 1)
+            Get DDPSQLParentFilter parent.hoDD parent.aParents[iIndex] (&sCompare) to oResult
+            If (oResult.iErr) Function_Return oResult
+            Get SQLStrAppend of parent.hoDD sWhere sCompare to sWhere
+        Loop
+        If (sWhere = "") Function_Return oResult
 
-        For iChild from 0 to (SizeOfArray(query.aChilds) - 1)
-            Get DDPApplyFindConstraints query.aChilds[iChild].hoDD query.aChilds[iChild] to oResult
+        // Both tables would have the same name inside the subquery.
+        If (Main_File(hoChildDD) = Main_File(parent.hoDD)) Begin
+            Function_Return (DDPError(Self, DDPERR_INVALID_CONSTRAIN, SFormat("Constraints on '%1' as its own parent are not supported on the Windows backend.", NameOfDD(Self, parent.hoDD))))
+        End
+        For iField from 1 to (FieldCount(Self, hoChildDD))
+            If (FieldRelation(Self, hoChildDD, parent.hoDD, iField, &iRelated)) ;
+                Get SQLStrAppend of parent.hoDD sJoin (SQLStrFileFieldName(parent.hoDD, iRelated) + " = " + SQLStrFileFieldName(hoChildDD, iField)) to sJoin
+        Loop
+        If (sJoin = "") Begin
+            Function_Return (DDPError(Self, DDPERR_INVALID_CONSTRAIN, SFormat("'%1' has no relation fields to '%2'.", NameOfDD(Self, hoChildDD), NameOfDD(Self, parent.hoDD))))
+        End
+
+        Get SQLStrAppend of parent.hoDD sJoin sWhere to sWhere
+        Move ("EXISTS (SELECT 1 FROM " + DDPSQLTableName(Self, parent.hoDD) + " WHERE " + sWhere + ")") to sSQLFilter
+        Function_Return oResult
+    End_Function
+
+    { Visibility = Private }
+    // Applies the constraints of query to the SQL filter of its own DD: its own constraints directly,
+    // those of its parents (and their parents) as subqueries (see DDPSQLParentFilter). Then those of
+    // each child to the child's own DD: a child is read per parent row with its own find.
+    Function DDPApplyFindConstraints tDDPTableQuery query Returns tDDPBuilderResult
+        tDDPBuilderResult oResult
+        Integer iIndex
+        String sSQLFilter
+
+        For iIndex from 0 to (SizeOfArray(query.aConstrains) - 1)
+            Get AddConstrain query.hoDD query.hoDD query.aConstrains[iIndex].hField query.aConstrains[iIndex].eMode query.aConstrains[iIndex].aParams[0] to oResult
+            If (oResult.iErr) Function_Return oResult
+        Loop
+
+        For iIndex from 0 to (SizeOfArray(query.aParents) - 1)
+            Get DDPSQLParentFilter query.hoDD query.aParents[iIndex] (&sSQLFilter) to oResult
+            If (oResult.iErr) Function_Return oResult
+            If (sSQLFilter <> "") Send DDPAppendSQLFilter query.hoDD sSQLFilter
+        Loop
+
+        For iIndex from 0 to (SizeOfArray(query.aChilds) - 1)
+            Get DDPApplyFindConstraints query.aChilds[iIndex] to oResult
             If (oResult.iErr) Function_Return oResult
         Loop
 
@@ -853,7 +917,7 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         If (oResult.iErr) Function_Return oResult
 
         Send DDPRebuildFindConstraints query
-        Get DDPApplyFindConstraints query.hoDD query to oResult
+        Get DDPApplyFindConstraints query to oResult
         If (oResult.iErr) Function_Return oResult
 
         Get DDPSQLIndexFilter query.hoDD query.hoDD query.oIndexConstrain (&sSQLFilter) to oResult
