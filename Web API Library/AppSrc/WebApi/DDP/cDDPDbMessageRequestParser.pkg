@@ -17,7 +17,7 @@ End_Struct
 //  "constraints":[{"field":"Customer.State","op":"eq","value":"TX"}],
 //  "orderBy":[{"field":"Customer.Name","dir":"asc"}],
 //  "limit":20, "offset":0}
-// Joins must point to parent tables. "or" groups are rejected as not supported yet.
+// Joins must point to parent tables. Constraints may contain nested {"or"|"and": [...]} groups.
 // Multi-field constraints ({"field":[..],"op":"gt","value":[..],"dir":[..]}) are supported on main-table fields only.
 Class cDDPDbMessageRequestParser is a cDDPRequestParser
 
@@ -109,19 +109,12 @@ Class cDDPDbMessageRequestParser is a cDDPRequestParser
         Function_Return oResult
     End_Function
 
-    // Adds constraint element iIndex ({"field":..,"op":..,"value":..}) to its node.
-    Function ParseConstraint Handle hoItem Integer iIndex tDDPDbMessageNode[] ByRef aNodes Returns tDDPBuilderResult
+    // Reads constraint element iIndex ({"field":..,"op":..,"value":..}) into oConstrain; iNode is the node of its table.
+    Function ParseFieldConstraint Handle hoItem Integer iIndex tDDPDbMessageNode[] ByRef aNodes Integer ByRef iNode tDDPConstrain ByRef oConstrain Returns tDDPBuilderResult
         tDDPBuilderResult oResult
-        tDDPConstrain oConstrain
-        Integer iNode iField eValueType
+        Integer iField eValueType
         String sQualifiedField sOp sValue
 
-        If (HasMember(hoItem, "or")) ;
-            Function_Return (DDPError(Self, DDPERR_INVALID_CONSTRAIN, "'or' constraints are not supported yet."))
-        If (MemberJsonTypeOrAbsent(Self, hoItem, "field") = jsonTypeArray) Begin
-            Get ParseIndexConstraint hoItem iIndex (&aNodes) to oResult
-            Function_Return oResult
-        End
         If (HasMember(hoItem, "dir")) ;
             Function_Return (DDPError(Self, DDPERR_INVALID_CONSTRAIN, SFormat("Invalid constraint at index %1.", iIndex)))
 
@@ -151,7 +144,69 @@ Class cDDPDbMessageRequestParser is a cDDPRequestParser
         Get MemberValue of hoItem "value" to sValue
         Move iField to oConstrain.hField
         Move sValue to oConstrain.aParams[0]
-        Move oConstrain to aNodes[iNode].oTable.aConstrains[-1]
+        Function_Return oResult
+    End_Function
+
+    // Adds constraint element iIndex ({"field":..,"op":..,"value":..}, a multi-field constraint or an
+    // {"or"|"and": [...]} group) to its node.
+    Function ParseConstraint Handle hoItem Integer iIndex tDDPDbMessageNode[] ByRef aNodes Returns tDDPBuilderResult
+        tDDPBuilderResult oResult
+        tDDPConstrain oConstrain
+        tDDPConstrainGroup group
+        Integer iNode
+
+        If (HasMember(hoItem, "or") or HasMember(hoItem, "and")) Begin
+            Get ParseConstraintGroup hoItem iIndex (&aNodes) (&group) to oResult
+            If (oResult.iErr = 0) Move group to aNodes[0].oTable.aGroups[-1]
+            Function_Return oResult
+        End
+        If (MemberJsonTypeOrAbsent(Self, hoItem, "field") = jsonTypeArray) Begin
+            Get ParseIndexConstraint hoItem iIndex (&aNodes) to oResult
+            Function_Return oResult
+        End
+        Get ParseFieldConstraint hoItem iIndex (&aNodes) (&iNode) (&oConstrain) to oResult
+        If (oResult.iErr = 0) Move oConstrain to aNodes[iNode].oTable.aConstrains[-1]
+        Function_Return oResult
+    End_Function
+
+    // Reads group element iIndex ({"or"|"and": [members]}) into group. A member is a {"field","op","value"}
+    // constraint on the main table or a joined table, or a nested group. Empty groups and multi-field members are rejected.
+    Function ParseConstraintGroup Handle hoItem Integer iIndex tDDPDbMessageNode[] ByRef aNodes tDDPConstrainGroup ByRef group Returns tDDPBuilderResult
+        tDDPBuilderResult oResult
+        tDDPConstrainGroup oMember oEmptyMember
+        Handle hoMembers hoMember
+        Integer iMember iNode
+        String sKind
+
+        Move (If(HasMember(hoItem, "or"), "or", "and")) to sKind
+        If (MemberCount(hoItem) <> 1 or MemberJsonType(hoItem, sKind) <> jsonTypeArray) ;
+            Function_Return (DDPError(Self, DDPERR_INVALID_CONSTRAIN, SFormat("Invalid constraint at index %1.", iIndex)))
+        Move True to group.bGroup
+        Move (sKind = "or") to group.bOr
+
+        Get Member of hoItem sKind to hoMembers
+        If (MemberCount(hoMembers) = 0) Move (DDPError(Self, DDPERR_INVALID_CONSTRAIN, SFormat("'%1' group at index %2 has no members.", sKind, iIndex))) to oResult
+        For iMember from 0 to (MemberCount(hoMembers) - 1)
+            Move oEmptyMember to oMember
+            Get Member of hoMembers iMember to hoMember
+            If (JsonType(hoMember) <> jsonTypeObject) Begin
+                Move (DDPError(Self, DDPERR_INVALID_CONSTRAIN, SFormat("Invalid constraint at index %1.", iIndex))) to oResult
+            End
+            Else If (HasMember(hoMember, "or") or HasMember(hoMember, "and")) Begin
+                Get ParseConstraintGroup hoMember iIndex (&aNodes) (&oMember) to oResult
+            End
+            Else If (MemberJsonTypeOrAbsent(Self, hoMember, "field") = jsonTypeArray) Begin
+                Move (DDPError(Self, DDPERR_INVALID_CONSTRAIN, "Multi-field constraints are not allowed in an 'or' or 'and' group.")) to oResult
+            End
+            Else Begin
+                Get ParseFieldConstraint hoMember iIndex (&aNodes) (&iNode) (&oMember.oConstrain) to oResult
+                If (oResult.iErr = 0) Move aNodes[iNode].oTable.hoDD to oMember.hoDD
+            End
+            Send Destroy of hoMember
+            If (oResult.iErr) Break
+            Move oMember to group.aMembers[-1]
+        Loop
+        Send Destroy of hoMembers
         Function_Return oResult
     End_Function
 

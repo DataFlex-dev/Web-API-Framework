@@ -765,6 +765,28 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
     End_Function
 
     { Visibility = Private }
+    // Adds group (see tDDPConstrainGroup) to hoQuery: a group as a constraint group of its members
+    // (as Begin_ConstrainOr/Begin_ConstrainAnd), a member constraint through AddConstrain on its own
+    // table. On an error the group stays open; the caller resets ghoDbConstraintGroupBuilder.
+    Function DDPAddConstrainGroup Handle hoQuery tDDPConstrainGroup group Returns tDDPBuilderResult
+        tDDPBuilderResult oResult
+        Integer iMember eType
+
+        If (not(group.bGroup)) Begin
+            Get AddConstrain hoQuery group.hoDD group.oConstrain.hField group.oConstrain.eMode group.oConstrain.aParams[0] to oResult
+            Function_Return oResult
+        End
+        Move (If(group.bOr, C_DbConstraint_Or, C_DbConstraint_And)) to eType
+        Send BeginConstraintGroup of ghoDbConstraintGroupBuilder eType
+        For iMember from 0 to (SizeOfArray(group.aMembers) - 1)
+            Get DDPAddConstrainGroup hoQuery group.aMembers[iMember] to oResult
+            If (oResult.iErr) Function_Return oResult
+        Loop
+        Send EndConstraintGroup of ghoDbConstraintGroupBuilder eType
+        Function_Return oResult
+    End_Function
+
+    { Visibility = Private }
     // Finds a table layout by DD.
     Function DDPTableResultLayoutIndex Handle hoDD tDDPTableResultLayout[] aTableLayouts Returns Integer
         Integer iIndex
@@ -878,6 +900,14 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         If (oResult.iErr) Function_Return oResult
         Get DDPAddIndexConstrain hoQuery query.hoDD query.oIndexConstrain to oResult
         If (oResult.iErr) Function_Return oResult
+        For iIndex from 0 to (SizeOfArray(query.aGroups) - 1)
+            Get DDPAddConstrainGroup hoQuery query.aGroups[iIndex] to oResult
+            If (oResult.iErr) Begin
+                // A failed member leaves the groups open; drop them so they don't leak into the next constraint.
+                Send ResetConstraintGroups of ghoDbConstraintGroupBuilder
+                Function_Return oResult
+            End
+        Loop
 
         Get ConstraintSet of hoQuery to hoSet
         If (hoSet = 0 or hoSet = C_UnresolvedObject) Begin

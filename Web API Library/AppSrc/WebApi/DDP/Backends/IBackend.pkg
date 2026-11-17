@@ -64,6 +64,17 @@ Struct tDDPConstrain
     Variant[] aParams
 End_Struct
 
+// An "or"/"and" constraint group (DbMessage format), or one of its members. bGroup True: aMembers,
+// combined by bOr (any member matches) or AND (every member matches). bGroup False: the constraint
+// oConstrain on the table of hoDD. Members of one group may be on different tables.
+Struct tDDPConstrainGroup
+    Boolean bGroup
+    Boolean bOr
+    Handle hoDD
+    tDDPConstrain oConstrain
+    tDDPConstrainGroup[] aMembers
+End_Struct
+
 // One sort field. iSequence is its place in the overall sort order: the seq from the request
 // when given as {dir, seq} (bExplicit), otherwise where it appears in the request.
 Struct tDDPOrder
@@ -99,6 +110,7 @@ Struct tDDPTableQuery
     Integer eCursorMode   // DDPFind_GT: rows after the cursor row; DDPFind_LT: rows before it, nearest first. DDPFind_Auto (0): no cursor. Root table only.
     String[] aCursorKey   // the cursor row's primary-key values as sent, in DDPPrimaryKeyFields order
     tDDPIndexConstrain oIndexConstrain
+    tDDPConstrainGroup[] aGroups   // "or"/"and" groups (bGroup True), each ANDed with the other constraints. Root table only.
     tDDPConstrain[] aConstrains
     tDDPOrder[] aOrder
     tDDPTableQuery[] aParents
