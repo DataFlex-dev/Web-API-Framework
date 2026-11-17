@@ -443,21 +443,22 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         End
     End_Procedure
 
-    // Seeds ordering fields for the initial index read.
-    // Parent ordering fields are seeded recursively for child traversal.
-    Procedure Set_Constrains_To_Buffers tDDPTableQuery query
+    // Seeds aOrder (the find order of query, see DDPFindOrder) for the initial index read: the start
+    // of the order, or its end when bBackward. Parent ordering fields are seeded recursively for child
+    // traversal.
+    Procedure Set_Constrains_To_Buffers tDDPTableQuery query tDDPOrder[] aOrder Boolean bBackward
         Handle hFile
         Integer iIndex
         Get Main_File of query.hoDD to hFile
-        For iIndex from 0 to (SizeOfArray(query.aOrder) - 1)
-            If (query.aOrder[iIndex].eMode = DDPOrder_ASC) ;
-                Fill_Field hFile query.aOrder[iIndex].hField with DF_LOW
-            Else If (query.aOrder[iIndex].eMode = DDPOrder_DESC) ;
-                Fill_Field hFile query.aOrder[iIndex].hField with DF_HIGH
+        For iIndex from 0 to (SizeOfArray(aOrder) - 1)
+            If ((aOrder[iIndex].eMode = DDPOrder_ASC) <> bBackward) ;
+                Fill_Field hFile aOrder[iIndex].hField with DF_LOW
+            Else ;
+                Fill_Field hFile aOrder[iIndex].hField with DF_HIGH
         Loop
         // Parent buffers must be seeded too; Constrain_File reads from them to scope finds.
         For iIndex from 0 to (SizeOfArray(query.aParents) - 1)
-            Send Set_Constrains_To_Buffers query.aParents[iIndex]
+            Send Set_Constrains_To_Buffers query.aParents[iIndex] query.aParents[iIndex].aOrder False
         Loop
     End_Procedure
 
@@ -599,6 +600,119 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Function_Return oResult
     End_Function
 
+    // The find order of query: its sort fields, plus, when it has a cursor, the primary-key fields
+    // that are not sorted on yet (ascending), so no two rows tie and the cursor position is exact.
+    Function DDPFindOrder tDDPTableQuery query Returns tDDPOrder[]
+        tDDPOrder[] aOrder
+        tDDPOrder oOrder
+        Integer[] aPKFields
+        Integer iKey iOrder
+        Boolean bSorted
+
+        Move query.aOrder to aOrder
+        If (query.eCursorMode = DDPFind_Auto) Function_Return aOrder
+
+        Get DDPPrimaryKeyFields query.hoDD to aPKFields
+        For iKey from 0 to (SizeOfArray(aPKFields) - 1)
+            Move False to bSorted
+            For iOrder from 0 to (SizeOfArray(aOrder) - 1)
+                If (aOrder[iOrder].hField = aPKFields[iKey]) Move True to bSorted
+            Loop
+            If (not(bSorted)) Begin
+                Move query.hoDD to oOrder.hoDD
+                Move aPKFields[iKey] to oOrder.hField
+                Move DDPOrder_ASC to oOrder.eMode
+                Move (SizeOfArray(aOrder)) to oOrder.iSequence
+                Move oOrder to aOrder[-1]
+            End
+        Loop
+        Function_Return aOrder
+    End_Function
+
+    // dtValue as YYYY-MM-DD.
+    Function DDPISODate DateTime dtValue Returns String
+        Function_Return (Right("000" + String(DateGetYear(dtValue)), 4) + "-" + Right("0" + String(DateGetMonth(dtValue)), 2) + "-" + Right("0" + String(DateGetDay(dtValue)), 2))
+    End_Function
+
+    // The value of field iField in the record buffer of hFile as text that DDPSQLFilter accepts:
+    // dates as YYYY-MM-DD, datetimes as YYYY-MM-DDTHH:MM:SS.mmm, numbers with "." as decimal
+    // separator, other values as stored. Returns False for an empty date or datetime: an empty date
+    // is stored as NULL or as a minimum date depending on the driver, so it has no portable SQL value.
+    Function DDPBufferFilterValue Handle hFile Integer iField String ByRef sValue Returns Boolean
+        Integer eType iSeparator
+        Date dValue
+        DateTime dtValue
+
+        Get_Attribute DF_FIELD_TYPE of hFile iField to eType
+        If (eType = DF_DATE) Begin
+            Get_Field_Value hFile iField to dValue
+            If (dValue = 0) Function_Return False
+            Move (DDPISODate(Self, dValue)) to sValue
+        End
+        Else If (eType = DF_DATETIME) Begin
+            Get_Field_Value hFile iField to dtValue
+            If (IsNullDateTime(dtValue)) Function_Return False
+            Move (DDPISODate(Self, dtValue) + "T" + Right("0" + String(DateGetHour(dtValue)), 2) + ":" + ;
+                Right("0" + String(DateGetMinute(dtValue)), 2) + ":" + Right("0" + String(DateGetSecond(dtValue)), 2) + "." + ;
+                Right("00" + String(DateGetMillisecond(dtValue)), 3)) to sValue
+        End
+        Else Begin
+            Get_Field_Value hFile iField to sValue
+            If (eType = DF_BCD) Begin
+                Get_Attribute DF_DECIMAL_SEPARATOR to iSeparator
+                If (iSeparator <> 46) Move (Replace(Character(iSeparator), sValue, ".")) to sValue
+            End
+        End
+        Function_Return True
+    End_Function
+
+    // Builds the SQL filter of query's cursor: the rows after (gt) or before (lt) the cursor row in
+    // the find order (see DDPFindOrder). The cursor row is read by its primary key (query.aCursorKey)
+    // with a raw file find, so no DD SQL filter or constraint hides it. sSQLFilter is "" without a
+    // cursor. Fails when the row does not exist or has an empty date in one of the order fields.
+    Function DDPCursorFilter tDDPTableQuery query String ByRef sSQLFilter Returns tDDPBuilderResult
+        tDDPBuilderResult oResult
+        tDDPIndexConstrain index
+        tDDPOrder[] aOrder
+        Integer[] aPKFields
+        Integer iKey iPrimaryIndex
+        Handle hFile
+        Date dValue
+        String sValue
+
+        Move "" to sSQLFilter
+        If (query.eCursorMode = DDPFind_Auto) Function_Return oResult
+
+        Get Main_File of query.hoDD to hFile
+        Get PrimaryDDIndex query.hoDD to iPrimaryIndex
+        Get DDPPrimaryKeyFields query.hoDD to aPKFields
+        Clear hFile
+        For iKey from 0 to (SizeOfArray(aPKFields) - 1)
+            If (FieldType(Self, query.hoDD, aPKFields[iKey]) = DF_DATE) Begin
+                If (not(DDPParseISODate(query.aCursorKey[iKey], &dValue))) Begin
+                    Function_Return (DDPError(Self, DDPERR_INVALID_FORMAT, "Invalid cursor date; expected YYYY-MM-DD."))
+                End
+                Set_Field_Value hFile aPKFields[iKey] to dValue
+            End
+            Else Set_Field_Value hFile aPKFields[iKey] to query.aCursorKey[iKey]
+        Loop
+        Vfind hFile iPrimaryIndex EQ
+        If (not(Found)) Function_Return (DDPError(Self, DDPERR_RECORD_NOT_FOUND, "Cursor row not found."))
+
+        Get DDPFindOrder query to aOrder
+        Move query.eCursorMode to index.eMode
+        For iKey from 0 to (SizeOfArray(aOrder) - 1)
+            If (not(DDPBufferFilterValue(Self, hFile, aOrder[iKey].hField, &sValue))) Begin
+                Function_Return (DDPError(Self, DDPERR_INVALID_FORMAT, "The cursor row has an empty date in a sort field; this is not supported by the Windows backend yet."))
+            End
+            Move aOrder[iKey].hField to index.aFields[iKey]
+            Move sValue to index.aValues[iKey]
+            Move aOrder[iKey].eMode to index.aDirections[iKey]
+        Loop
+        Get DDPSQLIndexFilter query.hoDD query.hoDD index (&sSQLFilter) to oResult
+        Function_Return oResult
+    End_Function
+
     // DDP runtime operations for the Classic data dictionary API.
     Procedure DDPLink Handle hoDD Handle hoRelated Boolean bClient Boolean bConstrain
         If (bClient) ;
@@ -713,12 +827,16 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Function_Return oResult
     End_Function
 
-    // Prepares and validates a Classic find. The multi-field constraint and the "or"/"and" groups
-    // are root-table only; each is ANDed onto the root DD's SQL filter.
+    // Prepares and validates a Classic find. The multi-field constraint, the cursor and the "or"/"and"
+    // groups are root-table only; each is ANDed onto the root DD's SQL filter.
     Function DDPPrepareFind tDDPTableQuery query Returns tDDPBuilderResult
         tDDPBuilderResult oResult
-        String sSQLFilter
+        String sSQLFilter sCursorFilter
         Integer iGroup
+
+        // Before any SQL filter is set, so the filters can't hide the cursor row.
+        Get DDPCursorFilter query (&sCursorFilter) to oResult
+        If (oResult.iErr) Function_Return oResult
 
         Get QueryLinkUp query to oResult
         If (oResult.iErr) Function_Return oResult
@@ -730,6 +848,7 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Get DDPSQLIndexFilter query.hoDD query.hoDD query.oIndexConstrain (&sSQLFilter) to oResult
         If (oResult.iErr) Function_Return oResult
         If (sSQLFilter <> "") Send DDPAppendSQLFilter query.hoDD sSQLFilter
+        If (sCursorFilter <> "") Send DDPAppendSQLFilter query.hoDD sCursorFilter
 
         For iGroup from 0 to (SizeOfArray(query.aGroups) - 1)
             Get DDPSQLGroupFilter query.hoDD query.aGroups[iGroup] (&sSQLFilter) to oResult
@@ -749,12 +868,13 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         tDDPSerializedField[][] aParentFields
         Handle hFile hParentFile hoMain hoRow hoParentJson hoChildJson
         Handle[] ahParents ahChilds aParentSeenSets aChildSeenSets
-        Integer iIndex iFindMode iOffset iCollected iParent iChild
+        Integer iIndex iFindMode iNextMode iOffset iCollected iParent iChild
+        tDDPOrder[] aOrder
         RowID riCurrent riParent
         String sRootName sRowId
         String[] aParentNames aChildNames
         Boolean bFlatRoot bFlatLinked bFailed bEmit bRootPresent bParentPresent
-        Boolean bIndexCreated
+        Boolean bIndexCreated bBackward bFound
 
         Move (eStyle = DDPStyle_FlatLinked) to bFlatLinked
         Move ((eStyle <> DDPStyle_Nested) and hoScopeDD = 0 and not(bFieldsOnly)) to bFlatRoot
@@ -858,14 +978,23 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
 
         Get Main_File of query.hoDD to hFile
         If (not(bFailed)) Begin
-            Get CreateIndex query.hoDD query.aOrder query.aConstrains query.iLimit query.iOffset to iIndex
+            // A cursor "lt" reads backwards from the cursor row, so the nearest rows come first.
+            Get DDPFindOrder query to aOrder
+            Move (query.eCursorMode = DDPFind_LT) to bBackward
+            Get CreateIndex query.hoDD aOrder query.aConstrains query.iLimit query.iOffset to iIndex
             Move True to bIndexCreated
 
             Send Clear of query.hoDD
-            Send Set_Constrains_To_Buffers query
-            Move (DDPFind_GE - 1) to iFindMode
+            Send Set_Constrains_To_Buffers query aOrder bBackward
+            // DataFlex find modes are DDPFind_* - 1 (LT 0, LE 1, GE 3). The LT/LE/GE symbols can't be
+            // used here: they are command-argument replacements, not values.
+            Move (If(bBackward, DDPFind_LE - 1, DDPFind_GE - 1)) to iFindMode
+            Move (If(bBackward, DDPFind_LT - 1, NEXT_RECORD)) to iNextMode
             Move False to Err
+            // Request_Read reads the row (and its related parents) without making it the DD's current
+            // record, so HasRecord stays False: the loops below test Found after every read.
             Send DDPRequestRead query.hoDD iFindMode hFile iIndex
+            Move (Found) to bFound
             If Err Begin
                 Move (DDPError(Self, DDPERR_FIND_FAILED, DDPErrorText(Self, "Find failed."))) to oResult
                 Move True to bFailed
@@ -873,17 +1002,18 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         End
 
         Move query.iOffset to iOffset
-        While (not(bFailed) and HasRecord(query.hoDD) and iOffset)
+        While (not(bFailed) and bFound and iOffset)
             Decrement iOffset
             Move False to Err
-            Send DDPRequestRead query.hoDD NEXT_RECORD hFile iIndex
+            Send DDPRequestRead query.hoDD iNextMode hFile iIndex
+            Move (Found) to bFound
             If Err Begin
                 Move (DDPError(Self, DDPERR_FIND_FAILED, DDPErrorText(Self, "Find failed."))) to oResult
                 Move True to bFailed
             End
         Loop
 
-        While (not(bFailed) and HasRecord(query.hoDD) and ;
+        While (not(bFailed) and bFound and ;
             (query.iLimit = 0 or iCollected < query.iLimit))
             Get DDPCurrentRowID query.hoDD hFile to riCurrent
             Move (not(IsNullRowID(riCurrent))) to bRootPresent
@@ -1020,7 +1150,8 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
             If (not(bFailed)) Begin
                 Increment iCollected
                 Move False to Err
-                Send DDPRequestRead query.hoDD NEXT_RECORD hFile iIndex
+                Send DDPRequestRead query.hoDD iNextMode hFile iIndex
+                Move (Found) to bFound
                 If Err Begin
                     Move (DDPError(Self, DDPERR_FIND_FAILED, DDPErrorText(Self, "Find failed."))) to oResult
                     Move True to bFailed
@@ -1075,9 +1206,6 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Boolean bInitialized
 
         Move 0 to hoJson
-        If (query.eCursorMode <> DDPFind_Auto) Begin
-            Function_Return (DDPError(Self, DDPERR_INVALID_FORMAT, "'cursor' is not supported by the Windows backend yet."))
-        End
         Move False to Err
         Get Create (RefClass(cJsonObject)) to hoJson
         If (hoJson <> 0) Begin
