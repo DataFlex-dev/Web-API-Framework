@@ -517,19 +517,59 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Function_Return oResult
     End_Function
 
-    // Applies one constraint: appends its SQL condition (see DDPSQLPredicate) to the
-    // psSQLFilter of hoMainDD with AND, for all exposed Windows DDs including related tables.
-    Function AddConstrain Handle hoMainDD Handle hoDD Handle hField Integer eConstrain String sFilter Returns tDDPBuilderResult
-        String sPredicate sQuery
-        tDDPBuilderResult oResult
-
-        Get DDPSQLPredicate hoMainDD hoDD hField eConstrain sFilter (&sPredicate) to oResult
-        If (oResult.iErr) Function_Return oResult
+    // ANDs the SQL condition sPredicate onto the psSQLFilter of hoMainDD.
+    Procedure DDPAppendSQLFilter Handle hoMainDD String sPredicate
+        String sQuery
 
         Set pbUseDDSQLFilters of hoMainDD to True
         Get psSQLFilter of hoMainDD to sQuery
         Get SQLStrAppend of hoMainDD sQuery sPredicate to sQuery
         Set psSQLFilter of hoMainDD to sQuery
+    End_Procedure
+
+    // Applies one constraint: appends its SQL condition (see DDPSQLPredicate) to the
+    // psSQLFilter of hoMainDD, for all exposed Windows DDs including related tables.
+    Function AddConstrain Handle hoMainDD Handle hoDD Handle hField Integer eConstrain String sFilter Returns tDDPBuilderResult
+        String sPredicate
+        tDDPBuilderResult oResult
+
+        Get DDPSQLPredicate hoMainDD hoDD hField eConstrain sFilter (&sPredicate) to oResult
+        If (oResult.iErr) Function_Return oResult
+        Send DDPAppendSQLFilter hoMainDD sPredicate
+        Function_Return oResult
+    End_Function
+
+    // Builds the SQL condition of a multi-field (index) constraint on table hoDD: the rows after
+    // (GT/GE) or before (LT/LE) index.aValues in the order of index.aFields. For GT on Name 'Jansen',
+    // Customer_Number 12 this is:
+    //   (Name > 'Jansen') OR ((Name = 'Jansen') AND (Customer_Number > 12))
+    // Only the branch that compares the last field includes the row itself for GE/LE, and a
+    // descending field reverses its comparison. SQL counterpart of DDPAddIndexConstrain in Main.pkg.
+    // sPredicate is "" when there is no index constraint.
+    Function DDPSQLIndexPredicate Handle hoMainDD Handle hoDD tDDPIndexConstrain index String ByRef sPredicate Returns tDDPBuilderResult
+        tDDPBuilderResult oResult
+        Integer iCompare iField iLast eMode
+        Boolean bAfter bInclusive
+        String sBranch sCompare
+
+        Move "" to sPredicate
+        If (index.eMode = DDPFind_Auto) Function_Return oResult
+        Move (SizeOfArray(index.aFields) - 1) to iLast
+        For iCompare from 0 to iLast
+            Move "" to sBranch
+            For iField from 0 to (iCompare - 1)
+                Get DDPSQLPredicate hoMainDD hoDD index.aFields[iField] DDPFind_EQ index.aValues[iField] (&sCompare) to oResult
+                If (oResult.iErr) Function_Return oResult
+                Get SQLStrAppend of hoMainDD sBranch sCompare to sBranch
+            Loop
+            Move ((index.eMode = DDPFind_GT or index.eMode = DDPFind_GE) <> (index.aDirections[iCompare] = DDPOrder_DESC)) to bAfter
+            Move (iCompare = iLast and (index.eMode = DDPFind_GE or index.eMode = DDPFind_LE)) to bInclusive
+            Move (If(bAfter, If(bInclusive, DDPFind_GE, DDPFind_GT), If(bInclusive, DDPFind_LE, DDPFind_LT))) to eMode
+            Get DDPSQLPredicate hoMainDD hoDD index.aFields[iCompare] eMode index.aValues[iCompare] (&sCompare) to oResult
+            If (oResult.iErr) Function_Return oResult
+            Get SQLStrAppend of hoMainDD sBranch sCompare to sBranch
+            Get SQLStrAppendOr of hoMainDD sPredicate sBranch to sPredicate
+        Loop
         Function_Return oResult
     End_Function
 
@@ -647,15 +687,21 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Function_Return oResult
     End_Function
 
-    // Prepares and validates a Classic find.
+    // Prepares and validates a Classic find. The multi-field constraint is root-table only.
     Function DDPPrepareFind tDDPTableQuery query Returns tDDPBuilderResult
         tDDPBuilderResult oResult
+        String sPredicate
 
         Get QueryLinkUp query to oResult
         If (oResult.iErr) Function_Return oResult
 
         Send DDPRebuildFindConstraints query
         Get DDPApplyFindConstraints query.hoDD query to oResult
+        If (oResult.iErr) Function_Return oResult
+
+        Get DDPSQLIndexPredicate query.hoDD query.hoDD query.oIndexConstrain (&sPredicate) to oResult
+        If (oResult.iErr) Function_Return oResult
+        If (sPredicate <> "") Send DDPAppendSQLFilter query.hoDD sPredicate
         Function_Return oResult
     End_Function
 
@@ -997,9 +1043,6 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Move 0 to hoJson
         If (query.eCursorMode <> DDPFind_Auto) Begin
             Function_Return (DDPError(Self, DDPERR_INVALID_FORMAT, "'cursor' is not supported by the Windows backend yet."))
-        End
-        If (query.oIndexConstrain.eMode <> DDPFind_Auto) Begin
-            Function_Return (DDPError(Self, DDPERR_INVALID_FORMAT, "Multi-field constraints are not supported by the Windows backend yet."))
         End
         Move False to Err
         Get Create (RefClass(cJsonObject)) to hoJson
