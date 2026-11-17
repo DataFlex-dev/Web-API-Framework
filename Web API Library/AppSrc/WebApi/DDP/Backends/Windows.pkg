@@ -641,8 +641,10 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Function_Return oResult
     End_Function
 
-    // The find order of query: its sort fields, plus, when it has a cursor, the primary-key fields
-    // that are not sorted on yet (ascending), so no two rows tie and the cursor position is exact.
+    // The find order of query: its sort fields, plus the primary-key fields that are not sorted on
+    // yet (ascending), so no two rows tie: a find through an index on tied values could skip or
+    // repeat rows, and a cursor needs an exact position. Without sort fields and cursor it is
+    // empty, so the find uses the primary index (CreateIndex).
     Function DDPFindOrder tDDPTableQuery query Returns tDDPOrder[]
         tDDPOrder[] aOrder
         tDDPOrder oOrder
@@ -651,7 +653,7 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Boolean bSorted
 
         Move query.aOrder to aOrder
-        If (query.eCursorMode = DDPFind_Auto) Function_Return aOrder
+        If (SizeOfArray(aOrder) = 0 and query.eCursorMode = DDPFind_Auto) Function_Return aOrder
 
         Get DDPPrimaryKeyFields query.hoDD to aPKFields
         For iKey from 0 to (SizeOfArray(aPKFields) - 1)
