@@ -258,13 +258,14 @@ Class cDDPBuilder_Mixin is a Mixin
         End
         Move (BinarySearchInsertPos()) to iInsert
 
-        // Snapshot the file layout (parent/child file handles) before clearing
-        // relationships, so IsDDRelated can detect relationships at query-parse
-        // time without requiring the DD to be linked up.
-        Send StoreDDFileLayout DDDef.hoDD
-
         // Allow the backend to perform any custom registration work.
         Send OnExposeDD DDDef
+
+        // Snapshot the file layout (parent/child file handles) before clearing
+        // relationships, so IsDDRelated can detect relationships at query-parse
+        // time without requiring the DD to be linked up. After OnExposeDD, so the
+        // Windows backend also keeps a SQL filter the hook sets.
+        Send StoreDDFileLayout DDDef.hoDD
 
         // Clear request-specific state. Classic detaches live DDO links; native
         // preserves schema-backed links and resets transient constraints/buffers.

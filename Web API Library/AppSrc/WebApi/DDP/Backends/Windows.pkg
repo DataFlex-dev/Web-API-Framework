@@ -6,14 +6,16 @@ Use cli.pkg
 
 
 // Cached topology snapshot for one exposed DD: its main file, plus the file numbers of
-// its direct parent (server-file, 1-to-1) and child (client-file, 1-to-N) tables.
-// Populated at expose time, before Expose detaches the DD's relationships. Only file
-// numbers are stored: a related DD may be exposed later, so DDParents/DDChilds resolve
-// the DDs when asked.
+// its direct parent (server-file, 1-to-1) and child (client-file, 1-to-N) tables, and the
+// DD's own SQL filter. Populated at expose time, before Expose detaches the DD's relationships.
+// Only file numbers are stored: a related DD may be exposed later, so DDParents/DDChilds
+// resolve the DDs when asked. DDPClearRelations restores the SQL filter after each request.
 Struct tDDPClassicFileInfo
     Handle hFile
     Handle[] aParents
     Handle[] aChilds
+    String sSQLFilter
+    Boolean bUseSQLFilters
 End_Struct
 
 Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
@@ -262,6 +264,9 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         For iIndex from 0 to (Server_File_Count(hoDD) - 1)
             Get Server_File of hoDD iIndex to oInfo.aParents[iIndex]
         Loop
+        // The DD's own SQL filter (DD class or OnExposeDD); requests add theirs to it.
+        Get psSQLFilter of hoDD to oInfo.sSQLFilter
+        Get pbUseDDSQLFilters of hoDD to oInfo.bUseSQLFilters
 
         Move oInfo to aInfo[-1]
         Set paFileInfo to aInfo
@@ -735,9 +740,20 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
 
     Procedure DDPClearRelations Handle hoDD Handle hoOptParentDD
         Handle hFile
+        Integer iInfoIndex
+        tDDPClassicFileInfo[] aInfo
 
-        Set pbUseDDSQLFilters of hoDD to False
-        Set psSQLFilter of hoDD to ""
+        // Back to the DD's own SQL filter, dropping the filters the request added.
+        Get paFileInfo to aInfo
+        Get DDPFileInfoIndex (Main_File(hoDD)) (&aInfo) to iInfoIndex
+        If (iInfoIndex <> -1) Begin
+            Set pbUseDDSQLFilters of hoDD to aInfo[iInfoIndex].bUseSQLFilters
+            Set psSQLFilter of hoDD to aInfo[iInfoIndex].sSQLFilter
+        End
+        Else Begin
+            Set pbUseDDSQLFilters of hoDD to False
+            Set psSQLFilter of hoDD to ""
+        End
         Set Constrain_File of hoDD to 0
 
         While (Client_File_Count(hoDD))
