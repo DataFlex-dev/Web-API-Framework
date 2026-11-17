@@ -1200,6 +1200,89 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Function_Return oResult
     End_Function
 
+    // ---------------------------------------------------------------------------
+    // Save pipeline (POST /ddp/v1/save), see the shared part in cDDPBuilder.pkg.
+    // The DDs are not linked to their parents (Expose and every request detach
+    // them), so Request_Validate and Request_Save only handle this record: the
+    // parents are neither validated nor saved, and pbDDAttach leaves the foreign
+    // keys as sent.
+    // ---------------------------------------------------------------------------
+
+    Function DDPValidateSaveRecord Handle hoDD Returns Boolean
+        Integer iInvalid
+        Get Request_Validate of hoDD to iInvalid
+        Function_Return (iInvalid <> 0)
+    End_Function
+
+    Procedure DDPSaveRecord Handle hoDD
+        Send Request_Save of hoDD
+    End_Procedure
+
+    // Executes a parsed /save body (array of save items). hoResponse receives
+    // [{"<Table>": {record}}, ...] in item order; 0 on error (everything is rolled back).
+    // Classic transactions are a command block: an Error raised directly inside it rolls back and
+    // jumps to End_Transaction, skipping the rest of the block. So each item starts as failed and
+    // is only cleared when it completes; a returned failure is rolled back with Abort_Transaction.
+    Function DDPExecuteSave Handle hoItems Handle ByRef hoResponse Returns tDDPBuilderResult
+        tDDPSaveItem[] aItems
+        tDDPBuilderResult oResult oPending
+        Handle hoRecord hoEntry
+        Integer iItem iTranCount
+
+        Move 0 to hoResponse
+        Get DDPParseSaveItems hoItems (&aItems) to oResult
+        If (oResult.iErr) Function_Return oResult
+
+        Get Create (RefClass(cJsonObject)) to hoResponse
+        Send InitializeJsonType of hoResponse jsonTypeArray
+
+        // A validation or save Error jumps past End_Transaction (see above), so it can't tell which
+        // one failed. sError stays empty: filled in with the DD error text after the transaction.
+        Move DDPERR_SAVE_FAILED to oPending.iErr
+        Move 0 to hoRecord
+        Move 0 to iItem
+        Move False to Err
+        Begin_Transaction
+            For iItem from 0 to (SizeOfArray(aItems) - 1)
+                Move oPending to oResult
+                Move 0 to hoRecord
+                Get DDPSaveItem aItems[iItem] (&hoRecord) to oResult
+                // Never continue outside the transaction: if it ended anyway, treat the item as failed.
+                Get_Attribute DF_TRAN_COUNT to iTranCount
+                If (not(oResult.iErr) and iTranCount = 0) Move oPending to oResult
+                // Break only at loop level: inside a Begin block it leaves the block, not the loop.
+                If (oResult.iErr) Break
+                If (aItems[iItem].bCreate) Send DDPForwardCreatedKey (&aItems) iItem
+
+                // {"<Table>": {record}}
+                Get Create (RefClass(cJsonObject)) to hoEntry
+                Send InitializeJsonType of hoEntry jsonTypeObject
+                Send SetMember of hoEntry aItems[iItem].sTable hoRecord
+                Send AddMember of hoResponse hoEntry
+                Send Destroy of hoEntry
+                Send Destroy of hoRecord
+                Move 0 to hoRecord
+            Loop
+            Get_Attribute DF_TRAN_COUNT to iTranCount
+            If (oResult.iErr and iTranCount > 0) Abort_Transaction
+        End_Transaction
+
+        // An Error that jumped to End_Transaction left oResult at oPending.
+        If (oResult.iErr) Begin
+            If (oResult.sError = "") Move (DDPErrorText(Self, "Save failed.")) to oResult.sError
+            Move (SFormat("Save item %1: %2", iItem + 1, oResult.sError)) to oResult.sError
+            If (hoRecord <> 0) Send Destroy of hoRecord
+            Send Destroy of hoResponse
+            Move 0 to hoResponse
+        End
+
+        // Reset the buffers of every DD the request touched (same as DestroySaveQuery).
+        For iItem from 0 to (SizeOfArray(aItems) - 1)
+            Send DDPClearRelations aItems[iItem].oRecord.hoDD 0
+        Loop
+        Function_Return oResult
+    End_Function
+
     // Creates the complete response object or array for the requested style.
     Function DDPFetchJson tDDPTableQuery query Integer eStyle Handle ByRef hoJson Returns tDDPBuilderResult
         tDDPBuilderResult oResult

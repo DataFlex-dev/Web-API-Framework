@@ -1,11 +1,11 @@
 Use WebApi\DDP\v1\cDDPEndpoint.pkg
-Use WebApi\DDP\Backends\Main.pkg
+Use WebApi\DDP\Backends\IBackend.pkg
 
 // Handles POST /ddp/v1/save: one Request_Save of a client (cDDPClient.SaveRecords).
 // Body: [{"create": {"<Table>": {fields}}}, {"update": {"<Table>": {PK + changed fields}}}, ...],
 // parents before children. All items are written in one transaction, exactly as sent; the key of
 // a created record is copied into the foreign keys of the later items that relate to it.
-// Response: 200 with [{"<Table>": {record}}, ...] in the same order. Cross-platform backend only.
+// Response: 200 with [{"<Table>": {record}}, ...] in the same order.
 Class cDDPSaveEndpoint is a cDDPEndpoint
 
     Procedure Construct_Object
