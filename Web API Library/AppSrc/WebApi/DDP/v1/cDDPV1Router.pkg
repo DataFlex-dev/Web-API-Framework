@@ -15,10 +15,10 @@ Use WebApi\DDP\cDDPBuilder.pkg
 // so no explicit protocol reference needs to be wired.
 Class cDDPV1Router is a cWebApiRouter
 
-    { Visibility = Private }
     // Try children first (sub-endpoints for query/find/delete/save). When no child
     // path segment matches — e.g. the request is exactly GET /ddp/v1 — fall back to
     // handling the request at this level by setting Self as the dataset.
+    { Visibility = Private }
     Procedure RouteRequest tWebApiCallContext ByRef webapicallcontext
         Integer iIndex
         Handle[] hoRoutables
@@ -37,8 +37,8 @@ Class cDDPV1Router is a cWebApiRouter
         End
     End_Procedure
 
-    { Visibility = Private }
     // Verb dispatcher for requests that land directly on /ddp/v1 (no further path).
+    { Visibility = Private }
     Procedure OnHttpRequest tWebApiCallContext ByRef webapicallcontext
         If (webapicallcontext.sVerb = C_WEBAPI_GET) Begin
             Send OnHttpGet (&webapicallcontext)
@@ -47,16 +47,14 @@ Class cDDPV1Router is a cWebApiRouter
             Send OnHttpOptions (&webapicallcontext)
         End
         Else Begin
-            Move True to webapicallcontext.bErr
-            Move C_WEBAPI_NOTALLOWED to webapicallcontext.iStatusCode
-            Move "Not Allowed" to webapicallcontext.sShortStatusMessage
-            Move (SFormat("The %1 method is not allowed on the current resource", webapicallcontext.sVerb)) to webapicallcontext.sErrorMessage
+            Delegate Send HandleDDPError (&webapicallcontext) DDPERR_INVALID_FORMAT C_WEBAPI_NOTALLOWED "Not Allowed" ;
+                (SFormat("The %1 method is not allowed on the current resource", webapicallcontext.sVerb))
         End
     End_Procedure
 
-    { MethodType = Event }
     // GET /ddp/v1 — returns the protocol version and the names of all exposed tables.
     // paDataDicts is retrieved from the parent protocol via Delegate Get.
+    { MethodType = Event }
     Procedure OnHttpGet tWebApiCallContext ByRef webapicallcontext
         Handle hoArr
         String[] aDDs

@@ -45,8 +45,8 @@ Class cDDPDataSet_Mixin is a cWebComponent
         Send End_Construct_cWebApiModifierHost_Mixin
     End_Procedure
 
-    { Visibility = Private }
     // Central dispatcher: validates the verb then routes to the appropriate OnHttp* handler.
+    { Visibility = Private }
     Procedure OnHttpRequest tWebApiCallContext ByRef webapicallcontext
         Boolean bExposedVerb
 
@@ -74,24 +74,22 @@ Class cDDPDataSet_Mixin is a cWebComponent
             Case End
         End
         Else Begin
-            Move True to webapicallcontext.bErr
-            Move C_WEBAPI_NOTALLOWED to webapicallcontext.iStatusCode
-            Move "Not Allowed" to webapicallcontext.sShortStatusMessage
-            Move (SFormat("The %1 method is not allowed on the current resource", webapicallcontext.sVerb)) to webapicallcontext.sErrorMessage
+            Send HandleDDPError (&webapicallcontext) DDPERR_INVALID_FORMAT C_WEBAPI_NOTALLOWED "Not Allowed" ;
+                (SFormat("The %1 method is not allowed on the current resource", webapicallcontext.sVerb))
         End
     End_Procedure
 
-    { Visibility = Private }
     // Attaches this object as the dataset for the current request and injects modifiers.
+    { Visibility = Private }
     Procedure RouteRequest tWebApiCallContext ByRef webapicallcontext
         Move Self to webapicallcontext.hoDataset
 
         Send AddModifiersToCallContext (&webapicallcontext)
     End_Procedure
 
-    { MethodType = Event }
     // Stub - GET at the root /ddp path is not active (pbAllowRead = False).
     // Protocol info is served at /ddp/v1 by cDDPV1Router.
+    { MethodType = Event }
     Procedure OnHttpGet tWebApiCallContext ByRef webapicallcontext
     End_Procedure
 
@@ -115,10 +113,10 @@ Class cDDPDataSet_Mixin is a cWebComponent
     Procedure OnHttpDelete tWebApiCallContext ByRef webapicallcontext String sID
     End_Procedure
 
-    { Visibility = Private }
     // OPTIONS /ddp - responds with the verbs available on this endpoint.
     // Handles both CORS preflight (Access-Control-Request-Method present) and
     // plain capability discovery (returns Allow header).
+    { Visibility = Private }
     Procedure OnHttpOptions tWebApiCallContext ByRef webapicallcontext
         String sAvailableVerbs sRequestedVerb
         String[] asAvailableVerbs
@@ -164,10 +162,10 @@ Class cDDPDataSet_Mixin is a cWebComponent
         Move "No Content" to webapicallcontext.sShortStatusMessage
     End_Procedure
 
-    { Visibility = Private }
     // Returns True when sVerb is permitted on this endpoint.
     // OPTIONS is always allowed. pbReadOnly blocks all non-GET verbs.
     // Each remaining verb is checked against its pbAllow* property.
+    { Visibility = Private }
     Function IsVerbAllowed String sVerb Returns Boolean
         Boolean bReadOnly bAllowedVerb
 

@@ -27,10 +27,10 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
     Procedure End_Define_DDP_Backend_Mixin
     End_Procedure
 
-    { Visibility = Private }
     // Converts sNumber to a SQL numeric literal in sLiteral: an optional sign, digits, and at
     // most one "." or "," decimal separator between digits (written as "."). Returns False for
     // anything else, so the value can be embedded in a SQL filter as is.
+    { Visibility = Private }
     Function DDPSQLNumber String sNumber String ByRef sLiteral Returns Boolean
         Integer iPosition iLength iDigits
         Boolean bSeparator
@@ -91,9 +91,9 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Function_Return sName
     End_Function
 
-    { Visibility = Private }
     // Index of the paFileInfo entry for file hFile, or -1. A linear scan: there is one entry
     // per exposed DD, and the entries are in expose order.
+    { Visibility = Private }
     Function DDPFileInfoIndex Handle hFile tDDPClassicFileInfo[] ByRef aInfo Returns Integer
         Integer iIndex
         For iIndex from 0 to (SizeOfArray(aInfo) - 1)
@@ -843,15 +843,8 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Function_Return bError
     End_Function
 
-    Function DDPErrorText String sFallback Returns String
-        String sError
-        Get Error_Text LastErr to sError
-        If (Trim(sError) = "") Move sFallback to sError
-        Function_Return sError
-    End_Function
-
-    { Visibility = Private }
     // Rebuilds find constraints recursively.
+    { Visibility = Private }
     Procedure DDPRebuildFindConstraints tDDPTableQuery query
         Integer iIndex
 
@@ -864,8 +857,8 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Loop
     End_Procedure
 
-    { Visibility = Private }
     // The SQL name of hoDD's table for a FROM clause: "Schema"."Table", or "Table" without a schema.
+    { Visibility = Private }
     Function DDPSQLTableName Handle hoDD Returns String
         Handle hFile
         String sSchema sQuote
@@ -877,12 +870,12 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Function_Return (sQuote + Trim(sSchema) + sQuote + "." + SQLStrFileName(hoDD))
     End_Function
 
-    { Visibility = Private }
     // Builds the SQL filter, on the table of hoChildDD, for the constraints of parent and of its own
     // parents: the child rows whose parent row matches them. The parent's columns are not part of the
     // child's SQL query, so this is a correlated subquery on the relation fields, for example:
     //   EXISTS (SELECT 1 FROM "dbo"."Vendor" WHERE ("Vendor"."ID" = "Item"."Vendor_ID") AND ("Vendor"."Name" = N'One'))
     // A grandparent constraint nests one more EXISTS inside. sSQLFilter is "" when there is nothing to filter.
+    { Visibility = Private }
     Function DDPSQLParentFilter Handle hoChildDD tDDPTableQuery parent String ByRef sSQLFilter Returns tDDPBuilderResult
         tDDPBuilderResult oResult
         Integer iIndex iField iRelated
@@ -918,10 +911,10 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Function_Return oResult
     End_Function
 
-    { Visibility = Private }
     // Applies the constraints of query to the SQL filter of its own DD: its own constraints directly,
     // those of its parents (and their parents) as subqueries (see DDPSQLParentFilter). Then those of
     // each child to the child's own DD: a child is read per parent row with its own find.
+    { Visibility = Private }
     Function DDPApplyFindConstraints tDDPTableQuery query Returns tDDPBuilderResult
         tDDPBuilderResult oResult
         Integer iIndex
@@ -977,8 +970,8 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Function_Return oResult
     End_Function
 
-    { Visibility = Private }
     // Appends a Classic query directly into its caller-owned JSON destination.
+    { Visibility = Private }
     Function DDPAppendQueryJson tDDPTableQuery query Integer eStyle Handle hoScopeDD RowID riScope Handle hoJson Handle hoSeen Boolean bFieldsOnly Returns tDDPBuilderResult
         tDDPBuilderResult oResult
         tDDPTableQuery childQuery

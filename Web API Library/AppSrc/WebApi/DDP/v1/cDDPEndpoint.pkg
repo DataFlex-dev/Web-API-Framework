@@ -1,9 +1,9 @@
 Use WebApi\cBaseRestDataset.pkg
 Use WebApi\DDP\Backends\IBackend.pkg
 
-// Base class for the DDP v1 endpoints: owns the request-body parser and the
-// rejection helper. Builder and backend logic live on the parent
-// cWebAPIDataDictionaryProtocol; use Delegate Send/Get to reach them.
+// Base class for the DDP v1 endpoints: owns the request-body parser. Builder, backend and
+// error handling (HandleDDPError) live on the parent cWebAPIDataDictionaryProtocol;
+// use Delegate Send/Get to reach them.
 Class cDDPEndpoint is a cBaseRestDataset
 
     Procedure Construct_Object
@@ -15,14 +15,6 @@ Class cDDPEndpoint is a cBaseRestDataset
         End_Object
     End_Procedure
 
-    // Fails the request with the given status, title and detail.
-    Procedure RejectRequest tWebApiCallContext ByRef webapicallcontext Integer iStatus String sTitle String sDetail
-        Move True to webapicallcontext.bErr
-        Move iStatus to webapicallcontext.iStatusCode
-        Move sTitle to webapicallcontext.sShortStatusMessage
-        Move sDetail to webapicallcontext.sErrorMessage
-    End_Procedure
-
     // Parses the request body into oJson. Rejects the request and returns False when
     // the body is not JSON or its root is not an object (or an array, if bAllowArray).
     Function ReadJsonBody tWebApiCallContext ByRef webapicallcontext Boolean bAllowArray Returns Boolean
@@ -31,13 +23,13 @@ Class cDDPEndpoint is a cBaseRestDataset
 
         Get RequestDataString to sRequestBodyString
         If (not(ParseString(oJson, sRequestBodyString))) Begin
-            Send RejectRequest (&webapicallcontext) C_WEBAPI_NOTALLOWED "Invalid format" ""
+            Delegate Send HandleDDPError (&webapicallcontext) DDPERR_INVALID_FORMAT C_WEBAPI_NOTALLOWED "Invalid format" ""
             Function_Return False
         End
 
         Move (JsonType(oJson)) to eType
         If (eType <> jsonTypeObject and not(bAllowArray and eType = jsonTypeArray)) Begin
-            Send RejectRequest (&webapicallcontext) C_WEBAPI_NOTALLOWED "Invalid format" ;
+            Delegate Send HandleDDPError (&webapicallcontext) DDPERR_INVALID_FORMAT C_WEBAPI_NOTALLOWED "Invalid format" ;
                 (If(bAllowArray, "root must be an object or array.", "root should be an object."))
             Function_Return False
         End

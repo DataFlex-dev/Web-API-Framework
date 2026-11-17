@@ -17,7 +17,6 @@ Class cDDPSchemaEndpoint is a cBaseRestDataset
     End_Procedure
 
 
-    { MethodType = Event }
     // GET /ddp/v1/schema
     //
     // Response:
@@ -25,6 +24,7 @@ Class cDDPSchemaEndpoint is a cBaseRestDataset
     //   "customer":    { "Customer_Number": "integer", "Name": "string", ... },
     //   "orderheader": { "Order_Number": "integer", "Order_Date": "date",  ... }
     // }
+    { MethodType = Event }
     Procedure OnHttpGet tWebApiCallContext ByRef webapicallcontext
         tDDPDataDictPair[] aDataDicts
         Handle hoTable hoDD

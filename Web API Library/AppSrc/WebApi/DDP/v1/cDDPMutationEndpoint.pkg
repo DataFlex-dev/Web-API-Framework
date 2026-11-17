@@ -39,7 +39,7 @@ Class cDDPMutationEndpoint is a cDDPEndpoint
             // Each element must be a JSON object with exactly one top-level key.
             If (JsonType(hoElement) <> jsonTypeObject or MemberCount(hoElement) <> 1) Begin
                 If (eJsonType = jsonTypeArray) Send Destroy of hoElement
-                Send RejectRequest (&webapicallcontext) C_WEBAPI_NOTALLOWED "Invalid format" ;
+                Delegate Send HandleDDPError (&webapicallcontext) DDPERR_INVALID_FORMAT C_WEBAPI_NOTALLOWED "Invalid format" ;
                     "each entry must be a JSON object with exactly one table key."
                 Procedure_Return
             End
@@ -59,7 +59,7 @@ Class cDDPMutationEndpoint is a cDDPEndpoint
                     Move "Invalid request" to sTitle
                 End
                 Else Send MapExecuteError oResult.iErr (&iStatus) (&sTitle)
-                Send RejectRequest (&webapicallcontext) iStatus sTitle oResult.sError
+                Delegate Send HandleDDPError (&webapicallcontext) oResult.iErr iStatus sTitle oResult.sError
                 Procedure_Return
             End
 

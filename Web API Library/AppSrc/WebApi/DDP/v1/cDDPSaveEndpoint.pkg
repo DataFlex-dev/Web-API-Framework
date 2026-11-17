@@ -25,7 +25,7 @@ Class cDDPSaveEndpoint is a cDDPEndpoint
 
         If (not(ReadJsonBody(Self, &webapicallcontext, True))) Procedure_Return
         If (JsonType(oJson) <> jsonTypeArray) Begin
-            Send RejectRequest (&webapicallcontext) C_WEBAPI_NOTALLOWED "Invalid format" "root must be an array of save items."
+            Delegate Send HandleDDPError (&webapicallcontext) DDPERR_INVALID_FORMAT C_WEBAPI_NOTALLOWED "Invalid format" "root must be an array of save items."
             Procedure_Return
         End
 
@@ -53,7 +53,7 @@ Class cDDPSaveEndpoint is a cDDPEndpoint
                     Move 422 to iStatus
                     Move "Save Error" to sTitle
             Case End
-            Send RejectRequest (&webapicallcontext) iStatus sTitle oResult.sError
+            Delegate Send HandleDDPError (&webapicallcontext) oResult.iErr iStatus sTitle oResult.sError
             Procedure_Return
         End
 

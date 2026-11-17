@@ -19,7 +19,6 @@ Class cDDPDeleteEndpoint is a cDDPMutationEndpoint
         Set pbAllowDelete to False
     End_Procedure
 
-    { MethodType = Event }
     // POST /ddp/v1/delete — delete one or more records.
     //
     // Single record (PK only):
@@ -32,6 +31,7 @@ Class cDDPDeleteEndpoint is a cDDPMutationEndpoint
     //   [ { "Customer": { "Customer_Number": 42 } }, { "Customer": { "Customer_Number": 43 } } ]
     //
     // Response: 200 with a snapshot of the deleted record(s).
+    { MethodType = Event }
     Procedure OnHttpPost tWebApiCallContext ByRef webapicallcontext
         Send ProcessMutation (&webapicallcontext) C_WEBAPI_OK
     End_Procedure

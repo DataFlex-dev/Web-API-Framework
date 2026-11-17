@@ -46,6 +46,19 @@ Class cDDPBuilder_Mixin is a Mixin
         Function_Return oResult
     End_Function
 
+    // Text of the last DataFlex error reported during the current request; sFallback when none.
+    // Error_Object_Id is the cWebApi during a request (StartErrorTracking), as in cRestDataset.DataDictionaryErrorMessage.
+    Function DDPErrorText String sFallback Returns String
+        tWebApiReportedError[] aErrors
+        Integer iLast
+
+        Get WebApiReportedErrors of Error_Object_Id to aErrors
+        Move (SizeOfArray(aErrors) - 1) to iLast
+        If (iLast < 0) Function_Return sFallback
+        If (Trim(aErrors[iLast].sText) = "") Function_Return sFallback
+        Function_Return aErrors[iLast].sText
+    End_Function
+
     // Resets request-specific DD relationships, constraints, and buffers before
     // shared DD objects are reused by another request.
     // Classic cleanup detaches live DDO links; native cleanup preserves
@@ -655,6 +668,8 @@ Class cDDPBuilder_Mixin is a Mixin
             End
 
             Send Destroy of hoChildJson
+            // A later child that fails before creating its JSON must not destroy this handle again.
+            Move 0 to hoChildJson
         Loop
 
         Function_Return oResult

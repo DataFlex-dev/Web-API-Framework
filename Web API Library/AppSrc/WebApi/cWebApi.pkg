@@ -230,6 +230,7 @@ Class cWebApi is a cWebHttpHandler
         Boolean bUnexpectedError
 
         //Add all incoming data to the struct
+        Move Self to webapicallcontext.hoApi
         Move sPath to webapicallcontext.sPath
         Move sVerb to webapicallcontext.sVerb
         Move sContentType to webapicallcontext.sContentType

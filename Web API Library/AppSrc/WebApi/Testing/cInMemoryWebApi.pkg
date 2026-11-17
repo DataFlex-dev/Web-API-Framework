@@ -30,6 +30,7 @@ Struct tWebApiTestResponse
     String sBody
     UChar[] ucBody
     tWebApiTestNameValue[] aResponseHeaders
+    String[] aLoggedEvents
 End_Struct
 
 Class cInMemoryWebApiSession is a cObject
@@ -59,9 +60,8 @@ Class cInMemoryWebApi is a cWebApi
         String[] asCallstack
 
         Get pbDebugMode to bDebugMode
-        Set pbUnexpectedError to True
         Move (SFormat("Error %1 at line %2: %3", ErrNum, Err_Line, sErrMsg)) to sFormattedMsg
-        Set psLastErrorMessage to sFormattedMsg
+        Send RecordReportedError ErrNum Err_Line sErrMsg
         Send Error_Report of ghoErrorHandler ErrNum Err_Line sErrMsg
 
         If (IsDebuggerPresent() or bDebugMode) Begin
@@ -69,6 +69,15 @@ Class cInMemoryWebApi is a cWebApi
             Move sFormattedMsg to asCallstack[-1]
             Set pasErrorCallstack to asCallstack
         End
+    End_Procedure
+
+    // ghInetSession is Self during ExecuteRequest: keep events in the test response instead of the WebApp event log.
+    Procedure LogEvent Integer iEventType String sEvent
+        tWebApiTestResponse response
+
+        Get ptTestResponse to response
+        Move sEvent to response.aLoggedEvents[SizeOfArray(response.aLoggedEvents)]
+        Set ptTestResponse to response
     End_Procedure
 
     { Visibility=Private }

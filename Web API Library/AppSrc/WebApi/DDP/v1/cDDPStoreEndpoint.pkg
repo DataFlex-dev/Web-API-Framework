@@ -17,7 +17,6 @@ Class cDDPStoreEndpoint is a cDDPMutationEndpoint
         Set pbAllowDelete to False
     End_Procedure
 
-    { MethodType = Event }
     // POST /ddp/v1/store — create a new record.
     //
     // Single record:   { "Customer": { "Name": "Acme" } }
@@ -27,6 +26,7 @@ Class cDDPStoreEndpoint is a cDDPMutationEndpoint
     //
     // Response: 201 with the saved record(s) serialised back, including any
     // server-assigned values (auto-increment PKs, etc.).
+    { MethodType = Event }
     Procedure OnHttpPost tWebApiCallContext ByRef webapicallcontext
         Send ProcessMutation (&webapicallcontext) C_WEBAPI_CREATED
     End_Procedure

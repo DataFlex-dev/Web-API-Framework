@@ -49,6 +49,21 @@ Class cWebAPIDataDictionaryProtocol is a cWebApiRouter
         Send Define_cDDPDataSet_Mixin
         Send Define_cDDPBuilder_Mixin
 
+        // The pbShow*ErrorDetail properties decide whether the client gets the full error text (True)
+        // or psGenericErrorMessage (False). pbDebugMode of the cWebApi shows every detail; OnDDPError
+        // can change the decision per error.
+
+        // Request errors: wrong headers or verb, invalid JSON, unknown table or field, missing key, record not found (every DDPERR_* code not listed below).
+        Property Boolean pbShowRequestErrorDetail True
+        // Validation errors: DD validation rules that failed (DDPERR_VALIDATION_FAILED).
+        Property Boolean pbShowValidationErrorDetail True
+        // Database errors: a find, save, update or delete that failed (DDPERR_FIND_FAILED, DDPERR_SAVE_FAILED, DDPERR_UPDATE_FAILED, DDPERR_DELETE_FAILED). On Windows, /save validation failures also arrive here.
+        Property Boolean pbShowDatabaseErrorDetail False
+        // Unexpected errors: a DataFlex error outside a handled DDP path, sent as status 500 (DDPERR_UNEXPECTED).
+        Property Boolean pbShowUnexpectedErrorDetail False
+        // Client message for hidden errors; %1 is the reference that is also in the log entry.
+        Property String psGenericErrorMessage "The server could not process the request. Reference: %1"
+
         // Iterator that serialises DDP responses as JSON using the application/ddp
         // content type. Stored as a property so OnPreRequest can attach it per-request.
         Object phoIterator is a cDDPIterator
@@ -109,10 +124,10 @@ Class cWebAPIDataDictionaryProtocol is a cWebApiRouter
         Function_Return 0
     End_Function
 
-    { Visibility = Private }
     // Try versioned sub-routers first (e.g. path contains "v1"). When no child path
     // segment matches - meaning the request is for /ddp itself - fall back to handling
     // the request at this level via OnHttpRequest (currently OPTIONS-only).
+    { Visibility = Private }
     Procedure RouteRequest tWebApiCallContext ByRef webapicallcontext
         Integer iIndex
         Handle[] hoRoutables
@@ -134,24 +149,109 @@ Class cWebAPIDataDictionaryProtocol is a cWebApiRouter
     { MethodType = Event }
     Procedure OnPreRequest tWebApiCallContext ByRef webapicallcontext
         If (webapicallcontext.sContentType <> C_WebAPIDDP_Content_Type) Begin
-            Move True to webapicallcontext.bErr
-            Move C_WEBAPI_NOTFOUND to webapicallcontext.iStatusCode
-            Move "Not Found" to webapicallcontext.sShortStatusMessage
-            Move (SFormat("Resource with path '%1' does not exist on the server", webapicallcontext.sPath)) to webapicallcontext.sErrorMessage
+            Send HandleDDPError (&webapicallcontext) DDPERR_INVALID_FORMAT C_WEBAPI_NOTFOUND "Not Found" ;
+                (SFormat("Resource with path '%1' does not exist on the server", webapicallcontext.sPath))
             Procedure_Return
         End
 
         If (webapicallcontext.sAcceptType <> "" and ;
             webapicallcontext.sAcceptType <> "*/*" and ;
             webapicallcontext.sAcceptType <> C_WebAPIDDP_Content_Type) Begin
-            Move True to webapicallcontext.bErr
-            Move C_WEBAPI_BADREQUEST to webapicallcontext.iStatusCode
-            Move "Invalid Accept Type" to webapicallcontext.sShortStatusMessage
-            Move (SFormat("Resource with path '%1' only accepts '%2'", webapicallcontext.sPath, C_WebAPIDDP_Content_Type)) to webapicallcontext.sErrorMessage
+            Send HandleDDPError (&webapicallcontext) DDPERR_INVALID_FORMAT C_WEBAPI_BADREQUEST "Invalid Accept Type" ;
+                (SFormat("Resource with path '%1' only accepts '%2'", webapicallcontext.sPath, C_WebAPIDDP_Content_Type))
             Procedure_Return
         End
 
         Move phoIterator to webapicallcontext.hoIterator
+    End_Procedure
+
+    // Fired for every DDP error response before it is logged and sent. The response and the log use
+    // info.bShowDetail, info.iStatusCode, info.sTitle and info.sDetail after this event; in debug mode
+    // (pbDebugMode of the cWebApi) the detail is shown regardless of info.bShowDetail.
+    // info.aReportedErrors[].iNumber allows decisions per DataFlex error number.
+    { MethodType = Event }
+    Procedure OnDDPError tDDPErrorInfo ByRef info
+    End_Procedure
+
+    // YYYYMMDD-HHMMSS-XXXX, e.g. 20261117-140322-K7QM.
+    { Visibility = Private }
+    Function DDPErrorReference Returns String
+        DateTime dtNow
+        String sReference sAlphabet
+        Integer iIndex
+
+        Move "ABCDEFGHJKLMNPQRSTUVWXYZ23456789" to sAlphabet
+        Move (CurrentDateTime()) to dtNow
+        Move (String(DateGetYear(dtNow)) + Right("0" + String(DateGetMonth(dtNow)), 2) + Right("0" + String(DateGetDay(dtNow)), 2) + "-" + ;
+            Right("0" + String(DateGetHour(dtNow)), 2) + Right("0" + String(DateGetMinute(dtNow)), 2) + Right("0" + String(DateGetSecond(dtNow)), 2) + "-") to sReference
+        For iIndex from 1 to 4
+            Move (sReference + Mid(sAlphabet, 1, Mod(Random(32), 32) + 1)) to sReference
+        Loop
+        Function_Return sReference
+    End_Function
+
+    // Writes a DDP error with full detail to the WebApp Server event log. Override to log elsewhere,
+    // or with an empty body to stop logging. The request body is not logged (it can contain passwords).
+    Procedure LogDDPError tDDPErrorInfo info
+        String sText sCRLF
+        Integer iIndex
+
+        Move (Character(13) + Character(10)) to sCRLF
+        Move ("DDP error " + info.sReference) to sText
+        Move (sText + sCRLF + info.sVerb + " " + info.sPath) to sText
+        Move (sText + sCRLF + "Status: " + String(info.iStatusCode) + " " + info.sTitle) to sText
+        Move (sText + sCRLF + "DDP error code: " + String(info.iErr)) to sText
+        Move (sText + sCRLF + "Client detail: " + If(info.bShowDetail, "shown", "hidden")) to sText
+        Move (sText + sCRLF + "Detail: " + info.sDetail) to sText
+        For iIndex from 0 to (SizeOfArray(info.aReportedErrors) - 1)
+            Move (sText + sCRLF + SFormat("DataFlex error %1 at line %2: %3", info.aReportedErrors[iIndex].iNumber, ;
+                info.aReportedErrors[iIndex].iLine, info.aReportedErrors[iIndex].sText)) to sText
+        Loop
+
+        // Not LogErrorEvent: it raises an Error, which the request's own error tracking would catch.
+        If (ghInetSession <> 0) Send LogEvent of ghInetSession info.iErr sText
+    End_Procedure
+
+    // Every DDP error response goes through here: decides what the client sees, fires OnDDPError,
+    // logs the error and writes the response fields of webapicallcontext.
+    Procedure HandleDDPError tWebApiCallContext ByRef webapicallcontext Integer iErr Integer iStatus String sTitle String sDetail
+        tDDPErrorInfo info
+        Boolean bDebugMode
+
+        Move iErr to info.iErr
+        Move iStatus to info.iStatusCode
+        Move sTitle to info.sTitle
+        Move sDetail to info.sDetail
+        Move webapicallcontext.sVerb to info.sVerb
+        Move webapicallcontext.sPath to info.sPath
+        Get WebApiReportedErrors of webapicallcontext.hoApi to info.aReportedErrors
+        Get DDPErrorReference to info.sReference
+
+        Case Begin
+            Case (iErr = DDPERR_VALIDATION_FAILED)
+                Get pbShowValidationErrorDetail to info.bShowDetail
+                Case Break
+            Case (iErr = DDPERR_FIND_FAILED or iErr = DDPERR_SAVE_FAILED or iErr = DDPERR_UPDATE_FAILED or iErr = DDPERR_DELETE_FAILED)
+                Get pbShowDatabaseErrorDetail to info.bShowDetail
+                Case Break
+            Case (iErr = DDPERR_UNEXPECTED)
+                Get pbShowUnexpectedErrorDetail to info.bShowDetail
+                Case Break
+            Case Else
+                Get pbShowRequestErrorDetail to info.bShowDetail
+        Case End
+
+        Send OnDDPError (&info)
+        // After the event, so debug mode always shows the detail.
+        Get pbDebugMode of webapicallcontext.hoApi to bDebugMode
+        If (bDebugMode) Move True to info.bShowDetail
+        Send LogDDPError info
+
+        Move True to webapicallcontext.bErr
+        Move info.iStatusCode to webapicallcontext.iStatusCode
+        Move info.sTitle to webapicallcontext.sShortStatusMessage
+        If (info.bShowDetail) Move info.sDetail to webapicallcontext.sErrorMessage
+        Else Move (SFormat(psGenericErrorMessage(Self), info.sReference)) to webapicallcontext.sErrorMessage
     End_Procedure
 
 End_Class

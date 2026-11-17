@@ -637,10 +637,6 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Function_Return (not(Can_Delete(hoDD)))
     End_Function
 
-    Function DDPErrorText String sFallback Returns String
-        Function_Return sFallback
-    End_Function
-
     { Visibility = Private }
     Function DDPFindFailure Returns tDDPBuilderResult
         Function_Return (DDPError(Self, DDPERR_FIND_FAILED, DDPErrorText(Self, "Find failed.")))
@@ -683,9 +679,9 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Function_Return iFetchLimit
     End_Function
 
-    { Visibility = Private }
     // The cursor row's RowID built from query.aCursorKey, typed like the primary-key fields
     // (dates as YYYY-MM-DD): a single value for a one-field key, otherwise an array.
+    { Visibility = Private }
     Function DDPCursorRowId tDDPTableQuery query Variant ByRef vRowId Returns tDDPBuilderResult
         tDDPBuilderResult oResult
         Integer[] aPKFields
@@ -711,12 +707,12 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Function_Return oResult
     End_Function
 
-    { Visibility = Private }
     // Adds the multi-field constraint index to hoQuery as one OR group: the rows after (GT/GE) or before (LT/LE)
     // aValues in the order of aFields. For GT on Balance 100, Customer_Number 5 this is:
     //   (Balance > 100) OR (Balance = 100 AND Customer_Number > 5)
     // Only the branch that compares the last field includes the row itself for GE/LE, and a descending field
     // reverses its comparison.
+    { Visibility = Private }
     Function DDPAddIndexConstrain Handle hoQuery Handle hoDD tDDPIndexConstrain index Returns tDDPBuilderResult
         tDDPBuilderResult oResult
         Integer iCompare iField iLast eMode
@@ -745,10 +741,10 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Function_Return oResult
     End_Function
 
-    { Visibility = Private }
     // Adds group (see tDDPConstrainGroup) to hoQuery: a group as a constraint group of its members
     // (as Begin_ConstrainOr/Begin_ConstrainAnd), a member constraint through AddConstrain on its own
     // table. On an error the group stays open; the caller resets ghoDbConstraintGroupBuilder.
+    { Visibility = Private }
     Function DDPAddConstrainGroup Handle hoQuery tDDPConstrainGroup group Returns tDDPBuilderResult
         tDDPBuilderResult oResult
         Integer iMember eType
@@ -767,8 +763,8 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Function_Return oResult
     End_Function
 
-    { Visibility = Private }
     // Finds a table layout by DD.
+    { Visibility = Private }
     Function DDPTableResultLayoutIndex Handle hoDD tDDPTableResultLayout[] aTableLayouts Returns Integer
         Integer iIndex
         For iIndex from 0 to (SizeOfArray(aTableLayouts) - 1)
@@ -777,8 +773,8 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Function_Return -1
     End_Function
 
-    { Visibility = Private }
     // Collects tables and fields projected by a native query.
+    { Visibility = Private }
     Procedure DDPCollectTableResultLayouts tDDPTableQuery query Handle hoScopeDD tDDPTableResultLayout[] ByRef aTableLayouts
         tDDPTableResultLayout oTableLayout oEmptyTableLayout
         Integer[] aQueryFields
@@ -811,8 +807,8 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         End
     End_Procedure
 
-    { Visibility = Private }
     // Rebuilds find constraints recursively.
+    { Visibility = Private }
     Procedure DDPRebuildFindConstraints tDDPTableQuery query
         Integer iIndex
 
@@ -825,8 +821,8 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Loop
     End_Procedure
 
-    { Visibility = Private }
     // Validates a find query recursively.
+    { Visibility = Private }
     Function DDPValidateFindQuery tDDPTableQuery query Returns tDDPBuilderResult
         Handle hoQuery
         tDDPBuilderResult oResult
@@ -862,8 +858,8 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Function_Return oResult
     End_Function
 
-    { Visibility = Private }
     // Configures the native query.
+    { Visibility = Private }
     Function DDPConfigureQuery tDDPTableQuery query Handle hoScopeDD RowID riScope Handle hoQuery tDDPTableResultLayout[] ByRef aTableLayouts Returns tDDPBuilderResult
         Handle hoSet
         tDDPBuilderResult oResult

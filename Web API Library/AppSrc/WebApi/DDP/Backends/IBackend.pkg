@@ -1,4 +1,6 @@
 ﻿Use UI
+Use WebApi\tWebApiCallContext.pkg
+Use WebApi\tWebApiReportedError.pkg
 
 Struct tDDPBuilderResult
     { Name="err" }
@@ -28,7 +30,21 @@ Enum_List
     Define DDPERR_UPDATE_FAILED
     Define DDPERR_INVALID_OFFSET
     Define DDPERR_FIND_FAILED
+    Define DDPERR_UNEXPECTED
 End_Enum_List
+
+// One DDP error response; passed to OnDDPError and LogDDPError.
+Struct tDDPErrorInfo
+    Integer iErr                            // DDPERR_* code
+    Boolean bShowDetail                     // True: the client gets sDetail; False: psGenericErrorMessage
+    Integer iStatusCode
+    String sTitle
+    String sDetail                          // full error text; always logged
+    String sReference                       // also in the generic client message
+    String sVerb
+    String sPath
+    tWebApiReportedError[] aReportedErrors  // DataFlex errors reported during the request
+End_Struct
 
 
 Struct tDDPDataDictPair
@@ -231,7 +247,6 @@ Register_Procedure DDPSetFieldValue Handle hoDD Handle hFile Integer iField Stri
 Register_Procedure DDPSetChangedValue Handle hoDD Handle hFile Integer iField String sValue
 Register_Function DDPGetFieldValue Handle hoDD Handle hFile Integer iField Returns String
 Register_Function DDPValidateDelete Handle hoDD Returns Boolean
-Register_Function DDPErrorText String sFallback Returns String
 // The name of the first table related to hoDD (a child with bChildren, otherwise a parent) that
 // the backend's DD layer requires for a write but that is not exposed; "" when there is none.
 Register_Function DDPUnexposedRelation Handle hoDD Boolean bChildren Returns String
@@ -248,11 +263,17 @@ Register_Function DDPFetchJson tDDPTableQuery query Integer eStyle Handle ByRef 
 // From cDDPBuilder_Mixin, also used by the backends.
 Register_Function DDPCompareOrderSequence tDDPOrder oLeft tDDPOrder oRight Returns Integer
 Register_Function DDPError Integer iErr String sError Returns tDDPBuilderResult
+Register_Function DDPErrorText String sFallback Returns String
 Register_Procedure DDPCollectParentQueries tDDPTableQuery query tDDPTableQuery[] ByRef aParents
 Register_Function ConstructSaveRecord String sDDName Handle hoJson tDDPSaveRecord ByRef record Returns tDDPBuilderResult
 Register_Function DDPParseSaveItems Handle hoItems tDDPSaveItem[] ByRef aItems Returns tDDPBuilderResult
 Register_Function DDPSaveItem tDDPSaveItem item Handle ByRef hoRecord Returns tDDPBuilderResult
 Register_Procedure DDPForwardCreatedKey tDDPSaveItem[] ByRef aItems Integer iCreated
+// Protocol method called by the DDP endpoints, routers and the iterator.
+Register_Procedure HandleDDPError tWebApiCallContext ByRef webapicallcontext Integer iErr Integer iStatus String sTitle String sDetail
+// From cWebApiErrorHandler_Mixin; called on the cWebApi of the request.
+Register_Function WebApiReportedErrors Returns tWebApiReportedError[]
+Register_Function pbDebugMode Returns Boolean
 
 Class IDDP_Backend_Mixin is a Mixin
     Procedure Define_DDP_Backend_Mixin

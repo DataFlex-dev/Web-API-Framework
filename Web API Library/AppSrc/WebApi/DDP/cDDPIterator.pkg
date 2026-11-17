@@ -25,7 +25,12 @@ Class cDDPIterator is a cBaseWebApiIterator
     End_Procedure
     
     Procedure GenerateErrorResponse tWebApiCallContext ByRef webapicallcontext
-        
+        // bErr False: a DataFlex error outside a handled DDP path (cWebApi set status 500).
+        If (not(webapicallcontext.bErr)) Begin
+            Delegate Send HandleDDPError (&webapicallcontext) DDPERR_UNEXPECTED webapicallcontext.iStatusCode ;
+                (If(webapicallcontext.sShortStatusMessage = "", "Internal Server Error", webapicallcontext.sShortStatusMessage)) webapicallcontext.sErrorMessage
+        End
+
         Get Create (RefClass(cJsonObject)) to webapicallcontext.hoResponseBody
         Send InitializeJsonType of webapicallcontext.hoResponseBody jsonTypeObject
         

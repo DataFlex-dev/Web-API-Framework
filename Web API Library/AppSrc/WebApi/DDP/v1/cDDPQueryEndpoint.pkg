@@ -15,7 +15,6 @@ Class cDDPQueryEndpoint is a cDDPEndpoint
     End_Procedure
 
 
-    { MethodType = Event }
     // POST /ddp/v1/query
     //
     // The DDPFormat header selects the body format through the protocol's request parsers
@@ -27,6 +26,7 @@ Class cDDPQueryEndpoint is a cDDPEndpoint
     //   nested     - related tables embedded inside each row (default)
     //   flat       - positionally-aligned parallel arrays
     //   flatlinked - deduplicated parallel arrays joined by FK fields
+    { MethodType = Event }
     Procedure OnHttpPost tWebApiCallContext ByRef webapicallcontext
         String sStyle sDDPFormat
         Integer iIndex
@@ -50,7 +50,7 @@ Class cDDPQueryEndpoint is a cDDPEndpoint
             Move DDPStyle_Nested to ctx.eStyle
         End
         Else Begin
-            Send RejectRequest (&webapicallcontext) C_WEBAPI_NOTALLOWED "Invalid style" (SFormat("Invalid DDPStyle '%1'.", sStyle))
+            Delegate Send HandleDDPError (&webapicallcontext) DDPERR_INVALID_FORMAT C_WEBAPI_NOTALLOWED "Invalid style" (SFormat("Invalid DDPStyle '%1'.", sStyle))
             Procedure_Return
         End
 
@@ -60,7 +60,7 @@ Class cDDPQueryEndpoint is a cDDPEndpoint
         Move (Replaces(Character(0), sDDPFormat, "")) to sDDPFormat
         Delegate Get DDPRequestParser sDDPFormat to hoParser
         If (hoParser = 0) Begin
-            Send RejectRequest (&webapicallcontext) C_WEBAPI_NOTALLOWED "Invalid format" (SFormat("Invalid DDPFormat '%1'.", sDDPFormat))
+            Delegate Send HandleDDPError (&webapicallcontext) DDPERR_INVALID_FORMAT C_WEBAPI_NOTALLOWED "Invalid format" (SFormat("Invalid DDPFormat '%1'.", sDDPFormat))
             Procedure_Return
         End
 
@@ -70,14 +70,14 @@ Class cDDPQueryEndpoint is a cDDPEndpoint
         // Parse every root query before any DD is touched.
         Get ParseQueryRequest of hoParser oJson (&aQueries) to oResult
         If (oResult.iErr) Begin
-            Send RejectRequest (&webapicallcontext) C_WEBAPI_NOTALLOWED "Not Allowed" oResult.sError
+            Delegate Send HandleDDPError (&webapicallcontext) oResult.iErr C_WEBAPI_NOTALLOWED "Not Allowed" oResult.sError
             Procedure_Return
         End
 
         // Flat and flatlinked require exactly one top-level table because their
         // positional/deduplicated arrays are undefined for multiple root tables.
         If (ctx.eStyle <> DDPStyle_Nested and SizeOfArray(aQueries) > 1) Begin
-            Send RejectRequest (&webapicallcontext) C_WEBAPI_NOTALLOWED "Cannot have multiple mainDDs in flattened style" ""
+            Delegate Send HandleDDPError (&webapicallcontext) DDPERR_INVALID_MAIN_TABLE C_WEBAPI_NOTALLOWED "Cannot have multiple mainDDs in flattened style" ""
             Procedure_Return
         End
 
@@ -93,7 +93,7 @@ Class cDDPQueryEndpoint is a cDDPEndpoint
             Delegate Get DDPPrepareFind aQueries[iIndex].oMain to oResult
             If (oResult.iErr) Begin
                 Delegate Send DestroyQuery hoMainDD
-                Send RejectRequest (&webapicallcontext) C_WEBAPI_NOTALLOWED "Not Allowed" oResult.sError
+                Delegate Send HandleDDPError (&webapicallcontext) oResult.iErr C_WEBAPI_NOTALLOWED "Not Allowed" oResult.sError
                 Procedure_Return
             End
 
@@ -115,7 +115,7 @@ Class cDDPQueryEndpoint is a cDDPEndpoint
                     Move 0 to hoQueryResult
                 End
                 Delegate Send DestroyQuery hoMainDD
-                Send RejectRequest (&webapicallcontext) C_WEBAPI_NOTALLOWED "Not Allowed" ;
+                Delegate Send HandleDDPError (&webapicallcontext) (If(oResult.iErr, oResult.iErr, DDPERR_FIND_FAILED)) C_WEBAPI_NOTALLOWED "Not Allowed" ;
                     (If(oResult.iErr, oResult.sError, "JSON response construction failed."))
                 Procedure_Return
             End
