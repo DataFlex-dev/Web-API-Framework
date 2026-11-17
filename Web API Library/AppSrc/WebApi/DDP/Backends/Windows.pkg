@@ -5,20 +5,20 @@ Use cli.pkg
 
 
 
-// Cached topology snapshot for one exposed DD: the flat-file handle used as a
-// binary-search key, plus arrays of its direct parent (server-file, 1-to-1)
-// and child (client-file, 1-to-N) relationships. Populated once at expose time
-// so relationship lookups during request handling are O(log n) without touching
-// the live DataFlex DD graph.
+// Cached topology snapshot for one exposed DD: its main file, plus the file numbers of
+// its direct parent (server-file, 1-to-1) and child (client-file, 1-to-N) tables.
+// Populated at expose time, before Expose detaches the DD's relationships. Only file
+// numbers are stored: a related DD may be exposed later, so DDParents/DDChilds resolve
+// the DDs when asked.
 Struct tDDPClassicFileInfo
     Handle hFile
-    tDDPFileDD[] aParents
-    tDDPFileDD[] aChilds
+    Handle[] aParents
+    Handle[] aChilds
 End_Struct
 
 Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
     Procedure Define_DDP_Backend_Mixin
-        // Sorted by hFile; BinarySearchArray is used for all lookups.
+        // One entry per exposed DD, in expose order; see DDPFileInfoIndex.
         Property tDDPClassicFileInfo[] paFileInfo
     End_Procedure
 
@@ -26,20 +26,32 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
     End_Procedure
 
     { Visibility = Private }
-    // Accepts integers, decimals, and thousands-separated numbers.
-    // Used for BCD field values that may carry a decimal point or comma
-    // separator before they are embedded in a SQL predicate.
-    Function IsOptDottedNumeric String sNumber Returns Boolean
-        String sCompare
-        Integer iLength iPosition
+    // Converts sNumber to a SQL numeric literal in sLiteral: an optional sign, digits, and at
+    // most one "." or "," decimal separator between digits (written as "."). Returns False for
+    // anything else, so the value can be embedded in a SQL filter as is.
+    Function DDPSQLNumber String sNumber String ByRef sLiteral Returns Boolean
+        Integer iPosition iLength iDigits
+        Boolean bSeparator
+        String sChar
 
-        Move "-0123456789.," to sCompare
-
+        Move "" to sLiteral
         Move (Length(sNumber)) to iLength
         For iPosition from 1 to iLength
-            If (not(sCompare contains Mid(sNumber, 1, iPosition))) Function_Return False
+            Move (Mid(sNumber, 1, iPosition)) to sChar
+            If (Pos(sChar, "0123456789") > 0) Begin
+                Move (sLiteral + sChar) to sLiteral
+                Increment iDigits
+            End
+            Else If (iPosition = 1 and (sChar = "-" or sChar = "+")) Begin
+                If (sChar = "-") Move "-" to sLiteral
+            End
+            Else If ((sChar = "." or sChar = ",") and not(bSeparator) and iDigits > 0 and iPosition < iLength) Begin
+                Move True to bSeparator
+                Move (sLiteral + ".") to sLiteral
+            End
+            Else Function_Return False
         Loop
-        Function_Return True
+        Function_Return (iDigits > 0)
     End_Function
 
     // Verifies that hoDD is a DataDictionary subclass, that its underlying table is
@@ -77,6 +89,17 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Function_Return sName
     End_Function
 
+    { Visibility = Private }
+    // Index of the paFileInfo entry for file hFile, or -1. A linear scan: there is one entry
+    // per exposed DD, and the entries are in expose order.
+    Function DDPFileInfoIndex Handle hFile tDDPClassicFileInfo[] ByRef aInfo Returns Integer
+        Integer iIndex
+        For iIndex from 0 to (SizeOfArray(aInfo) - 1)
+            If (aInfo[iIndex].hFile = hFile) Function_Return iIndex
+        Loop
+        Function_Return -1
+    End_Function
+
     // Returns True when hoTest is a direct parent or child of hoDD in the pre-cached
     // topology. The optional third argument bOptParent is set to True if hoTest is a
     // server-file (parent) or False if it is a client-file (child).
@@ -87,9 +110,8 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         tDDPClassicFileInfo[] aInfo
         Get paFileInfo to aInfo
 
-        // Locate the base DD entry in the sorted topology cache.
-        Get Main_File of hoDD to oInfo.hFile
-        Move (BinarySearchArray(oInfo, aInfo, False)) to iInfoIndex
+        // Locate the base DD entry in the topology cache.
+        Get DDPFileInfoIndex (Main_File(hoDD)) (&aInfo) to iInfoIndex
         If (iInfoIndex = -1) Begin
             Error DFERR_PROGRAM "Non-exposed DD"
             Function_Return False
@@ -98,14 +120,14 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         // Check server-files (parents, 1-to-1).
         Get Main_File of hoTest to oInfo.hFile
         For iIndex from 0 to (SizeOfArray(aInfo[iInfoIndex].aParents) - 1)
-            If (aInfo[iInfoIndex].aParents[iIndex].hFile = oInfo.hFile) Begin
+            If (aInfo[iInfoIndex].aParents[iIndex] = oInfo.hFile) Begin
                 If (num_arguments > 2) Move True to bOptParent
                 Function_Return True
             End
         Loop
         // Check client-files (children, 1-to-N).
         For iIndex from 0 to (SizeOfArray(aInfo[iInfoIndex].aChilds) - 1)
-            If (aInfo[iInfoIndex].aChilds[iIndex].hFile = oInfo.hFile) Begin
+            If (aInfo[iInfoIndex].aChilds[iIndex] = oInfo.hFile) Begin
                 If (num_arguments > 2) Move False to bOptParent
                 Function_Return True
             End
@@ -217,78 +239,66 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Send DDPSerializeFieldsToJson hoJson query.hoDD aFields
     End_Procedure
 
-    // Snapshots the parent/child relationship topology of hoDD into paFileInfo when the
-    // DD is first exposed. The array is kept sorted by hFile so BinarySearchArray can
-    // answer O(log n) lookups at request time without re-traversing the live DD graph.
-    // Calling this procedure a second time for the same DD is safe and does nothing.
+    // Snapshots the parent/child file numbers of hoDD into paFileInfo when the DD is
+    // exposed, before Expose detaches its relationships. Calling this procedure a second
+    // time for the same DD is safe and does nothing.
     Procedure StoreDDFileLayout Handle hoDD
-        Integer iInfoIndex
-        Handle hMainFile
-        tDDPFileDD oComb
+        Integer iInfoIndex iIndex
         tDDPClassicFileInfo oInfo
         tDDPClassicFileInfo[] aInfo
         Get paFileInfo to aInfo
 
         Get Main_File of hoDD to oInfo.hFile
-        // BinarySearchArray returns -1 when the key is absent; that is when we insert.
-        Move (BinarySearchArray(oInfo, aInfo, False)) to iInfoIndex
+        Get DDPFileInfoIndex oInfo.hFile (&aInfo) to iInfoIndex
         If (iInfoIndex <> -1) Begin
             Procedure_Return
         End
 
-        // Collect client-files (children, 1-to-N) along with their companion DD handles.
-        Integer iIndex
+        // Client-files (children, 1-to-N).
         For iIndex from 0 to (Client_File_Count(hoDD) - 1)
-            Get Client_File of hoDD iIndex to oComb.hFile
-            Get DDByFile oComb.hFile to oComb.hoDD
-            Move oComb to oInfo.aChilds[-1]
+            Get Client_File of hoDD iIndex to oInfo.aChilds[iIndex]
         Loop
-        // Collect server-files (parents, 1-to-1) along with their companion DD handles.
+        // Server-files (parents, 1-to-1).
         For iIndex from 0 to (Server_File_Count(hoDD) - 1)
-            Get Server_File of hoDD iIndex to oComb.hFile
-            Get DDByFile oComb.hFile to oComb.hoDD
-            Move oComb to oInfo.aParents[-1]
+            Get Server_File of hoDD iIndex to oInfo.aParents[iIndex]
         Loop
 
-        // InsertInArray uses the position returned by BinarySearchArray to insert at
-        // the correct slot and keep the array sorted.
-        Move (InsertInArray(aInfo, iInfoIndex, oInfo)) to aInfo
-
+        Move oInfo to aInfo[-1]
         Set paFileInfo to aInfo
     End_Procedure
 
-    // Returns an array of DD handles for all server-file (parent) tables of hoDD.
+    // Returns the exposed DDs of all server-file (parent) tables of hoDD.
     Function DDParents Handle hoDD Returns Handle[]
         Integer iIndex iInfoIndex
+        Handle hoRelated
         Handle[] aHandles
-        tDDPClassicFileInfo oInfo
         tDDPClassicFileInfo[] aInfo
         Get paFileInfo to aInfo
 
-        Get Main_File of hoDD to oInfo.hFile
-        Move (BinarySearchArray(oInfo, aInfo, False)) to iInfoIndex
+        Get DDPFileInfoIndex (Main_File(hoDD)) (&aInfo) to iInfoIndex
         If (iInfoIndex <> -1) Begin
             For iIndex from 0 to (SizeOfArray(aInfo[iInfoIndex].aParents) - 1)
-                Move aInfo[iInfoIndex].aParents[iIndex].hoDD to aHandles[-1]
+                Get DDByFile aInfo[iInfoIndex].aParents[iIndex] to hoRelated
+                If (hoRelated <> 0) Move hoRelated to aHandles[-1]
             Loop
         End
 
         Function_Return aHandles
     End_Function
 
-    // Returns an array of DD handles for all client-file (child) tables of hoDD.
+    // Returns the exposed DDs of all client-file (child) tables of hoDD.
     Function DDChilds Handle hoDD Returns Handle[]
         Integer iIndex iInfoIndex
+        Handle hoRelated
         Handle[] aHandles
-        tDDPClassicFileInfo oInfo
         tDDPClassicFileInfo[] aInfo
         Get paFileInfo to aInfo
 
-        Get Main_File of hoDD to oInfo.hFile
-        Move (BinarySearchArray(oInfo, aInfo, False)) to iInfoIndex
+        Get DDPFileInfoIndex (Main_File(hoDD)) (&aInfo) to iInfoIndex
         If (iInfoIndex <> -1) Begin
             For iIndex from 0 to (SizeOfArray(aInfo[iInfoIndex].aChilds) - 1)
-                Move aInfo[iInfoIndex].aChilds[iIndex].hoDD to aHandles[-1]
+                Get DDByFile aInfo[iInfoIndex].aChilds[iIndex] to hoRelated
+                If (hoRelated <> 0) Move hoRelated to aHandles[-1]
             Loop
         End
 
@@ -466,7 +476,7 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
     // literal value sValue, without adding it to the DD's psSQLFilter:
     //   ASCII, Text and DateTime values are SQL-escaped and quoted.
     //   Date values must be YYYY-MM-DD (validated by DDPParseISODate) and are quoted.
-    //   Other values are validated with IsOptDottedNumeric to prevent injection.
+    //   Other (numeric) values must be a plain number (see DDPSQLNumber) and are embedded as is.
     //   Contains (text fields only) becomes LIKE '%value%' with the value's escape
     //   character and LIKE wildcards escaped, so the value matches literally.
     Function DDPSQLFilter Handle hoMainDD Handle hoDD Handle hField Integer eConstrain String sValue String ByRef sSQLFilter Returns tDDPBuilderResult
@@ -500,9 +510,9 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
             End
             Move ("'" + sValue + "'") to sValue
         End
-        Else If (not(IsOptDottedNumeric(Self, sValue))) Begin
+        Else If (not(DDPSQLNumber(Self, sValue, &sValue))) Begin
             // Reject non-numeric values for numeric fields before they touch SQL.
-            Function_Return (DDPError(Self, DDPERR_INVALID_CONSTRAIN, "Invalid constraint should be numeric."))
+            Function_Return (DDPError(Self, DDPERR_INVALID_CONSTRAIN, "Invalid numeric constraint."))
         End
 
         Move (SQLStrFileFieldName(hoDD, hField)) to sField

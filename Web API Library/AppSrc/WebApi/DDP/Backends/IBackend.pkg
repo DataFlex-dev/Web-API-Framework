@@ -37,11 +37,6 @@ Struct tDDPDataDictPair
     Handle hoDD
 End_Struct
 
-Struct tDDPFileDD
-    Handle hFile
-    Handle hoDD
-End_Struct
-
 Enum_List
     Define DDPFind_Auto for 0
     Define DDPFind_LT
