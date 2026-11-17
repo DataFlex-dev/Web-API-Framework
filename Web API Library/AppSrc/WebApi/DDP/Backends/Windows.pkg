@@ -466,6 +466,8 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
     // SQL filter path for all exposed Windows DDs, including related-table fields:
     //   String values are SQL-escaped and quoted before embedding.
     //   Numeric values are validated with IsOptDottedNumeric to prevent injection.
+    //   Contains (text fields only) becomes LIKE '%value%' with the value's escape
+    //   character and LIKE wildcards escaped, so the value matches literally.
     //   The operator is appended to psSQLFilter via SQLStrAppend.
     Function AddConstrain Handle hoMainDD Handle hoDD Handle hField Integer eConstrain String sFilter Returns tDDPBuilderResult
         Handle hFile
@@ -475,7 +477,17 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Get Main_File of hoDD to hFile
 
         Get_Attribute DF_FIELD_TYPE of hFile hField to eType
-        If (eType = DF_ASCII or eType = DF_TEXT) Begin
+        If (eConstrain = DDPFind_CONTAINS) Begin
+            If (eType <> DF_ASCII and eType <> DF_TEXT) Begin
+                Function_Return (DDPError(Self, DDPERR_INVALID_CONSTRAIN, "Constraint 'contains' is only supported on text fields."))
+            End
+            // Escape the escape character first, then the wildcards, then quotes.
+            Move (Replaces(SQL_LIKE_ESC, sFilter, SQL_LIKE_ESC + SQL_LIKE_ESC)) to sFilter
+            Move (Replaces("%", sFilter, SQL_LIKE_ESC + "%")) to sFilter
+            Move (Replaces("_", sFilter, SQL_LIKE_ESC + "_")) to sFilter
+            Get SQLEscapedStr of hoMainDD sFilter to sFilter
+        End
+        Else If (eType = DF_ASCII or eType = DF_TEXT) Begin
             // Escape and quote string values before embedding in the SQL fragment.
             Get SQLEscapedStr of hoMainDD sFilter to sFilter
             Move ("'" + sFilter + "'") to sFilter
@@ -504,6 +516,9 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         End
         Else If (eConstrain = DDPFind_NE) Begin
             Get SQLStrAppend of hoMainDD sQuery (SQLStrFileFieldName(hoDD, hField) + " != " + sFilter) to sQuery
+        End
+        Else If (eConstrain = DDPFind_CONTAINS) Begin
+            Get SQLStrAppend of hoMainDD sQuery (SQLStrFileFieldName(hoDD, hField) + " LIKE N'%" + sFilter + "%' ESCAPE '" + SQL_LIKE_ESC + "'") to sQuery
         End
         Else Begin
             Function_Return (DDPError(Self, DDPERR_INVALID_CONSTRAIN, "Invalid contrain."))
