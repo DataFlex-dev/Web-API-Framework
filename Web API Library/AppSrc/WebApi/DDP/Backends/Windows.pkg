@@ -1,5 +1,5 @@
 ﻿Use WebApi\DDP\Backends\IBackend.pkg
-Use Db\cDataDictionary.pkg
+Use DataDict.pkg
 Use cli.pkg
 
 
@@ -702,7 +702,7 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
                 Move True to bFailed
             End
             For iParent from 0 to (SizeOfArray(aParentNames) - 1)
-                If not(bFailed) Begin
+                If (not(bFailed)) Begin
                     Get Create (RefClass(cJsonObject)) to hoParentJson
                     If (hoParentJson <> 0 and not(Err)) ;
                         Send InitializeJsonType of hoParentJson jsonTypeArray
@@ -731,7 +731,7 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
                 If bFailed Break
             Loop
             For iChild from 0 to (SizeOfArray(aChildNames) - 1)
-                If not(bFailed) Begin
+                If (not(bFailed)) Begin
                     Get Create (RefClass(cJsonObject)) to hoChildJson
                     If (hoChildJson <> 0 and not(Err)) ;
                         Send InitializeJsonType of hoChildJson jsonTypeArray
@@ -930,7 +930,7 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
                 End
             End
 
-            If not(bFailed) Begin
+            If (not(bFailed)) Begin
                 Increment iCollected
                 Move False to Err
                 Send DDPRequestRead query.hoDD NEXT_RECORD hFile iIndex
