@@ -245,6 +245,7 @@ Register_Function DDPFetchJson tDDPTableQuery query Integer eStyle Handle ByRef 
 // From cDDPBuilder_Mixin, also used by the backends.
 Register_Function DDPCompareOrderSequence tDDPOrder oLeft tDDPOrder oRight Returns Integer
 Register_Function DDPError Integer iErr String sError Returns tDDPBuilderResult
+Register_Procedure DDPCollectParentQueries tDDPTableQuery query tDDPTableQuery[] ByRef aParents
 Register_Function ConstructSaveRecord String sDDName Handle hoJson tDDPSaveRecord ByRef record Returns tDDPBuilderResult
 Register_Function DDPParseSaveItems Handle hoItems tDDPSaveItem[] ByRef aItems Returns tDDPBuilderResult
 Register_Function DDPSaveItem tDDPSaveItem item Handle ByRef hoRecord Returns tDDPBuilderResult

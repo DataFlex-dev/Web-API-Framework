@@ -1060,25 +1060,6 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
     End_Function
 
     { Visibility = Private }
-    // Collects the parent tables of query and, recursively, their parents (depth-first: a parent before
-    // its own parents). A table that is already collected is skipped, so each output member name is unique.
-    Procedure DDPCollectParentQueries tDDPTableQuery query tDDPTableQuery[] ByRef aParents
-        Integer iParent iCollected
-        Boolean bCollected
-
-        For iParent from 0 to (SizeOfArray(query.aParents) - 1)
-            Move False to bCollected
-            For iCollected from 0 to (SizeOfArray(aParents) - 1)
-                If (aParents[iCollected].hoDD = query.aParents[iParent].hoDD) Move True to bCollected
-            Loop
-            If (not(bCollected)) Begin
-                Move query.aParents[iParent] to aParents[-1]
-                Send DDPCollectParentQueries query.aParents[iParent] (&aParents)
-            End
-        Loop
-    End_Procedure
-
-    { Visibility = Private }
     Function DDPAppendQueryJson tDDPTableQuery query Integer eStyle Handle hoScopeDD RowID riScope Handle hoJson Handle hoSeen Boolean bFieldsOnly Returns tDDPBuilderResult
         Handle hoQuery hoAdapter hoRow hoParentJson hoChildJson hoRootRows
         Handle[] ahParents ahChilds aParentSeenSets aChildSeenSets

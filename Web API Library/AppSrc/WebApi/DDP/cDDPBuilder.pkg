@@ -91,6 +91,25 @@ Class cDDPBuilder_Mixin is a Mixin
         Function_Return oResult
     End_Function
 
+    // Collects the parent tables of query and, recursively, their parents (depth-first: a parent before
+    // its own parents). A table that is already collected is skipped, so each output member name is unique.
+    // Used by the backends for the parent arrays of the flat and flatlinked styles.
+    Procedure DDPCollectParentQueries tDDPTableQuery query tDDPTableQuery[] ByRef aParents
+        Integer iParent iCollected
+        Boolean bCollected
+
+        For iParent from 0 to (SizeOfArray(query.aParents) - 1)
+            Move False to bCollected
+            For iCollected from 0 to (SizeOfArray(aParents) - 1)
+                If (aParents[iCollected].hoDD = query.aParents[iParent].hoDD) Move True to bCollected
+            Loop
+            If (not(bCollected)) Begin
+                Move query.aParents[iParent] to aParents[-1]
+                Send DDPCollectParentQueries query.aParents[iParent] (&aParents)
+            End
+        Loop
+    End_Procedure
+
     // Collects the sort fields of a table and of its parent tables.
     Procedure DDPCollectOrders tDDPTableQuery query tDDPOrder[] ByRef aOrder
         Integer iIndex

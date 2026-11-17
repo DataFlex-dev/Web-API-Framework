@@ -874,7 +874,7 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
     Function DDPAppendQueryJson tDDPTableQuery query Integer eStyle Handle hoScopeDD RowID riScope Handle hoJson Handle hoSeen Boolean bFieldsOnly Returns tDDPBuilderResult
         tDDPBuilderResult oResult
         tDDPTableQuery childQuery
-        tDDPTableQuery[] aEmptyChildQueries
+        tDDPTableQuery[] aEmptyChildQueries aOutputParents
         tDDPSerializedField[] aFields
         tDDPSerializedField[][] aParentFields
         Handle hFile hParentFile hoMain hoRow hoParentJson hoChildJson
@@ -900,12 +900,16 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
             Get DDPSerializedFields query False to aFields
 
         If (not(bFieldsOnly)) Begin
-            For iParent from 0 to (SizeOfArray(query.aParents) - 1)
-                Move (NameOfDD(Self, query.aParents[iParent].hoDD)) to aParentNames[-1]
+            // The flat styles list every parent table, also the parents of parents; their buffers
+            // are read with the row through the DDO_Server chain set up by QueryLinkUp.
+            If bFlatRoot Send DDPCollectParentQueries query (&aOutputParents)
+            Else Move query.aParents to aOutputParents
+            For iParent from 0 to (SizeOfArray(aOutputParents) - 1)
+                Move (NameOfDD(Self, aOutputParents[iParent].hoDD)) to aParentNames[-1]
                 If bFlatLinked ;
-                    Get DDPSerializedFields query.aParents[iParent] True to aParentFields[-1]
+                    Get DDPSerializedFields aOutputParents[iParent] True to aParentFields[-1]
                 Else ;
-                    Get DDPSerializedFields query.aParents[iParent] False to aParentFields[-1]
+                    Get DDPSerializedFields aOutputParents[iParent] False to aParentFields[-1]
             Loop
             For iChild from 0 to (SizeOfArray(query.aChilds) - 1)
                 Move (NameOfDD(Self, query.aChilds[iChild].hoDD)) to aChildNames[-1]
@@ -1062,8 +1066,8 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
 
                 If (not(bFailed) and not(bFieldsOnly)) Begin
                     For iParent from 0 to (SizeOfArray(aParentNames) - 1)
-                        Get Main_File of query.aParents[iParent].hoDD to hParentFile
-                        Get DDPCurrentRowID query.aParents[iParent].hoDD hParentFile to riParent
+                        Get Main_File of aOutputParents[iParent].hoDD to hParentFile
+                        Get DDPCurrentRowID aOutputParents[iParent].hoDD hParentFile to riParent
                         Move (not(IsNullRowID(riParent))) to bParentPresent
 
                         If (bFlatRoot and bFlatLinked) Begin
@@ -1073,7 +1077,7 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
                                     Send SetMemberValue of aParentSeenSets[iParent] sRowId jsonTypeBoolean True
                                     Send InitializeJsonType of hoParentJson jsonTypeObject
                                     Send DDPSerializeFieldsToJson hoParentJson ;
-                                        query.aParents[iParent].hoDD aParentFields[iParent]
+                                        aOutputParents[iParent].hoDD aParentFields[iParent]
                                     If (not(Err)) Send AddMember of ahParents[iParent] hoParentJson
                                 End
                             End
@@ -1082,7 +1086,7 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
                             Send InitializeJsonType of hoParentJson jsonTypeObject
                             If bParentPresent ;
                                 Send DDPSerializeFieldsToJson hoParentJson ;
-                                    query.aParents[iParent].hoDD aParentFields[iParent]
+                                    aOutputParents[iParent].hoDD aParentFields[iParent]
                             If (not(Err)) Begin
                                 If bFlatRoot ;
                                     Send AddMember of ahParents[iParent] hoParentJson
