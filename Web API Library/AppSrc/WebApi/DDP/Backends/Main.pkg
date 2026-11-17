@@ -3,32 +3,6 @@ Use Db\cDataDictionary.pkg
 Use Db\cDbQuery.pkg
 
 
-Function DDPParseISODate Global String sValue Date ByRef dValue Returns Boolean
-    Integer iPosition iYear iMonth iDay
-    String sCharacter
-
-    If (Length(sValue) <> 10 or Mid(sValue, 1, 5) <> "-" or Mid(sValue, 1, 8) <> "-") ;
-        Function_Return False
-
-    For iPosition from 1 to 10
-        If (iPosition <> 5 and iPosition <> 8) Begin
-            Move (Mid(sValue, 1, iPosition)) to sCharacter
-            If (Pos(sCharacter, "0123456789") = 0) Function_Return False
-        End
-    Loop
-
-    Move (Left(sValue, 4)) to iYear
-    Move (Mid(sValue, 2, 6)) to iMonth
-    Move (Right(sValue, 2)) to iDay
-    Try
-        Move (DateSet(iYear, iMonth, iDay)) to dValue
-    Catch
-        Function_Return False
-    End_Try
-
-    Function_Return True
-End_Function
-
 // Crossplatform file info for cached lookups
 Struct tDDPCrossPlatformFileInfo
     Handle hoDD

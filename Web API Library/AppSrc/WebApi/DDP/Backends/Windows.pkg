@@ -461,21 +461,22 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Loop
     End_Procedure
 
-    // Applies one constraint for field hField on table hoDD against the literal value sFilter.
-    //
-    // SQL filter path for all exposed Windows DDs, including related-table fields:
-    //   String values are SQL-escaped and quoted before embedding.
-    //   Numeric values are validated with IsOptDottedNumeric to prevent injection.
+    // Builds the SQL condition for one constraint on field hField of table hoDD against the
+    // literal value sFilter, without adding it to a filter:
+    //   ASCII, Text and DateTime values are SQL-escaped and quoted.
+    //   Date values must be YYYY-MM-DD (validated by DDPParseISODate) and are quoted.
+    //   Other values are validated with IsOptDottedNumeric to prevent injection.
     //   Contains (text fields only) becomes LIKE '%value%' with the value's escape
     //   character and LIKE wildcards escaped, so the value matches literally.
-    //   The operator is appended to psSQLFilter via SQLStrAppend.
-    Function AddConstrain Handle hoMainDD Handle hoDD Handle hField Integer eConstrain String sFilter Returns tDDPBuilderResult
+    Function DDPSQLPredicate Handle hoMainDD Handle hoDD Handle hField Integer eConstrain String sFilter String ByRef sPredicate Returns tDDPBuilderResult
         Handle hFile
-        String sQuery
         Integer eType
+        Date dValue
+        String sField
         tDDPBuilderResult oResult
-        Get Main_File of hoDD to hFile
 
+        Move "" to sPredicate
+        Get Main_File of hoDD to hFile
         Get_Attribute DF_FIELD_TYPE of hFile hField to eType
         If (eConstrain = DDPFind_CONTAINS) Begin
             If (eType <> DF_ASCII and eType <> DF_TEXT) Begin
@@ -487,9 +488,15 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
             Move (Replaces("_", sFilter, SQL_LIKE_ESC + "_")) to sFilter
             Get SQLEscapedStr of hoMainDD sFilter to sFilter
         End
-        Else If (eType = DF_ASCII or eType = DF_TEXT) Begin
-            // Escape and quote string values before embedding in the SQL fragment.
+        Else If (eType = DF_ASCII or eType = DF_TEXT or eType = DF_DATETIME) Begin
             Get SQLEscapedStr of hoMainDD sFilter to sFilter
+            Move ("'" + sFilter + "'") to sFilter
+        End
+        Else If (eType = DF_DATE) Begin
+            // A valid YYYY-MM-DD holds only digits and dashes, so it needs no escaping.
+            If (not(DDPParseISODate(sFilter, &dValue))) Begin
+                Function_Return (DDPError(Self, DDPERR_INVALID_CONSTRAIN, "Invalid date constraint; expected YYYY-MM-DD."))
+            End
             Move ("'" + sFilter + "'") to sFilter
         End
         Else If (not(IsOptDottedNumeric(Self, sFilter))) Begin
@@ -497,35 +504,35 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
             Function_Return (DDPError(Self, DDPERR_INVALID_CONSTRAIN, "Invalid constrain should be numeric."))
         End
 
+        Move (SQLStrFileFieldName(hoDD, hField)) to sField
+        If (eConstrain = DDPFind_EQ) Move (sField + " = " + sFilter) to sPredicate
+        Else If (eConstrain = DDPFind_GE) Move (sField + " >= " + sFilter) to sPredicate
+        Else If (eConstrain = DDPFind_GT) Move (sField + " > " + sFilter) to sPredicate
+        Else If (eConstrain = DDPFind_LE) Move (sField + " <= " + sFilter) to sPredicate
+        Else If (eConstrain = DDPFind_LT) Move (sField + " < " + sFilter) to sPredicate
+        Else If (eConstrain = DDPFind_NE) Move (sField + " != " + sFilter) to sPredicate
+        // N prefix and ESCAPE clause as in DataFlex's own SQLStrLike.
+        Else If (eConstrain = DDPFind_CONTAINS) Move (sField + " LIKE N'%" + sFilter + "%' ESCAPE '" + SQL_LIKE_ESC + "'") to sPredicate
+        Else Function_Return (DDPError(Self, DDPERR_INVALID_CONSTRAIN, "Invalid contrain."))
+        Function_Return oResult
+    End_Function
+
+    // Applies one constraint: appends its SQL condition (see DDPSQLPredicate) to the
+    // psSQLFilter of hoMainDD with AND, for all exposed Windows DDs including related tables.
+    Function AddConstrain Handle hoMainDD Handle hoDD Handle hField Integer eConstrain String sFilter Returns tDDPBuilderResult
+        String sPredicate sQuery
+        tDDPBuilderResult oResult
+
+        Get DDPSQLPredicate hoMainDD hoDD hField eConstrain sFilter (&sPredicate) to oResult
+        If (oResult.iErr) Function_Return oResult
+
         Set pbUseDDSQLFilters of hoMainDD to True
         Get psSQLFilter of hoMainDD to sQuery
-        If (eConstrain = DDPFind_EQ) Begin
-            Get SQLStrAppend of hoMainDD sQuery (SQLStrFileFieldName(hoDD, hField) + " = " + sFilter) to sQuery
-        End
-        Else If (eConstrain = DDPFind_GE) Begin
-            Get SQLStrAppend of hoMainDD sQuery (SQLStrFileFieldName(hoDD, hField) + " >= " + sFilter) to sQuery
-        End
-        Else If (eConstrain = DDPFind_GT) Begin
-            Get SQLStrAppend of hoMainDD sQuery (SQLStrFileFieldName(hoDD, hField) + " > " + sFilter) to sQuery
-        End
-        Else If (eConstrain = DDPFind_LE) Begin
-            Get SQLStrAppend of hoMainDD sQuery (SQLStrFileFieldName(hoDD, hField) + " <= " + sFilter) to sQuery
-        End
-        Else If (eConstrain = DDPFind_LT) Begin
-            Get SQLStrAppend of hoMainDD sQuery (SQLStrFileFieldName(hoDD, hField) + " < " + sFilter) to sQuery
-        End
-        Else If (eConstrain = DDPFind_NE) Begin
-            Get SQLStrAppend of hoMainDD sQuery (SQLStrFileFieldName(hoDD, hField) + " != " + sFilter) to sQuery
-        End
-        Else If (eConstrain = DDPFind_CONTAINS) Begin
-            Get SQLStrAppend of hoMainDD sQuery (SQLStrFileFieldName(hoDD, hField) + " LIKE N'%" + sFilter + "%' ESCAPE '" + SQL_LIKE_ESC + "'") to sQuery
-        End
-        Else Begin
-            Function_Return (DDPError(Self, DDPERR_INVALID_CONSTRAIN, "Invalid contrain."))
-        End
+        Get SQLStrAppend of hoMainDD sQuery sPredicate to sQuery
         Set psSQLFilter of hoMainDD to sQuery
         Function_Return oResult
     End_Function
+
     // DDP runtime operations for the Classic data dictionary API.
     Procedure DDPLink Handle hoDD Handle hoRelated Boolean bClient Boolean bConstrain
         If (bClient) ;
