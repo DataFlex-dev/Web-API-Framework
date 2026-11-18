@@ -2,8 +2,10 @@
 Use DataDict.pkg
 Use cli.pkg
 
-
-
+// LIKE escape character for 'contains'. Not DataFlex's SQL_LIKE_ESC ('\'): on databases where a
+// backslash escapes a quote (MySQL, ...) "ESCAPE '\'" leaves the literal open, and the next value
+// in the filter would run as SQL.
+#Replace DDP_SQL_LIKE_ESC '!'
 
 // Cached topology snapshot for one exposed DD: its main file, plus the file numbers of
 // its direct parent (server-file, 1-to-1) and child (client-file, 1-to-N) tables, and the
@@ -510,24 +512,34 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
     //   Other (numeric) values must be a plain number (see DDPSQLNumber) and are embedded as is.
     //   Contains (text fields only) becomes LIKE '%value%' with the value's escape
     //   character and LIKE wildcards escaped, so the value matches literally.
+    // Quoted values with a backslash are rejected unless the driver is known to end a literal at
+    // a quote alone (SQL Server, DB2): elsewhere (MySQL, ...) a backslash escapes the closing quote
+    // and the rest of the filter would run as SQL.
     Function DDPSQLFilter Handle hoMainDD Handle hoDD Handle hField Integer eConstrain String sValue String ByRef sSQLFilter Returns tDDPBuilderResult
         Handle hFile
         Integer eType
         Date dValue
-        String sField
+        String sField sDriver
         tDDPBuilderResult oResult
 
         Move "" to sSQLFilter
         Get Main_File of hoDD to hFile
         Get_Attribute DF_FIELD_TYPE of hFile hField to eType
+        If ((eConstrain = DDPFind_CONTAINS or eType = DF_ASCII or eType = DF_TEXT or eType = DF_DATETIME) and Pos("\", sValue) > 0) Begin
+            Get_Attribute DF_FILE_DRIVER of hFile to sDriver
+            Move (Uppercase(sDriver)) to sDriver
+            If (sDriver <> "MSSQLDRV" and sDriver <> "DB2_DRV") Begin
+                Function_Return (DDPError(Self, DDPERR_INVALID_CONSTRAIN, "Backslashes in text constraints are not supported on this database."))
+            End
+        End
         If (eConstrain = DDPFind_CONTAINS) Begin
             If (eType <> DF_ASCII and eType <> DF_TEXT) Begin
                 Function_Return (DDPError(Self, DDPERR_INVALID_CONSTRAIN, "Constraint 'contains' is only supported on text fields."))
             End
             // Escape the escape character first, then the wildcards, then quotes.
-            Move (Replaces(SQL_LIKE_ESC, sValue, SQL_LIKE_ESC + SQL_LIKE_ESC)) to sValue
-            Move (Replaces("%", sValue, SQL_LIKE_ESC + "%")) to sValue
-            Move (Replaces("_", sValue, SQL_LIKE_ESC + "_")) to sValue
+            Move (Replaces(DDP_SQL_LIKE_ESC, sValue, DDP_SQL_LIKE_ESC + DDP_SQL_LIKE_ESC)) to sValue
+            Move (Replaces("%", sValue, DDP_SQL_LIKE_ESC + "%")) to sValue
+            Move (Replaces("_", sValue, DDP_SQL_LIKE_ESC + "_")) to sValue
             Get SQLEscapedStr of hoMainDD sValue to sValue
         End
         Else If (eType = DF_ASCII or eType = DF_TEXT or eType = DF_DATETIME) Begin
@@ -553,7 +565,7 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Else If (eConstrain = DDPFind_LE) Move (sField + " <= " + sValue) to sSQLFilter
         Else If (eConstrain = DDPFind_LT) Move (sField + " < " + sValue) to sSQLFilter
         Else If (eConstrain = DDPFind_NE) Move (sField + " != " + sValue) to sSQLFilter
-        Else If (eConstrain = DDPFind_CONTAINS) Move (sField + " LIKE N'%" + sValue + "%' ESCAPE '" + SQL_LIKE_ESC + "'") to sSQLFilter
+        Else If (eConstrain = DDPFind_CONTAINS) Move (sField + " LIKE N'%" + sValue + "%' ESCAPE '" + DDP_SQL_LIKE_ESC + "'") to sSQLFilter
         Else Function_Return (DDPError(Self, DDPERR_INVALID_CONSTRAIN, "Invalid constraint."))
         Function_Return oResult
     End_Function

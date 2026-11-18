@@ -21,7 +21,7 @@ Class cDDPQueryEndpoint is a cDDPEndpoint
     // (see DDPRequestParser):
     //   Legacy    - top-level keys are table names, values are table query objects
     //               (default; see DataDictionaryProtocol.md)
-    //   DbMessage - one structured query object (see DDP Experimental format.md)
+    //   DbMessage - one structured query object (see DataDictionaryProtocol.md)
     // The DDPStyle header controls the response shape:
     //   nested     - related tables embedded inside each row (default)
     //   flat       - positionally-aligned parallel arrays
