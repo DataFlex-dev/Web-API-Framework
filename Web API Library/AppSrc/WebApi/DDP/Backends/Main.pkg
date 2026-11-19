@@ -671,7 +671,7 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
 
         Move 0 to hoQuery
         Move 0 to hoAdapter
-        Get Create (RefClass(cDbQuery)) to hoQuery
+        Get CreateNamed (RefClass(cDbQuery)) "oDDPQuery" to hoQuery
         If (hoQuery = 0) Begin
             Get DDPFindFailure to oResult
             Function_Return oResult
@@ -851,7 +851,7 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         tDDPBuilderResult oResult
         Integer iChild
 
-        Get Create (RefClass(cDbQuery)) to hoQuery
+        Get CreateNamed (RefClass(cDbQuery)) "oDDPQuery" to hoQuery
         If (hoQuery = 0) Begin
             Get DDPFindFailure to oResult
             Function_Return oResult

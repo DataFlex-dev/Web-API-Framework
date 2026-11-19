@@ -232,7 +232,7 @@ Class cDDPBuilder_Mixin is a Mixin
         tDDPDataDictPair DDDef
 
         // Instantiate the DD class and validate it before accepting it.
-        Get Create iDDClass to DDDef.hoDD
+        Get CreateNamed iDDClass "oDDPExposedDD" to DDDef.hoDD
         If (not(IsObjectValidDataDictionary(Self, DDDef.hoDD))) Begin
             Send Destroy of DDDef.hoDD
             Error DFERR_PROGRAM "The exposed class is not a valid Data Dictionary."
@@ -246,6 +246,9 @@ Class cDDPBuilder_Mixin is a Mixin
             Error DFERR_PROGRAM "The exposed class does not have a valid name."
             Procedure_Return
         End
+
+        // Rename after the table so the debugger shows e.g. "oCustomer_DD".
+        Set Name of DDDef.hoDD to ("o" + DDDef.sDisplayName + "_DD")
 
         // Normalise to lowercase for the binary-search key so request table names
         // like "Customer" and "customer" both resolve to the same DD.
