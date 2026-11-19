@@ -1330,21 +1330,8 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
 
     // ---------------------------------------------------------------------------
     // Save pipeline (POST /ddp/v1/save), see the shared part in cDDPBuilder.pkg.
-    // The DDs are not linked to their parents (Expose and every request detach
-    // them), so Request_Validate and Request_Save only handle this record: the
-    // parents are neither validated nor saved, and pbDDAttach leaves the foreign
-    // keys as sent.
+    // DDPSaveItem saves each record with Request_Save in its linked DDO structure; see there.
     // ---------------------------------------------------------------------------
-
-    Function DDPValidateSaveRecord Handle hoDD Returns Boolean
-        Integer iInvalid
-        Get Request_Validate of hoDD to iInvalid
-        Function_Return (iInvalid <> 0)
-    End_Function
-
-    Procedure DDPSaveRecord Handle hoDD
-        Send Request_Save of hoDD
-    End_Procedure
 
     // Executes a parsed /save body (array of save items). hoResponse receives
     // [{"<Table>": {record}}, ...] in item order; 0 on error (everything is rolled back).
@@ -1374,13 +1361,12 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
             For iItem from 0 to (SizeOfArray(aItems) - 1)
                 Move oPending to oResult
                 Move 0 to hoRecord
-                Get DDPSaveItem aItems[iItem] (&hoRecord) to oResult
+                Get DDPSaveItem (&aItems) iItem (&hoRecord) to oResult
                 // Never continue outside the transaction: if it ended anyway, treat the item as failed.
                 Get_Attribute DF_TRAN_COUNT to iTranCount
                 If (not(oResult.iErr) and iTranCount = 0) Move oPending to oResult
                 // Break only at loop level: inside a Begin block it leaves the block, not the loop.
                 If (oResult.iErr) Break
-                If (aItems[iItem].bCreate) Send DDPForwardCreatedKey (&aItems) iItem
 
                 // {"<Table>": {record}}
                 Get Create (RefClass(cJsonObject)) to hoEntry

@@ -250,9 +250,7 @@ Register_Function DDPValidateDelete Handle hoDD Returns Boolean
 // The name of the first table related to hoDD (a child with bChildren, otherwise a parent) that
 // the backend's DD layer requires for a write but that is not exposed; "" when there is none.
 Register_Function DDPUnexposedRelation Handle hoDD Boolean bChildren Returns String
-// Save hooks: validate and save only this record, and run a /save body in one transaction.
-Register_Function DDPValidateSaveRecord Handle hoDD Returns Boolean
-Register_Procedure DDPSaveRecord Handle hoDD
+// Save hook: run a /save body in one transaction.
 Register_Function DDPExecuteSave Handle hoItems Handle ByRef hoResponse Returns tDDPBuilderResult
 // DDP query hooks.
 Register_Function QueryLinkUp tDDPTableQuery query Returns tDDPBuilderResult
@@ -267,7 +265,7 @@ Register_Function DDPErrorText String sFallback Returns String
 Register_Procedure DDPCollectParentQueries tDDPTableQuery query tDDPTableQuery[] ByRef aParents
 Register_Function ConstructSaveRecord String sDDName Handle hoJson tDDPSaveRecord ByRef record Returns tDDPBuilderResult
 Register_Function DDPParseSaveItems Handle hoItems tDDPSaveItem[] ByRef aItems Returns tDDPBuilderResult
-Register_Function DDPSaveItem tDDPSaveItem item Handle ByRef hoRecord Returns tDDPBuilderResult
+Register_Function DDPSaveItem tDDPSaveItem[] ByRef aItems Integer iItem Handle ByRef hoRecord Returns tDDPBuilderResult
 Register_Procedure DDPForwardCreatedKey tDDPSaveItem[] ByRef aItems Integer iCreated
 // Protocol method called by the DDP endpoints, routers and the iterator.
 Register_Procedure HandleDDPError tWebApiCallContext ByRef webapicallcontext Integer iErr Integer iStatus String sTitle String sDetail

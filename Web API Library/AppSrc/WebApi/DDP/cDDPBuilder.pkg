@@ -1065,9 +1065,10 @@ Class cDDPBuilder_Mixin is a Mixin
     End_Procedure
 
     // ---------------------------------------------------------------------------
-    // Save pipeline (POST /ddp/v1/save): the records of one client Request_Save,
-    // written exactly as sent. The backend's DDPExecuteSave runs the items in one
-    // transaction; parsing, the per-record write and key forwarding are shared.
+    // Save pipeline (POST /ddp/v1/save): the records of one client Request_Save, in
+    // the order sent, each validated and saved in its linked DDO structure. The
+    // backend's DDPExecuteSave runs the items in one transaction; parsing, the
+    // per-record write and key forwarding are shared.
     // ---------------------------------------------------------------------------
 
     // Parses [{"create"|"update": {"<Table>": {fields}}}, ...] into aItems.
@@ -1127,11 +1128,16 @@ Class cDDPBuilder_Mixin is a Mixin
         Function_Return oResult
     End_Function
 
-    // Writes the record of one save item (update: found by primary key first) without touching
-    // its parents, and serialises it to hoRecord. The backend validates and saves only this
-    // record (DDPValidateSaveRecord, DDPSaveRecord).
-    Function DDPSaveItem tDDPSaveItem item Handle ByRef hoRecord Returns tDDPBuilderResult
+    // Writes the record of save item aItems[iItem] (update: found by primary key first) and
+    // serialises it to hoRecord. Its parents are linked (DDPLinkWriteStructure) and found from the
+    // foreign keys (FindSchemaParentsFromBuffer), then Request_Validate and Request_Save handle the
+    // record in that DDO structure with the server DD's rules, as /store and /update do: changed or
+    // new parents are saved too. After a create its key is forwarded to the later items; then the
+    // structure is detached, before the next item links its own.
+    Function DDPSaveItem tDDPSaveItem[] ByRef aItems Integer iItem Handle ByRef hoRecord Returns tDDPBuilderResult
+        tDDPSaveItem item
         Handle hoDD hFile
+        Handle[] aLinked aDescended
         tDDPSaveField[] aFields
         Integer[] aPKFields
         Integer iField iPK iIndex iFieldNr
@@ -1139,10 +1145,13 @@ Class cDDPBuilder_Mixin is a Mixin
         tDDPTableQuery serialQuery
         tDDPBuilderResult oResult
 
+        Move aItems[iItem] to item
         Move item.oRecord.hoDD to hoDD
         Move item.oRecord.aFields to aFields
         Get Main_File of hoDD to hFile
         Move False to Err
+        Get DDPLinkWriteStructure hoDD False (&aLinked) (&aDescended) to oResult
+        If (oResult.iErr) Function_Return oResult
         Send Clear of hoDD
 
         If (item.bCreate) Begin
@@ -1176,12 +1185,16 @@ Class cDDPBuilder_Mixin is a Mixin
             Loop
         End
 
-        Get DDPValidateSaveRecord hoDD to bInvalid
+        // Load the parents for the foreign keys (a supplied key without a parent record fails),
+        // then validate the record and its parents.
+        Get FindSchemaParentsFromBuffer hoDD aFields to oResult
+        If (oResult.iErr) Function_Return oResult
+        Get Request_Validate of hoDD to bInvalid
         If (bInvalid) ;
             Function_Return (DDPError(Self, DDPERR_VALIDATION_FAILED, DDPErrorText(Self, "Validation failed.")))
 
         Move False to Err
-        Send DDPSaveRecord hoDD
+        Send Request_Save of hoDD
         If (Err) ;
             Function_Return (DDPError(Self, DDPERR_SAVE_FAILED, DDPErrorText(Self, "Save failed.")))
 
@@ -1189,6 +1202,9 @@ Class cDDPBuilder_Mixin is a Mixin
         Get Create (RefClass(cJsonObject)) to hoRecord
         Send InitializeJsonType of hoRecord jsonTypeObject
         Send SerializeBufferToJson hoRecord serialQuery False
+
+        If (item.bCreate) Send DDPForwardCreatedKey (&aItems) iItem
+        Send DDPClearRelations hoDD 0
         Function_Return oResult
     End_Function
 
