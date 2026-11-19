@@ -8,6 +8,8 @@ Struct tDDPCrossPlatformFileInfo
     Handle hoDD
     Handle[] aParents
     Handle[] aChilds
+    tDDParent[] aDDParents    // paParents at expose time; DDPClearRelations restores it
+    tDDChild[] aDDChildren    // paChildren at expose time; DDPClearRelations restores it
 End_Struct
 
 Struct tDDPTableResultLayout
@@ -58,6 +60,8 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
             Move aExposedDDs[iIndex] to oInfo.hoDD
 
             Get paParents of aExposedDDs[iIndex] to aDDParents
+            Move aDDParents to oInfo.aDDParents
+            Get paChildren of aExposedDDs[iIndex] to oInfo.aDDChildren
             For iParent from 0 to (SizeOfArray(aDDParents) - 1)
                 Get ExposedDDByEntity aDDParents[iParent].hEntity aExposedDDs to hoParent
                 If (hoParent <> 0 and SearchArray(hoParent, oInfo.aParents) = -1) ;
@@ -540,6 +544,7 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Set DDO_Server of hoDD to hoRelated
     End_Procedure
 
+    // Collects hoDD and every DD linked to it through the live DDO structure.
     { Visibility = Private }
     Procedure DDPClearRelationsVisit Handle hoDD Handle[] ByRef aVisited
         tDDChild[] aChildren
@@ -560,16 +565,34 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
             If (aParents[iIndex].hoDD <> 0) ;
                 Send DDPClearRelationsVisit aParents[iIndex].hoDD (&aVisited)
         Loop
-
-        Send Rebuild_Constraints of hoDD
-        Send Clear of hoDD
     End_Procedure
 
+    // The native DD layer has no unlink API, so the links made by DDPLink are undone by
+    // restoring each exposed DD's expose-time paParents/paChildren. Without this the links
+    // accumulate across requests: later queries inherit linked parents' constraints and joins.
     Procedure DDPClearRelations Handle hoDD Handle hoOptParentDD
-        Handle[] aVisited
+        Integer iIndex iFirst iInfo
+        Handle[] aVisited aExposedDDs
+        tDDPCrossPlatformFileInfo[] aInfo
 
-        If (hoOptParentDD <> 0) Move hoOptParentDD to aVisited[-1]
+        If (hoOptParentDD <> 0) Begin
+            Move hoOptParentDD to aVisited[-1]
+            Move 1 to iFirst
+        End
         Send DDPClearRelationsVisit hoDD (&aVisited)
+
+        Get paExposedDDs to aExposedDDs
+        Get paFileInfo to aInfo
+        For iIndex from iFirst to (SizeOfArray(aVisited) - 1)
+            // Unlink first, so Constrain and Clear see only the DD's own structure.
+            Move (SearchArray(aVisited[iIndex], aExposedDDs)) to iInfo
+            If (iInfo <> -1 and iInfo < SizeOfArray(aInfo)) Begin
+                Set paParents of aVisited[iIndex] to aInfo[iInfo].aDDParents
+                Set paChildren of aVisited[iIndex] to aInfo[iInfo].aDDChildren
+            End
+            Send Rebuild_Constraints of aVisited[iIndex]
+            Send Clear of aVisited[iIndex]
+        Loop
     End_Procedure
     
     Procedure DDPRequestRead Handle hoDD Integer eMode Handle hFile Integer iIndex

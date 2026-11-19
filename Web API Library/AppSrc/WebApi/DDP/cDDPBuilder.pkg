@@ -61,11 +61,9 @@ Class cDDPBuilder_Mixin is a Mixin
 
     // Resets request-specific DD relationships, constraints, and buffers before
     // shared DD objects are reused by another request.
-    // Classic cleanup detaches live DDO links; native cleanup preserves
-    // idempotent schema-backed links while clearing transient request state.
+    // Both backends detach the live DDO links: Classic with Detach_*, native by
+    // restoring the expose-time paParents/paChildren.
     Procedure ClearRelationShipsOnDD Handle hoDD Handle hoOptParentDD
-        // Classic detaches live DD links; native preserves schema-backed links
-        // and resets transient request state.
         Send DDPClearRelations hoDD hoOptParentDD
     End_Procedure
 
@@ -213,9 +211,8 @@ Class cDDPBuilder_Mixin is a Mixin
         Function_Return oResult
     End_Function
 
-    // Resets request-specific state established by QueryLinkUp. Classic detaches
-    // live DD relationships; native preserves schema-backed links and clears
-    // transient constraints and buffers.
+    // Resets request-specific state established by QueryLinkUp: detaches the
+    // live DD relationships and clears constraints and buffers.
     Procedure DestroyQuery Handle hoDD
         If (hoDD <> 0) Send ClearRelationShipsOnDD hoDD 0
     End_Procedure
@@ -223,8 +220,7 @@ Class cDDPBuilder_Mixin is a Mixin
     // Registers a data dictionary class as an exposed DDP resource.
     // Must be called during object construction (pbIsCollecting = True).
     // Creates a permanent DD instance and snapshots its file layout for
-    // relationship detection. Classic cleanup detaches live links; native
-    // cleanup preserves idempotent schema-backed links between requests.
+    // relationship detection. Request cleanup detaches the live links again.
     // The name is stored lowercase to make lookups case-insensitive.
     Procedure Expose Integer iDDClass
         // Prevent runtime exposure — all tables must be declared at startup.
@@ -280,8 +276,7 @@ Class cDDPBuilder_Mixin is a Mixin
         // Windows backend also keeps a SQL filter the hook sets.
         Send StoreDDFileLayout DDDef.hoDD
 
-        // Clear request-specific state. Classic detaches live DDO links; native
-        // preserves schema-backed links and resets transient constraints/buffers.
+        // Clear request-specific state and detach live DDO links.
         Send ClearRelationShipsOnDD DDDef.hoDD 0
 
         // Insert into the sorted array at the position BinarySearchInsertPos returned.
