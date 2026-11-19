@@ -622,67 +622,111 @@ The `DDPStyle` header selects the response shape. It applies to both request for
 
 In `nested`, grandparent tables still filter and sort the rows, but their fields are not returned; use `flat` or `flatlinked` to receive them. In `flatlinked`, the key fields that link the arrays (foreign keys) are always included, even when `__fields`/`fields` leaves them out.
 
-### Nested (default — `DDPStyle: nested`)
+### One query, three styles
 
-Each queried table is a key in the response object. Its value is an array of row objects. Related **parent** tables are embedded as objects inside each row. Related **child** tables are embedded as arrays inside each row.
-
-**Use case:** Loading a form or detail view where you need the full object graph in one request.
-
-**Request**
+The same request, sent once with each `DDPStyle` value. Orders 1 and 2 both belong to customer 5; order 1 has two detail lines, order 2 has one.
 
 ```http
 POST /Api/ddp/v1/query
 Content-Type: application/ddp
+DDPStyle: nested | flat | flatlinked
 ```
 
 ```json
 {
   "OrderHeader": {
     "__limit": 2,
-    "Customer": {},
-    "OrderDetail": {}
+    "__fields": ["Order_Number", "Order_Total"],
+    "Customer": { "__fields": ["Customer_Number", "Name"] },
+    "OrderDetail": { "__fields": ["Detail_Number", "Qty_Ordered"] }
   }
 }
 ```
 
-**Response**
+**`nested`**: parents and children live inside each order.
 
 ```json
 {
   "OrderHeader": [
     {
       "Order_Number": 1,
-      "Order_Date": "2025-01-15",
       "Order_Total": 249.95,
-      "Customer": {
-        "Customer_Number": 5,
-        "Name": "Acme Industries"
-      },
+      "Customer": { "Customer_Number": 5, "Name": "Acme Industries" },
       "OrderDetail": [
-        { "Detail_Number": 1, "Qty_Ordered": 2, "Price": 99.99, "Extended_Price": 199.98 },
-        { "Detail_Number": 2, "Qty_Ordered": 1, "Price": 49.97, "Extended_Price":  49.97 }
+        { "Detail_Number": 1, "Qty_Ordered": 2 },
+        { "Detail_Number": 2, "Qty_Ordered": 1 }
       ]
     },
     {
       "Order_Number": 2,
-      "Order_Date": "2025-01-22",
-      "Order_Total": 89.50,
-      "Customer": {
-        "Customer_Number": 5,
-        "Name": "Acme Industries"
-      },
+      "Order_Total": 89.5,
+      "Customer": { "Customer_Number": 5, "Name": "Acme Industries" },
       "OrderDetail": [
-        { "Detail_Number": 1, "Qty_Ordered": 1, "Price": 89.50, "Extended_Price": 89.50 }
+        { "Detail_Number": 1, "Qty_Ordered": 1 }
       ]
     }
   ]
 }
 ```
 
-A nested request may contain several main tables; each becomes its own key in the response:
+**`flat`**: one top-level array per table, aligned by position. `Customer[i]` is the customer of `OrderHeader[i]` (customer 5 is repeated); `OrderDetail[i]` holds the details of `OrderHeader[i]`.
 
 ```json
-{ "Customer": { "__limit": 10 }, "SalesPerson": {} }
+{
+  "OrderHeader": [
+    { "Order_Number": 1, "Order_Total": 249.95 },
+    { "Order_Number": 2, "Order_Total": 89.5 }
+  ],
+  "Customer": [
+    { "Customer_Number": 5, "Name": "Acme Industries" },
+    { "Customer_Number": 5, "Name": "Acme Industries" }
+  ],
+  "OrderDetail": [
+    [
+      { "Detail_Number": 1, "Qty_Ordered": 2 },
+      { "Detail_Number": 2, "Qty_Ordered": 1 }
+    ],
+    [
+      { "Detail_Number": 1, "Qty_Ordered": 1 }
+    ]
+  ]
+}
+```
+
+**`flatlinked`**: each record once, joined by key. The linking foreign keys are added after the requested fields even though `__fields` leaves them out: `Customer_Number` on `OrderHeader` and `Order_Number` on `OrderDetail`.
+
+```json
+{
+  "OrderHeader": [
+    { "Order_Number": 1, "Order_Total": 249.95, "Customer_Number": 5 },
+    { "Order_Number": 2, "Order_Total": 89.5, "Customer_Number": 5 }
+  ],
+  "Customer": [
+    { "Customer_Number": 5, "Name": "Acme Industries" }
+  ],
+  "OrderDetail": [
+    { "Detail_Number": 1, "Qty_Ordered": 2, "Order_Number": 1 },
+    { "Detail_Number": 2, "Qty_Ordered": 1, "Order_Number": 1 },
+    { "Detail_Number": 1, "Qty_Ordered": 1, "Order_Number": 2 }
+  ]
+}
+```
+
+The sections below describe each style in detail.
+
+### Nested (default — `DDPStyle: nested`)
+
+Each queried table is a key in the response object. Its value is an array of row objects. Related **parent** tables are embedded as objects inside each row. Related **child** tables are embedded as arrays inside each row.
+
+**Use case:** Loading a form or detail view where you need the full object graph in one request.
+
+The [example above](#one-query-three-styles) shows a nested response. A nested request may also contain several main tables; each becomes its own key in the response:
+
+```json
+{
+  "Customer": { "__limit": 10, "__fields": ["Customer_Number", "Name"] },
+  "SalesPerson": { "__fields": ["SalesPerson_ID", "Name"] }
+}
 ```
 
 ---
@@ -695,6 +739,8 @@ All tables appear as top-level keys. Arrays are **index-aligned** with the main 
 
 **Request**
 
+The [example above](#one-query-three-styles) extended with a third order, a second parent table and more fields.
+
 ```http
 POST /Api/ddp/v1/query
 Content-Type: application/ddp
@@ -705,11 +751,10 @@ DDPStyle: flat
 {
   "OrderHeader": {
     "__limit": 3,
-    "Customer": {},
-    "SalesPerson": {},
-    "OrderDetail": {
-      "__fields": ["Detail_Number", "Qty_Ordered", "Price", "Extended_Price"]
-    }
+    "__fields": ["Order_Number", "Customer_Number", "SalesPerson_ID", "Order_Total"],
+    "Customer": { "__fields": ["Customer_Number", "Name", "City"] },
+    "SalesPerson": { "__fields": ["SalesPerson_ID", "Name"] },
+    "OrderDetail": { "__fields": ["Detail_Number", "Qty_Ordered", "Price", "Extended_Price"] }
   }
 }
 ```
@@ -720,37 +765,37 @@ DDPStyle: flat
 {
   "OrderHeader": [
     { "Order_Number": 1, "Customer_Number": 5, "SalesPerson_ID": 2, "Order_Total": 249.95 },
-    { "Order_Number": 2, "Customer_Number": 5, "SalesPerson_ID": 3, "Order_Total":  89.50 },
-    { "Order_Number": 3, "Customer_Number": 8, "SalesPerson_ID": 2, "Order_Total": 540.00 }
+    { "Order_Number": 2, "Customer_Number": 5, "SalesPerson_ID": 3, "Order_Total": 89.5 },
+    { "Order_Number": 3, "Customer_Number": 8, "SalesPerson_ID": 2, "Order_Total": 540 }
   ],
   "Customer": [
     { "Customer_Number": 5, "Name": "Acme Industries", "City": "Orlando" },
     { "Customer_Number": 5, "Name": "Acme Industries", "City": "Orlando" },
-    { "Customer_Number": 8, "Name": "Blue Sky Corp",   "City": "Tampa"   }
+    { "Customer_Number": 8, "Name": "Blue Sky Corp", "City": "Tampa" }
   ],
   "SalesPerson": [
     { "SalesPerson_ID": 2, "Name": "John Smith" },
-    { "SalesPerson_ID": 3, "Name": "Jane Doe"   },
+    { "SalesPerson_ID": 3, "Name": "Jane Doe" },
     { "SalesPerson_ID": 2, "Name": "John Smith" }
   ],
   "OrderDetail": [
     [
       { "Detail_Number": 1, "Qty_Ordered": 2, "Price": 99.99, "Extended_Price": 199.98 },
-      { "Detail_Number": 2, "Qty_Ordered": 1, "Price": 49.97, "Extended_Price":  49.97 }
+      { "Detail_Number": 2, "Qty_Ordered": 1, "Price": 49.97, "Extended_Price": 49.97 }
     ],
     [
-      { "Detail_Number": 1, "Qty_Ordered": 1, "Price": 89.50, "Extended_Price":  89.50 }
+      { "Detail_Number": 1, "Qty_Ordered": 1, "Price": 89.5, "Extended_Price": 89.5 }
     ],
     [
-      { "Detail_Number": 1, "Qty_Ordered": 3, "Price": 60.00, "Extended_Price": 180.00 },
-      { "Detail_Number": 2, "Qty_Ordered": 2, "Price": 45.00, "Extended_Price":  90.00 },
-      { "Detail_Number": 3, "Qty_Ordered": 1, "Price": 270.00,"Extended_Price": 270.00 }
+      { "Detail_Number": 1, "Qty_Ordered": 3, "Price": 60, "Extended_Price": 180 },
+      { "Detail_Number": 2, "Qty_Ordered": 2, "Price": 45, "Extended_Price": 90 },
+      { "Detail_Number": 3, "Qty_Ordered": 1, "Price": 270, "Extended_Price": 270 }
     ]
   ]
 }
 ```
 
-`Customer[0]` and `Customer[1]` are the same record — orders 1 and 2 both belong to customer 5. `SalesPerson[0]` and `SalesPerson[2]` are the same — orders 1 and 3 share the same salesperson.
+`Customer[0]` and `Customer[1]` are the same record: orders 1 and 2 both belong to customer 5. `SalesPerson[0]` and `SalesPerson[2]` are the same: orders 1 and 3 share salesperson 2.
 
 ---
 
@@ -762,23 +807,12 @@ Like `flat` but **deduplicated** — each unique record appears exactly once. Pa
 
 **Request**
 
+The same body as the [flat example](#flat-ddpstyle-flat), with `DDPStyle: flatlinked`.
+
 ```http
 POST /Api/ddp/v1/query
 Content-Type: application/ddp
 DDPStyle: flatlinked
-```
-
-```json
-{
-  "OrderHeader": {
-    "__limit": 3,
-    "Customer": {},
-    "SalesPerson": {},
-    "OrderDetail": {
-      "__fields": ["Order_Number", "Detail_Number", "Qty_Ordered", "Price", "Extended_Price"]
-    }
-  }
-}
 ```
 
 **Response**
@@ -787,29 +821,29 @@ DDPStyle: flatlinked
 {
   "OrderHeader": [
     { "Order_Number": 1, "Customer_Number": 5, "SalesPerson_ID": 2, "Order_Total": 249.95 },
-    { "Order_Number": 2, "Customer_Number": 5, "SalesPerson_ID": 3, "Order_Total":  89.50 },
-    { "Order_Number": 3, "Customer_Number": 8, "SalesPerson_ID": 2, "Order_Total": 540.00 }
+    { "Order_Number": 2, "Customer_Number": 5, "SalesPerson_ID": 3, "Order_Total": 89.5 },
+    { "Order_Number": 3, "Customer_Number": 8, "SalesPerson_ID": 2, "Order_Total": 540 }
   ],
   "Customer": [
     { "Customer_Number": 5, "Name": "Acme Industries", "City": "Orlando" },
-    { "Customer_Number": 8, "Name": "Blue Sky Corp",   "City": "Tampa"   }
+    { "Customer_Number": 8, "Name": "Blue Sky Corp", "City": "Tampa" }
   ],
   "SalesPerson": [
     { "SalesPerson_ID": 2, "Name": "John Smith" },
-    { "SalesPerson_ID": 3, "Name": "Jane Doe"   }
+    { "SalesPerson_ID": 3, "Name": "Jane Doe" }
   ],
   "OrderDetail": [
-    { "Order_Number": 1, "Detail_Number": 1, "Qty_Ordered": 2, "Price": 99.99, "Extended_Price": 199.98 },
-    { "Order_Number": 1, "Detail_Number": 2, "Qty_Ordered": 1, "Price": 49.97, "Extended_Price":  49.97 },
-    { "Order_Number": 2, "Detail_Number": 1, "Qty_Ordered": 1, "Price": 89.50, "Extended_Price":  89.50 },
-    { "Order_Number": 3, "Detail_Number": 1, "Qty_Ordered": 3, "Price": 60.00, "Extended_Price": 180.00 },
-    { "Order_Number": 3, "Detail_Number": 2, "Qty_Ordered": 2, "Price": 45.00, "Extended_Price":  90.00 },
-    { "Order_Number": 3, "Detail_Number": 3, "Qty_Ordered": 1, "Price": 270.00,"Extended_Price": 270.00 }
+    { "Detail_Number": 1, "Qty_Ordered": 2, "Price": 99.99, "Extended_Price": 199.98, "Order_Number": 1 },
+    { "Detail_Number": 2, "Qty_Ordered": 1, "Price": 49.97, "Extended_Price": 49.97, "Order_Number": 1 },
+    { "Detail_Number": 1, "Qty_Ordered": 1, "Price": 89.5, "Extended_Price": 89.5, "Order_Number": 2 },
+    { "Detail_Number": 1, "Qty_Ordered": 3, "Price": 60, "Extended_Price": 180, "Order_Number": 3 },
+    { "Detail_Number": 2, "Qty_Ordered": 2, "Price": 45, "Extended_Price": 90, "Order_Number": 3 },
+    { "Detail_Number": 3, "Qty_Ordered": 1, "Price": 270, "Extended_Price": 270, "Order_Number": 3 }
   ]
 }
 ```
 
-Customer 5 appears once despite being referenced by two orders. `Order_Number` on each `OrderDetail` row is the join key back to `OrderHeader`.
+Customer 5 and salesperson 2 each appear once, although two orders reference them. `Order_Number` is not in the `OrderDetail` `__fields`, but it is added as the join key back to `OrderHeader`.
 
 ### Value types
 
