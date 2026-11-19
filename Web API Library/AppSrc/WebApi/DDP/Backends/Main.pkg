@@ -324,13 +324,10 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
     End_Function
 
 
+    // Index for a find on the primary key: -1 makes the native Find use the primary-key fields
+    // (TablePrimaryKeyFields), whichever index holds them.
     Function PrimaryDDIndex Handle hoDD Returns Integer
-        Integer iIndexCount
-
-        If (hoDD = 0) Function_Return 0
-        Get Entity_Index_Count of hoDD to iIndexCount
-        If (iIndexCount > 0) Function_Return 1
-        Function_Return 0
+        Function_Return -1
     End_Function
 
     // Returns native primary-key fields.
