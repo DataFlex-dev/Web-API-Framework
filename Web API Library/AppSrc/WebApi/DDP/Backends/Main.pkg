@@ -1403,48 +1403,37 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
     // Save pipeline (POST /ddp/v1/save), see the shared part in cDDPBuilder.pkg.
     // ---------------------------------------------------------------------------
 
-    // Executes a parsed /save body (array of save items). hoResponse receives
-    // [{"<Table>": {record}}, ...] in item order; 0 on error (everything is rolled back).
+    // Executes a parsed /save body (array of save items) as one DDO save. DDPPrepareSave fills the
+    // structure, then the main DD (the last item) is validated and saved (DDPSaveMain) in one transaction.
+    // hoResponse receives [{"<Table>": {record}}, ...] in item order; 0 on error (everything is rolled back).
     Function DDPExecuteSave Handle hoItems Handle ByRef hoResponse Returns tDDPBuilderResult
         tDDPSaveItem[] aItems
         tDDPBuilderResult oResult
-        Handle hoRecord hoEntry
-        Integer iItem
+        Integer iItem iLast
 
         Move 0 to hoResponse
         Get DDPParseSaveItems hoItems (&aItems) to oResult
         If (oResult.iErr) Function_Return oResult
 
-        Get Create (RefClass(cJsonObject)) to hoResponse
-        Send InitializeJsonType of hoResponse jsonTypeArray
+        Get DDPPrepareSave (&aItems) to oResult
+        If (not(oResult.iErr)) Begin
+            Get Create (RefClass(cJsonObject)) to hoResponse
+            Send InitializeJsonType of hoResponse jsonTypeArray
 
-        // Not Begin_Transaction: that only rolls back on a raised Error, failures here are returned.
-        Send BeginTransaction of ghoDbTransactionManager
-        For iItem from 0 to (SizeOfArray(aItems) - 1)
-            Move 0 to hoRecord
-            Get DDPSaveItem (&aItems) iItem (&hoRecord) to oResult
+            // Not Begin_Transaction: that only rolls back on a raised Error, failures here are returned.
+            Send BeginTransaction of ghoDbTransactionManager
+            Move (SizeOfArray(aItems) - 1) to iLast
+            // The last entry in a request is always our main DD
+            Get DDPSaveMain aItems[iLast].oRecord.hoDD iLast to oResult
+            If (not(oResult.iErr)) Get DDPSaveResponse (&aItems) hoResponse to oResult
+
             If (oResult.iErr) Begin
-                If (hoRecord <> 0) Send Destroy of hoRecord
-                Move (SFormat("Save item %1: %2", iItem + 1, oResult.sError)) to oResult.sError
+                Send RollbackTransaction of ghoDbTransactionManager
+                Send Destroy of hoResponse
+                Move 0 to hoResponse
             End
-            // Break only at loop level: inside a Begin block it leaves the block, not the loop.
-            If (oResult.iErr) Break
-
-            // {"<Table>": {record}}
-            Get Create (RefClass(cJsonObject)) to hoEntry
-            Send InitializeJsonType of hoEntry jsonTypeObject
-            Send SetMember of hoEntry aItems[iItem].sTable hoRecord
-            Send AddMember of hoResponse hoEntry
-            Send Destroy of hoEntry
-            Send Destroy of hoRecord
-        Loop
-
-        If (oResult.iErr) Begin
-            Send RollbackTransaction of ghoDbTransactionManager
-            Send Destroy of hoResponse
-            Move 0 to hoResponse
+            Else Send CommitTransaction of ghoDbTransactionManager
         End
-        Else Send CommitTransaction of ghoDbTransactionManager
 
         // Reset the buffers of every DD the request touched (same as DestroySaveQuery).
         For iItem from 0 to (SizeOfArray(aItems) - 1)

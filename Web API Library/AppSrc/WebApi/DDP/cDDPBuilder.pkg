@@ -542,7 +542,8 @@ Class cDDPBuilder_Mixin is a Mixin
     End_Procedure
 
     // Returns DDPERR_VALIDATION_FAILED when a supplied FK value has no matching parent record.
-    Function FindSchemaParentsFromBuffer Handle hoDD tDDPSaveField[] aFields Returns tDDPBuilderResult
+    // Parents listed in aItemDDs (the DDs of other /save items) are skipped because their own item fills them.
+    Function FindSchemaParentsFromBuffer Handle hoDD tDDPSaveField[] aFields Handle[] aItemDDs Returns tDDPBuilderResult
         Handle hChildFile hParentFile
         Integer iField iFieldCount iRelatedField iPrimaryIndex iParent iAF
         Boolean bRelated bFieldSupplied
@@ -555,7 +556,7 @@ Class cDDPBuilder_Mixin is a Mixin
         Get DDParents hoDD to aParents
 
         For iParent from 0 to (SizeOfArray(aParents) - 1)
-            If (aParents[iParent] <> 0) Begin
+            If (aParents[iParent] <> 0 and SearchArray(aParents[iParent], aItemDDs) = -1) Begin
                 Get Main_File of aParents[iParent] to hParentFile
                 For iField from 1 to iFieldCount
                     Get FieldRelation hoDD aParents[iParent] iField (&iRelatedField) to bRelated
@@ -602,6 +603,7 @@ Class cDDPBuilder_Mixin is a Mixin
         tDDPTableQuery serialQuery
         String sChildName
         Boolean bErr
+        Handle[] aNoItemDDs
 
         // Capture parent fields before Clear, because native Clear also clears parent DDs.
         Send CollectDirectParentFields record.hoDD hoParentDD record.aFields (&aInheritedFields)
@@ -621,7 +623,7 @@ Class cDDPBuilder_Mixin is a Mixin
         // Find parent records before Request_Validate so the parent buffers are populated.
         // Request_Validate checks server-file requirements and validation tables (e.g. State)
         // against the live parent buffer; if the buffer is empty those checks fail.
-        Get FindSchemaParentsFromBuffer record.hoDD record.aFields to oResult
+        Get FindSchemaParentsFromBuffer record.hoDD record.aFields aNoItemDDs to oResult
         If (oResult.iErr) Function_Return oResult
         Get Request_Validate of record.hoDD to bErr
         If (bErr) Begin
@@ -951,6 +953,7 @@ Class cDDPBuilder_Mixin is a Mixin
         Integer[] aPKFields
         Boolean bPKFound bErr
         tDDPTableQuery serialQuery
+        Handle[] aNoItemDDs
 
         Get DDPPrimaryKeyFields record.hoDD to aPKFields
         If (SizeOfArray(aPKFields) = 0) Begin
@@ -1004,7 +1007,7 @@ Class cDDPBuilder_Mixin is a Mixin
 
         // Load parents for any supplied FK values; otherwise Request_Save re-attaches the
         // old parent buffer and silently reverts the FK change.
-        Get FindSchemaParentsFromBuffer record.hoDD record.aFields to oResult
+        Get FindSchemaParentsFromBuffer record.hoDD record.aFields aNoItemDDs to oResult
         If (oResult.iErr) Function_Return oResult
 
         Get Request_Validate of record.hoDD to bErr
@@ -1062,9 +1065,10 @@ Class cDDPBuilder_Mixin is a Mixin
 
     // ---------------------------------------------------------------------------
     // Save pipeline (POST /ddp/v1/save): the records of one client Request_Save, in
-    // the order sent, each validated and saved in its linked DDO structure. The
-    // backend's DDPExecuteSave runs the items in one transaction; parsing, the
-    // per-record write and key forwarding are shared.
+    // the order sent, the main DD last. The items are filled as one DDO structure and
+    // written with one Request_Validate/Request_Save of the main DD; the backend's
+    // DDPExecuteSave runs that in one transaction. Parsing, filling, saving and the
+    // response are shared.
     // ---------------------------------------------------------------------------
 
     // Parses [{"create"|"update": {"<Table>": {fields}}}, ...] into aItems.
@@ -1124,33 +1128,43 @@ Class cDDPBuilder_Mixin is a Mixin
         Function_Return oResult
     End_Function
 
-    // Writes the record of save item aItems[iItem] (update: found by primary key first) and
-    // serialises it to hoRecord. Its parents are linked (DDPLinkWriteStructure) and found from the
-    // foreign keys (FindSchemaParentsFromBuffer), then Request_Validate and Request_Save handle the
-    // record in that DDO structure with the server DD's rules, as /store and /update do: changed or
-    // new parents are saved too. After a create its key is forwarded to the later items; then the
-    // structure is detached, before the next item links its own.
-    Function DDPSaveItem tDDPSaveItem[] ByRef aItems Integer iItem Handle ByRef hoRecord Returns tDDPBuilderResult
-        tDDPSaveItem item
+    // True when hoAncestor is a parent of hoDD or, recursively, of one of its parents: a DD that
+    // DDPLinkWriteStructure links above hoDD. aVisited holds the DDs already searched.
+    Function DDPIsAncestor Handle hoDD Handle hoAncestor Handle[] ByRef aVisited Returns Boolean
+        Handle[] aParents
+        Integer iParent
+        Boolean bAncestor
+
+        Get DDParents hoDD to aParents
+        For iParent from 0 to (SizeOfArray(aParents) - 1)
+            If (aParents[iParent] = hoAncestor) Function_Return True
+            If (aParents[iParent] <> 0 and SearchArray(aParents[iParent], aVisited) = -1) Begin
+                Move aParents[iParent] to aVisited[-1]
+                Get DDPIsAncestor aParents[iParent] hoAncestor (&aVisited) to bAncestor
+                If bAncestor Function_Return True
+            End
+        Loop
+        Function_Return False
+    End_Function
+
+    // Fills the DD of save item aItems[iItem] for DDPPrepareSave. A create gets its fields in a
+    // cleared buffer. An update is found by its primary key and then gets its changed fields. The
+    // parents are then found from the foreign keys (a supplied key without a parent record fails),
+    // except the DDs of other save items (aItemDDs), which their own item fills.
+    Function DDPSeedSaveItem tDDPSaveItem[] ByRef aItems Integer iItem Handle[] aItemDDs Returns tDDPBuilderResult
         Handle hoDD hFile
-        Handle[] aLinked aDescended
         tDDPSaveField[] aFields
         Integer[] aPKFields
         Integer iField iPK iIndex iFieldNr
-        Boolean bInvalid
-        tDDPTableQuery serialQuery
         tDDPBuilderResult oResult
 
-        Move aItems[iItem] to item
-        Move item.oRecord.hoDD to hoDD
-        Move item.oRecord.aFields to aFields
+        Move aItems[iItem].oRecord.hoDD to hoDD
+        Move aItems[iItem].oRecord.aFields to aFields
         Get Main_File of hoDD to hFile
         Move False to Err
-        Get DDPLinkWriteStructure hoDD False (&aLinked) (&aDescended) to oResult
-        If (oResult.iErr) Function_Return oResult
         Send Clear of hoDD
 
-        If (item.bCreate) Begin
+        If (aItems[iItem].bCreate) Begin
             For iField from 0 to (SizeOfArray(aFields) - 1)
                 Send DDPSetChangedValue hoDD hFile aFields[iField].hField aFields[iField].sValue
             Loop
@@ -1181,53 +1195,108 @@ Class cDDPBuilder_Mixin is a Mixin
             Loop
         End
 
-        // Load the parents for the foreign keys (a supplied key without a parent record fails),
-        // then validate the record and its parents.
-        Get FindSchemaParentsFromBuffer hoDD aFields to oResult
-        If (oResult.iErr) Function_Return oResult
+        Get FindSchemaParentsFromBuffer hoDD aFields aItemDDs to oResult
+        Function_Return oResult
+    End_Function
+
+    // Fills the DDO structure of a /save body, the way a client fills its DDs before Request_Save.
+    // The last item is the main DD (cDDPDriver always sends it, also when only its parents changed:
+    // its foreign keys are marked changed) and every other item must be a parent or ancestor of it,
+    // else DDPSaveMain would leave it out. A table may appear in only one item, and a parent must
+    // come before its children. Every item's structure is linked (DDPLinkWriteStructure) and the
+    // items are filled last to first: a Clear or find also clears or rereads the parents of the DD,
+    // and those parents are earlier items.
+    Function DDPPrepareSave tDDPSaveItem[] ByRef aItems Returns tDDPBuilderResult
+        Handle hoDD
+        Handle[] aItemDDs aLinked aDescended aVisited aNoVisited
+        Integer iItem iLater iLast
+        Boolean bAncestor
+        tDDPBuilderResult oResult
+
+        Move (SizeOfArray(aItems) - 1) to iLast
+        If (iLast < 0) ;
+            Function_Return (DDPError(Self, DDPERR_INVALID_FORMAT, "A save holds at least one item."))
+        For iItem from 0 to iLast
+            Move aItems[iItem].oRecord.hoDD to aItemDDs[iItem]
+        Loop
+
+        Move iLast to iItem
+        While (iItem >= 0)
+            Move aItemDDs[iItem] to hoDD
+            For iLater from (iItem + 1) to iLast
+                If (aItemDDs[iLater] = hoDD) ;
+                    Function_Return (DDPError(Self, DDPERR_INVALID_FORMAT, SFormat("Save item %1: '%2' is already in save item %3; a save holds each table once.", iLater + 1, aItems[iLater].sTable, iItem + 1)))
+                Move aNoVisited to aVisited
+                Get DDPIsAncestor hoDD aItemDDs[iLater] (&aVisited) to bAncestor
+                If bAncestor ;
+                    Function_Return (DDPError(Self, DDPERR_INVALID_FORMAT, SFormat("Save item %1: '%2' is a parent of '%3' (save item %4) and must come before it.", iLater + 1, aItems[iLater].sTable, aItems[iItem].sTable, iItem + 1)))
+            Loop
+            If (iItem < iLast) Begin
+                Move aNoVisited to aVisited
+                Get DDPIsAncestor aItemDDs[iLast] hoDD (&aVisited) to bAncestor
+                If (not(bAncestor)) ;
+                    Function_Return (DDPError(Self, DDPERR_INVALID_FORMAT, SFormat("Save item %1: '%2' is not a parent of '%3' (save item %4, the main table).", iItem + 1, aItems[iItem].sTable, aItems[iLast].sTable, iLast + 1)))
+            End
+
+            Get DDPLinkWriteStructure hoDD False (&aLinked) (&aDescended) to oResult
+            If (not(oResult.iErr)) Get DDPSeedSaveItem (&aItems) iItem aItemDDs to oResult
+            If (oResult.iErr) Begin
+                Move (SFormat("Save item %1: %2", iItem + 1, oResult.sError)) to oResult.sError
+                Function_Return oResult
+            End
+            Decrement iItem
+        Loop
+        Function_Return oResult
+    End_Function
+
+    // Validates and saves the main DD hoDD (save item iItem, the last; see DDPPrepareSave) with
+    // Request_Validate and Request_Save. The DD layer writes its new or changed parents (the
+    // earlier items) first and copies the key of a created parent into the foreign key. An update
+    // item of a parent that this save leaves out (a parent beyond a null parent) is not written;
+    // the client's own save leaves the same parents out, so it never sends such an item.
+    Function DDPSaveMain Handle hoDD Integer iItem Returns tDDPBuilderResult
+        Boolean bInvalid
+        tDDPBuilderResult oResult
+
         Get Request_Validate of hoDD to bInvalid
         If (bInvalid) ;
-            Function_Return (DDPError(Self, DDPERR_VALIDATION_FAILED, DDPErrorText(Self, "Validation failed.")))
+            Function_Return (DDPError(Self, DDPERR_VALIDATION_FAILED, SFormat("Save item %1: %2", iItem + 1, DDPErrorText(Self, "Validation failed."))))
 
         Move False to Err
         Send Request_Save of hoDD
         If (Err) ;
-            Function_Return (DDPError(Self, DDPERR_SAVE_FAILED, DDPErrorText(Self, "Save failed.")))
-
-        Move hoDD to serialQuery.hoDD
-        Get Create (RefClass(cJsonObject)) to hoRecord
-        Send InitializeJsonType of hoRecord jsonTypeObject
-        Send SerializeBufferToJson hoRecord serialQuery False
-
-        If (item.bCreate) Send DDPForwardCreatedKey (&aItems) iItem
-        Send DDPClearRelations hoDD 0
+            Function_Return (DDPError(Self, DDPERR_SAVE_FAILED, SFormat("Save item %1: %2", iItem + 1, DDPErrorText(Self, "Save failed."))))
         Function_Return oResult
     End_Function
 
-    // Copies the key of the record just created by aItems[iCreated] into the foreign key fields
-    // of every later item whose table relates to it.
-    Procedure DDPForwardCreatedKey tDDPSaveItem[] ByRef aItems Integer iCreated
-        Handle hoParent hoChild
-        Integer iItem iField iRelated iIndex iFieldIndex
-        String sValue
+    // Adds {"<Table>": {record}} for every save item to the array hoResponse, each record with all
+    // fields after the save. If the save did not write a created item, the save fails. This happens
+    // when the item's parent is left out of the save, e.g. an unchanged parent that may be null.
+    Function DDPSaveResponse tDDPSaveItem[] ByRef aItems Handle hoResponse Returns tDDPBuilderResult
+        Handle hoDD hFile hoRecord hoEntry
+        Integer iItem
+        tDDPTableQuery serialQuery
+        tDDPBuilderResult oResult
 
-        Move aItems[iCreated].oRecord.hoDD to hoParent
-        For iItem from (iCreated + 1) to (SizeOfArray(aItems) - 1)
-            Move aItems[iItem].oRecord.hoDD to hoChild
-            For iField from 1 to (FieldCount(Self, hoChild))
-                If (FieldRelation(Self, hoChild, hoParent, iField, &iRelated)) Begin
-                    Get DDPGetFieldValue hoParent (Main_File(hoParent)) iRelated to sValue
-                    Move -1 to iIndex
-                    For iFieldIndex from 0 to (SizeOfArray(aItems[iItem].oRecord.aFields) - 1)
-                        If (aItems[iItem].oRecord.aFields[iFieldIndex].hField = iField) Move iFieldIndex to iIndex
-                    Loop
-                    If (iIndex = -1) Move (SizeOfArray(aItems[iItem].oRecord.aFields)) to iIndex
-                    Move iField to aItems[iItem].oRecord.aFields[iIndex].hField
-                    Move sValue to aItems[iItem].oRecord.aFields[iIndex].sValue
-                End
-            Loop
+        For iItem from 0 to (SizeOfArray(aItems) - 1)
+            Move aItems[iItem].oRecord.hoDD to hoDD
+            Get Main_File of hoDD to hFile
+            If (aItems[iItem].bCreate and IsNullRowID(DDPCurrentRowID(Self, hoDD, hFile))) ;
+                Function_Return (DDPError(Self, DDPERR_SAVE_FAILED, SFormat("Save item %1: the '%2' record was not saved; the save of its child leaves it out.", iItem + 1, aItems[iItem].sTable)))
+
+            Move hoDD to serialQuery.hoDD
+            Get Create (RefClass(cJsonObject)) to hoRecord
+            Send InitializeJsonType of hoRecord jsonTypeObject
+            Send SerializeBufferToJson hoRecord serialQuery False
+            Get Create (RefClass(cJsonObject)) to hoEntry
+            Send InitializeJsonType of hoEntry jsonTypeObject
+            Send SetMember of hoEntry aItems[iItem].sTable hoRecord
+            Send AddMember of hoResponse hoEntry
+            Send Destroy of hoEntry
+            Send Destroy of hoRecord
         Loop
-    End_Procedure
+        Function_Return oResult
+    End_Function
 
     // Looks up a DD handle by its underlying file handle (file number).
     // Used during relationship detection and serialization when only the

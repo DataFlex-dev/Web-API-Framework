@@ -57,7 +57,7 @@ Class cWebAPIDataDictionaryProtocol is a cWebApiRouter
         Property Boolean pbShowRequestErrorDetail True
         // Validation errors: DD validation rules that failed (DDPERR_VALIDATION_FAILED).
         Property Boolean pbShowValidationErrorDetail True
-        // Database errors: a find, save, update or delete that failed (DDPERR_FIND_FAILED, DDPERR_SAVE_FAILED, DDPERR_UPDATE_FAILED, DDPERR_DELETE_FAILED). On Windows, /save validation failures also arrive here.
+        // Database errors: a find, save, update or delete that failed (DDPERR_FIND_FAILED, DDPERR_SAVE_FAILED, DDPERR_UPDATE_FAILED, DDPERR_DELETE_FAILED). On Windows, /save validation failures also arrive here, and /delete validation failures on both backends (Request_Delete validates).
         Property Boolean pbShowDatabaseErrorDetail False
         // Unexpected errors: a DataFlex error outside a handled DDP path, sent as status 500 (DDPERR_UNEXPECTED).
         Property Boolean pbShowUnexpectedErrorDetail False

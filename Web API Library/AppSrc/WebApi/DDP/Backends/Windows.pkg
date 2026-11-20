@@ -1324,64 +1324,76 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
 
     // ---------------------------------------------------------------------------
     // Save pipeline (POST /ddp/v1/save), see the shared part in cDDPBuilder.pkg.
-    // DDPSaveItem saves each record with Request_Save in its linked DDO structure; see there.
+    // DDPPrepareSave fills the items as one DDO structure; DDPSaveMain saves the main DD (the last
+    // item) with Request_Save; see there.
     // ---------------------------------------------------------------------------
 
-    // Executes a parsed /save body (array of save items). hoResponse receives
-    // [{"<Table>": {record}}, ...] in item order; 0 on error (everything is rolled back).
+    // Executes a parsed /save body (array of save items) as one DDO save; see DDPPrepareSave and
+    // DDPSaveMain. hoResponse receives [{"<Table>": {record}}, ...] in item order; 0 on error
+    // (everything is rolled back).
     // Classic transactions are a command block: an Error raised directly inside it rolls back and
-    // jumps to End_Transaction, skipping the rest of the block. So each item starts as failed and
+    // jumps to End_Transaction, skipping the rest of the block. So each step starts as failed and
     // is only cleared when it completes; a returned failure is rolled back with Abort_Transaction.
     Function DDPExecuteSave Handle hoItems Handle ByRef hoResponse Returns tDDPBuilderResult
         tDDPSaveItem[] aItems
+        Integer[] aForeignNewStates
         tDDPBuilderResult oResult oPending
-        Handle hoRecord hoEntry
-        Integer iItem iTranCount
+        Integer iItem iLast iTranCount
+        Boolean bSaved
+        Handle hoDD
 
         Move 0 to hoResponse
         Get DDPParseSaveItems hoItems (&aItems) to oResult
         If (oResult.iErr) Function_Return oResult
 
-        Get Create (RefClass(cJsonObject)) to hoResponse
-        Send InitializeJsonType of hoResponse jsonTypeArray
-
-        // A validation or save Error jumps past End_Transaction (see above), so it can't tell which
-        // one failed. sError stays empty: filled in with the DD error text after the transaction.
-        Move DDPERR_SAVE_FAILED to oPending.iErr
-        Move 0 to hoRecord
-        Move 0 to iItem
-        Move False to Err
-        Begin_Transaction
+        Get DDPPrepareSave (&aItems) to oResult
+        If (not(oResult.iErr)) Begin
+            // A classic DD only creates a parent record during its child's save with
+            // Allow_Foreign_New_Save_State: allow it for the created items (restored below).
             For iItem from 0 to (SizeOfArray(aItems) - 1)
+                Move aItems[iItem].oRecord.hoDD to hoDD
+                Get Allow_Foreign_New_Save_State of hoDD to aForeignNewStates[iItem]
+                If (aItems[iItem].bCreate) Set Allow_Foreign_New_Save_State of hoDD to True
+            Loop
+
+            Get Create (RefClass(cJsonObject)) to hoResponse
+            Send InitializeJsonType of hoResponse jsonTypeArray
+
+            // A validation or save Error jumps past End_Transaction, so it can't tell which one
+            // failed. sError stays empty: filled in with the DD error text after the transaction.
+            Move DDPERR_SAVE_FAILED to oPending.iErr
+            Move (SizeOfArray(aItems) - 1) to iLast
+            Move False to bSaved
+            Move False to Err
+            Begin_Transaction
                 Move oPending to oResult
-                Move 0 to hoRecord
-                Get DDPSaveItem (&aItems) iItem (&hoRecord) to oResult
-                // Never continue outside the transaction: if it ended anyway, treat the item as failed.
+                Get DDPSaveMain aItems[iLast].oRecord.hoDD iLast to oResult
+                // Never continue outside the transaction: if it ended anyway, treat the save as failed.
                 Get_Attribute DF_TRAN_COUNT to iTranCount
                 If (not(oResult.iErr) and iTranCount = 0) Move oPending to oResult
-                // Break only at loop level: inside a Begin block it leaves the block, not the loop.
-                If (oResult.iErr) Break
+                If (not(oResult.iErr)) Begin
+                    Move True to bSaved
+                    Move oPending to oResult
+                    Get DDPSaveResponse (&aItems) hoResponse to oResult
+                End
+                Get_Attribute DF_TRAN_COUNT to iTranCount
+                If (oResult.iErr and iTranCount > 0) Abort_Transaction
+            End_Transaction
 
-                // {"<Table>": {record}}
-                Get Create (RefClass(cJsonObject)) to hoEntry
-                Send InitializeJsonType of hoEntry jsonTypeObject
-                Send SetMember of hoEntry aItems[iItem].sTable hoRecord
-                Send AddMember of hoResponse hoEntry
-                Send Destroy of hoEntry
-                Send Destroy of hoRecord
-                Move 0 to hoRecord
+            // An Error that jumped to End_Transaction left oResult at oPending.
+            If (oResult.iErr and oResult.sError = "") Begin
+                Move (DDPErrorText(Self, "Save failed.")) to oResult.sError
+                If (not(bSaved)) ;
+                    Move (SFormat("Save item %1: %2", iLast + 1, oResult.sError)) to oResult.sError
+            End
+            If (oResult.iErr) Begin
+                Send Destroy of hoResponse
+                Move 0 to hoResponse
+            End
+
+            For iItem from 0 to (SizeOfArray(aItems) - 1)
+                Set Allow_Foreign_New_Save_State of aItems[iItem].oRecord.hoDD to aForeignNewStates[iItem]
             Loop
-            Get_Attribute DF_TRAN_COUNT to iTranCount
-            If (oResult.iErr and iTranCount > 0) Abort_Transaction
-        End_Transaction
-
-        // An Error that jumped to End_Transaction left oResult at oPending.
-        If (oResult.iErr) Begin
-            If (oResult.sError = "") Move (DDPErrorText(Self, "Save failed.")) to oResult.sError
-            Move (SFormat("Save item %1: %2", iItem + 1, oResult.sError)) to oResult.sError
-            If (hoRecord <> 0) Send Destroy of hoRecord
-            Send Destroy of hoResponse
-            Move 0 to hoResponse
         End
 
         // Reset the buffers of every DD the request touched (same as DestroySaveQuery).

@@ -3,9 +3,10 @@ Use WebApi\DDP\Backends\IBackend.pkg
 
 // Handles POST /ddp/v1/save: one Request_Save of a client (cDDPClient.SaveRecords).
 // Body: [{"create": {"<Table>": {fields}}}, {"update": {"<Table>": {PK + changed fields}}}, ...],
-// parents before children. All items are written in one transaction, exactly as sent, each after
-// Request_Validate in its linked DDO structure; the key of a created record is copied into the
-// foreign keys of the later items that relate to it.
+// parents before children, each table once, the main DD last (every other item is a parent or
+// ancestor of it). The items are filled as one linked DDO structure and written in one transaction
+// with Request_Validate and Request_Save of the main DD, so the DD layer saves the parents first and
+// copies the key of a created parent into its foreign key.
 // Response: 200 with [{"<Table>": {record}}, ...] in the same order.
 Class cDDPSaveEndpoint is a cDDPEndpoint
 
