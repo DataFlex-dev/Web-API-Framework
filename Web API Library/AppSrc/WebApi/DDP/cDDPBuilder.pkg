@@ -693,7 +693,7 @@ Class cDDPBuilder_Mixin is a Mixin
 
     // ---------------------------------------------------------------------------
     // Delete pipeline: parse JSON body → tDDPDeleteQuery, wire up relationships,
-    // find → verify → snapshot → validate → delete, return the deleted record(s).
+    // find → verify → snapshot → delete, return the deleted record(s).
     // ---------------------------------------------------------------------------
 
     // Returns the 1-based field numbers that make up the primary index of hoDD.
@@ -774,14 +774,16 @@ Class cDDPBuilder_Mixin is a Mixin
         Function_Return oResult
     End_Function
 
-    // Finds the record by PK, optionally verifies additional fields, snapshots the buffer,
-    // validates the delete, then deletes. hoJson receives the pre-deletion snapshot on success.
+    // Finds the record by PK, optionally verifies additional fields, snapshots the buffer, then
+    // deletes it with Request_Delete in its linked DDO structure (DeleteLinkUp), as /save does:
+    // the server DDs validate the delete for the whole structure (the record, its parents and the
+    // cascaded children). hoJson receives the pre-deletion snapshot on success.
     Function ExecuteDeleteRecord tDDPDeleteRecord record Handle ByRef hoJson Returns tDDPBuilderResult
         Integer iIndex iPKIndex
         tDDPBuilderResult oResult
         Handle hFile
         Integer[] aPKFields
-        Boolean bPKFound bErr
+        Boolean bPKFound
         String sCurrentValue
         tDDPTableQuery serialQuery
 
@@ -796,8 +798,9 @@ Class cDDPBuilder_Mixin is a Mixin
             For iIndex from 0 to (SizeOfArray(record.aFields) - 1)
                 If (record.aFields[iIndex].hField = aPKFields[iPKIndex]) Begin
                     Move True to bPKFound
-                    Break
                 End
+                // Early break if we found the primary key
+                If (bPKFound) Break
             Loop
             If (not(bPKFound)) Begin
                 Function_Return (DDPError(Self, DDPERR_MISSING_KEY_FIELD, SFormat("Primary key field %1 is required for delete.", aPKFields[iPKIndex])))
@@ -808,11 +811,14 @@ Class cDDPBuilder_Mixin is a Mixin
         Send Clear of record.hoDD
         Get Main_File of record.hoDD to hFile
         For iIndex from 0 to (SizeOfArray(record.aFields) - 1)
+            Move False to bPKFound
             For iPKIndex from 0 to (SizeOfArray(aPKFields) - 1)
                 If (record.aFields[iIndex].hField = aPKFields[iPKIndex]) Begin
                     Send DDPSetFieldValue record.hoDD hFile record.aFields[iIndex].hField record.aFields[iIndex].sValue
-                    Break
+                    Move True to bPKFound
                 End
+                // Break outside the Begin block: inside it, Break only leaves the block.
+                If (bPKFound) Break
             Loop
         Loop
 
@@ -826,10 +832,8 @@ Class cDDPBuilder_Mixin is a Mixin
         For iIndex from 0 to (SizeOfArray(record.aFields) - 1)
             Move False to bPKFound
             For iPKIndex from 0 to (SizeOfArray(aPKFields) - 1)
-                If (record.aFields[iIndex].hField = aPKFields[iPKIndex]) Begin
-                    Move True to bPKFound
-                    Break
-                End
+                If (record.aFields[iIndex].hField = aPKFields[iPKIndex]) Move True to bPKFound
+                If (bPKFound) Break
             Loop
             If (not(bPKFound)) Begin
                 Move (DDPGetFieldValue(Self, record.hoDD, hFile, record.aFields[iIndex].hField)) to sCurrentValue
@@ -845,17 +849,9 @@ Class cDDPBuilder_Mixin is a Mixin
         Send InitializeJsonType of hoJson jsonTypeObject
         Send SerializeBufferToJson hoJson serialQuery False
 
-        // Validate the delete through the DD layer (checks referential integrity rules).
-        Get DDPValidateDelete record.hoDD to bErr
-        If (bErr) Begin
-            Send Destroy of hoJson
-            Move 0 to hoJson
-            Function_Return (DDPError(Self, DDPERR_VALIDATION_FAILED, DDPErrorText(Self, "Delete validation failed.")))
-        End
-
+        Move False to Err
         Send Request_Delete of record.hoDD
-        Move (Err) to bErr
-        If (bErr) Begin
+        If (Err) Begin
             Send Destroy of hoJson
             Move 0 to hoJson
             Function_Return (DDPError(Self, DDPERR_DELETE_FAILED, DDPErrorText(Self, "Delete failed.")))

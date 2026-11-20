@@ -849,12 +849,6 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Function_Return (GetRowID(hFile))
     End_Function
 
-    Function DDPValidateDelete Handle hoDD Returns Boolean
-        Boolean bError
-        Get Validate_Delete of hoDD to bError
-        Function_Return bError
-    End_Function
-
     // Rebuilds find constraints recursively.
     { Visibility = Private }
     Procedure DDPRebuildFindConstraints tDDPTableQuery query

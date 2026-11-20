@@ -653,10 +653,6 @@ Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
         Function_Return riCurrent
     End_Function
 
-    Function DDPValidateDelete Handle hoDD Returns Boolean
-        Function_Return (not(Can_Delete(hoDD)))
-    End_Function
-
     { Visibility = Private }
     Function DDPFindFailure Returns tDDPBuilderResult
         Function_Return (DDPError(Self, DDPERR_FIND_FAILED, DDPErrorText(Self, "Find failed.")))

@@ -246,7 +246,6 @@ Register_Procedure DDPRequestFind Handle hoDD Integer eMode Handle hFile Integer
 Register_Procedure DDPSetFieldValue Handle hoDD Handle hFile Integer iField String sValue
 Register_Procedure DDPSetChangedValue Handle hoDD Handle hFile Integer iField String sValue
 Register_Function DDPGetFieldValue Handle hoDD Handle hFile Integer iField Returns String
-Register_Function DDPValidateDelete Handle hoDD Returns Boolean
 // The name of the first table related to hoDD (a child with bChildren, otherwise a parent) that
 // the backend's DD layer requires for a write but that is not exposed; "" when there is none.
 Register_Function DDPUnexposedRelation Handle hoDD Boolean bChildren Returns String
