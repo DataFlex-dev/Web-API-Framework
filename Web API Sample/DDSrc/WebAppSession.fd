@@ -1,5 +1,5 @@
 #REPLACE FILE263 WebAppSession
-#REPLACE WebAppSession.Recnum |FN263,0
+#REPLACE WebAppSession.File_Number |CI263
 #REPLACE WebAppSession.SessionKey |FS263,1
 #REPLACE WebAppSession.CreateDate |FD263,2
 #REPLACE WebAppSession.CreateTime |FS263,3

@@ -1,0 +1,66 @@
+Use WebApi\DDP\v1\cDDPMutationEndpoint.pkg
+Use WebApi\DDP\cDDPBuilder.pkg
+
+// Handles PUT /ddp/v1/update (replace) and PATCH /ddp/v1/update (partial update).
+// The record to update is identified by fields in the request body, not a path ID.
+// PK fields in the body locate the record; all other fields are written as new values.
+// PUT and PATCH behave identically — Set File_Field_Changed_Value only marks the
+// supplied fields as dirty so un-supplied fields retain their current values either way.
+//
+// Single record:   { "Customer": { "Customer_Number": 42, "Name": "New Name" } }
+// Array of records: [ { "Customer": { "Customer_Number": 42, "Name": "A" } }, ... ]
+//
+// Response: 200 with the updated record(s) serialised back (post-save values).
+Class cDDPUpdateEndpoint is a cDDPMutationEndpoint
+
+    Procedure Construct_Object
+        Forward Send Construct_Object
+
+        // Update supports PUT and PATCH only; no read, create, or delete.
+        Set pbAllowRead to False
+        Set pbAllowCreate to False
+        Set pbAllowDelete to False
+    End_Procedure
+
+    { MethodType = Event }
+    Procedure OnHttpPut tWebApiCallContext ByRef webapicallcontext
+        Send ProcessMutation (&webapicallcontext) C_WEBAPI_OK
+    End_Procedure
+
+    { MethodType = Event }
+    Procedure OnHttpPatch tWebApiCallContext ByRef webapicallcontext
+        Send ProcessMutation (&webapicallcontext) C_WEBAPI_OK
+    End_Procedure
+
+    Function ExecuteRecord String sTable Handle hoTableJson Handle ByRef hoRecord Boolean ByRef bInvalidRequest Returns tDDPBuilderResult
+        tDDPBuilderResult oResult
+        tDDPUpdateQuery oQuery
+
+        Delegate Get ConstructUpdateScenario sTable hoTableJson (&oQuery) to oResult
+        Move (oResult.iErr <> 0) to bInvalidRequest
+        If (not(bInvalidRequest)) Delegate Get ExecuteUpdate oQuery (&hoRecord) to oResult
+        Delegate Send DestroyUpdateQuery oQuery.oMain.hoDD
+        Function_Return oResult
+    End_Function
+
+    Procedure MapExecuteError Integer iErr Integer ByRef iStatus String ByRef sTitle
+        Case Begin
+            Case (iErr = DDPERR_RECORD_NOT_FOUND)
+                Move C_WEBAPI_NOTFOUND to iStatus
+                Move "Not Found" to sTitle
+                Case Break
+            Case (iErr = DDPERR_MISSING_KEY_FIELD)
+                Move C_WEBAPI_NOTALLOWED to iStatus
+                Move "Missing key field" to sTitle
+                Case Break
+            Case (iErr = DDPERR_VALIDATION_FAILED)
+                Move 422 to iStatus
+                Move "Validation Error" to sTitle
+                Case Break
+            Case Else
+                Move 422 to iStatus
+                Move "Update Error" to sTitle
+        Case End
+    End_Procedure
+
+End_Class

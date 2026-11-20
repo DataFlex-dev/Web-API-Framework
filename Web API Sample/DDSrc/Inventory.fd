@@ -1,5 +1,5 @@
 #REPLACE FILE22 Inventory
-#REPLACE Inventory.Recnum |FN22,0
+#REPLACE Inventory.File_Number |CI22
 #REPLACE Inventory.Item_ID |FS22,1
 #REPLACE Inventory.Description |FS22,2
 #REPLACE Inventory.Vendor_ID |FN22,3

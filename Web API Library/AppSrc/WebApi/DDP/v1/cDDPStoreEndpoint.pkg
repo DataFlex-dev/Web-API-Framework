@@ -1,0 +1,50 @@
+Use WebApi\DDP\v1\cDDPMutationEndpoint.pkg
+Use WebApi\DDP\cDDPBuilder.pkg
+
+// Handles POST /ddp/v1/store — creates a new record identified by the request body.
+// The body is either a single save-object or a JSON array of save-objects.
+// Each save-object is a JSON object with exactly one top-level key (the table name)
+// whose value maps field names to values. Child records can be nested as arrays or
+// single objects under their table name (1-to-N children only; no parent nesting).
+Class cDDPStoreEndpoint is a cDDPMutationEndpoint
+
+    Procedure Construct_Object
+        Forward Send Construct_Object
+
+        // Store is POST-only (create); updates are handled by cDDPUpdateEndpoint.
+        Set pbAllowRead to False
+        Set pbAllowEdit to False
+        Set pbAllowDelete to False
+    End_Procedure
+
+    // POST /ddp/v1/store — create a new record.
+    //
+    // Single record:   { "Customer": { "Name": "Acme" } }
+    // Array of records: [ { "Customer": { "Name": "Acme" } }, ... ]
+    // With children:   { "OrderHeader": { "Customer_Number": 1,
+    //                     "OrderDetail": [ { "Detail_Number": 1, "Qty_Ordered": 2 } ] } }
+    //
+    // Response: 201 with the saved record(s) serialised back, including any
+    // server-assigned values (auto-increment PKs, etc.).
+    { MethodType = Event }
+    Procedure OnHttpPost tWebApiCallContext ByRef webapicallcontext
+        Send ProcessMutation (&webapicallcontext) C_WEBAPI_CREATED
+    End_Procedure
+
+    Function ExecuteRecord String sTable Handle hoTableJson Handle ByRef hoRecord Boolean ByRef bInvalidRequest Returns tDDPBuilderResult
+        tDDPBuilderResult oResult
+        tDDPSaveQuery oQuery
+
+        Delegate Get ConstructSaveScenario sTable hoTableJson (&oQuery) to oResult
+        Move (oResult.iErr <> 0) to bInvalidRequest
+        If (not(bInvalidRequest)) Delegate Get ExecuteStore oQuery (&hoRecord) to oResult
+        Delegate Send DestroySaveQuery oQuery.oMain.hoDD
+        Function_Return oResult
+    End_Function
+
+    Procedure MapExecuteError Integer iErr Integer ByRef iStatus String ByRef sTitle
+        Move 422 to iStatus
+        Move (If(iErr = DDPERR_VALIDATION_FAILED, "Validation Error", "Save Error")) to sTitle
+    End_Procedure
+
+End_Class

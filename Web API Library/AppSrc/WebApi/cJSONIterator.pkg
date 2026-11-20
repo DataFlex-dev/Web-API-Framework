@@ -98,7 +98,10 @@ Class cJSONIterator is a cBaseWebApiIterator
         //Create the cJsonObject class and convert it to json
         Get Create (RefClass(cJsonObject)) to hoJson
         Get ParseString of hoJson sRequestBodyString to bOk
-
+        If not bOk Begin
+            Send Destroy of hoJson
+            Function_Return requestBodyParts
+        End
         Send RecursiveJsonBodyToStruct hoJson (&requestBodyParts)
 
         Function_Return requestBodyParts
