@@ -985,9 +985,9 @@ The body is an array with one item per record, parents before children. Each ite
 ]
 ```
 
-The server writes exactly these records, in order: no parent records are saved and only the record's own DD validation runs. After a `create`, the key of the created record is copied into the foreign key fields of every later item whose table relates to it. Any failure rolls back the whole save.
+The server saves these records, in order, each with its DD's `Request_Save` in its DDO structure, like `/store` and `/update`: its exposed parent tables are linked, the parent records are found from the foreign keys (a supplied key without a parent record fails), `Request_Validate` checks the record and its parents, and `Request_Save` writes it. After a `create`, the key of the created record is copied into the foreign key fields of every later item whose table relates to it. Any failure rolls back the whole save.
 
-On the Windows backend each record is saved with its DD's `Request_Save` while the parent DDs are detached, so the DD's own save logic (`Creating`, `Update`, `Backout`) runs, but changes it makes to parent records are not saved; send those as their own `update` items.
+The rules of the server's DDs apply. The DD's save logic (`Creating`, and on the Windows backend `Update` and `Backout`) runs, and parent records it changes are saved too. A linked parent without a record is created unless the server DD allows it to be null (`ParentNullAllowed`); use `DD_FindReq` on the foreign key to require an existing parent instead. Options a client sets only on its own DD objects at runtime do not reach the server.
 
 Response `200`: an array in the same order, `[{"Vendor": {record}}, {"Inventory": {record}}]`, each record with all fields after the save. An empty array returns `[]`. Error details are prefixed with `Save item <n>: ` (1-based).
 
@@ -1000,6 +1000,8 @@ Deletes one or more records via the DataFlex DD layer. The record is identified 
 `POST` is used instead of `DELETE` because many HTTP clients do not send a body with `DELETE`.
 
 Cascade deletes (child record removal) are governed entirely by the DD's `Cascade_Delete_State` setting — the client does not control which related records are removed. With `Cascade_Delete_State` True the delete cascades through every level of exposed child tables; with False it is refused while records exist in an exposed child table.
+
+The record is deleted with its DD's `Request_Delete` in its linked DDO structure, like `/save`: the server's DDs validate the delete for the whole structure (the record, its parents and the cascaded children, e.g. `Validate_Delete` on the Windows backend, `pbNoDelete` and required tables on the cross-platform backend). A failed validation therefore returns the same 422 `Delete Error` as a failed delete.
 
 Deletes, `/store` and `/update` work through the exposed DDs: the exposed parent tables (and their parents) are validated and updated by the DD logic, and the exposed child tables take part in the cascade. A related table that is not exposed has no DD on the server:
 
@@ -1156,8 +1158,9 @@ Every query error returns 405.
 | Request body is not valid JSON, or root is not an array | 405 |
 | Item is not `{"create"\|"update": {"<Table>": {...}}}`, nested table, unknown table or field | 405 |
 | Update without its primary key field(s) | 405 |
+| Windows backend: a table the DD structure needs is not exposed | 405 |
 | No record found matching the supplied primary key | 404 |
-| DD validation rules failed | 422 |
+| A supplied foreign key has no parent record, or DD validation rules failed | 422 |
 | Save failed at the database level | 422 |
 
 ### Delete (`/delete`)
@@ -1173,8 +1176,7 @@ Every query error returns 405.
 | Windows backend: a table the DD structure needs is not exposed | 405 |
 | No record found matching the supplied primary key | 404 |
 | A verification field does not match the current database value | 409 |
-| DD validation prevented the delete | 422 |
-| Delete failed at the database level | 422 |
+| DD validation prevented the delete, or the delete failed at the database level | 422 |
 
 ---
 
