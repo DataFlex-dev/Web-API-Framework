@@ -1,5 +1,5 @@
 #REPLACE FILE31 OrderDetail
-#REPLACE OrderDetail.Recnum |FN31,0
+#REPLACE OrderDetail.File_Number |CI31
 #REPLACE OrderDetail.Order_Number |FN31,1
 #REPLACE OrderDetail.Detail_Number |FN31,2
 #REPLACE OrderDetail.Item_ID |FS31,3

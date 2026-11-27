@@ -1,0 +1,1437 @@
+﻿Use WebApi\DDP\Backends\IBackend.pkg
+Use DataDict.pkg
+Use cli.pkg
+
+// LIKE escape character for 'contains'. Not DataFlex's SQL_LIKE_ESC ('\'): on databases where a
+// backslash escapes a quote (MySQL, ...) "ESCAPE '\'" leaves the literal open, and the next value
+// in the filter would run as SQL.
+#Replace DDP_SQL_LIKE_ESC '!'
+
+// Cached topology snapshot for one exposed DD: its main file, plus the file numbers of
+// its direct parent (server-file, 1-to-1) and child (client-file, 1-to-N) tables, and the
+// DD's own SQL filter. Populated at expose time, before Expose detaches the DD's relationships.
+// Only file numbers are stored: a related DD may be exposed later, so DDParents/DDChilds
+// resolve the DDs when asked. DDPClearRelations restores the SQL filter after each request.
+Struct tDDPClassicFileInfo
+    Handle hFile
+    Handle[] aParents
+    Handle[] aChilds
+    String sSQLFilter
+    Boolean bUseSQLFilters
+End_Struct
+
+Class cDDP_Backend_Mixin is a IDDP_Backend_Mixin
+    Procedure Define_DDP_Backend_Mixin
+        // One entry per exposed DD, in expose order; see DDPFileInfoIndex.
+        Property tDDPClassicFileInfo[] paFileInfo
+    End_Procedure
+
+    Procedure End_Define_DDP_Backend_Mixin
+    End_Procedure
+
+    // Converts sNumber to a SQL numeric literal in sLiteral: an optional sign, digits, and at
+    // most one "." or "," decimal separator between digits (written as "."). Returns False for
+    // anything else, so the value can be embedded in a SQL filter as is.
+    { Visibility = Private }
+    Function DDPSQLNumber String sNumber String ByRef sLiteral Returns Boolean
+        Integer iPosition iLength iDigits
+        Boolean bSeparator
+        String sChar
+
+        Move "" to sLiteral
+        Move (Length(sNumber)) to iLength
+        For iPosition from 1 to iLength
+            Move (Mid(sNumber, 1, iPosition)) to sChar
+            If (Pos(sChar, "0123456789") > 0) Begin
+                Move (sLiteral + sChar) to sLiteral
+                Increment iDigits
+            End
+            Else If (iPosition = 1 and (sChar = "-" or sChar = "+")) Begin
+                If (sChar = "-") Move "-" to sLiteral
+            End
+            Else If ((sChar = "." or sChar = ",") and not(bSeparator) and iDigits > 0 and iPosition < iLength) Begin
+                Move True to bSeparator
+                Move (sLiteral + ".") to sLiteral
+            End
+            Else Function_Return False
+        Loop
+        Function_Return (iDigits > 0)
+    End_Function
+
+    // Verifies that hoDD is a DataDictionary subclass, that its underlying table is
+    // open, and that the table supports the SQL filter interface. Called at expose
+    // time so misconfiguration errors surface before any request is served.
+    Function IsObjectValidDataDictionary Handle hoDD Returns Boolean
+        If (IsObjectOfClass(hoDD, (RefClass(DataDictionary))) = False) Begin
+            Function_Return False
+        End
+
+        Boolean bOk
+        Integer iFile
+        Get Main_File of hoDD to iFile
+
+        Get_Attribute DF_FILE_OPENED of iFile to bOk
+        If (not(bOk)) Begin
+            Error DFERR_PROGRAM "Underlying table is not open."
+            Function_Return False
+        End
+
+        If (not(SupportsSQLFilters(hoDD))) Begin
+            Error DFERR_PROGRAM "Underlying table does not support SQL filters."
+            Function_Return False
+        End
+
+        Function_Return True
+    End_Function
+
+    // Returns the DataFlex logical file name for the table behind hoDD.
+    Function NameOfDD Handle hoDD Returns String
+        String sName
+        Integer iFile
+        Get Main_File of hoDD to iFile
+        Get_Attribute DF_FILE_LOGICAL_NAME of iFile to sName
+        Function_Return sName
+    End_Function
+
+    // Index of the paFileInfo entry for file hFile, or -1. A linear scan: there is one entry
+    // per exposed DD, and the entries are in expose order.
+    { Visibility = Private }
+    Function DDPFileInfoIndex Handle hFile tDDPClassicFileInfo[] ByRef aInfo Returns Integer
+        Integer iIndex
+        For iIndex from 0 to (SizeOfArray(aInfo) - 1)
+            If (aInfo[iIndex].hFile = hFile) Function_Return iIndex
+        Loop
+        Function_Return -1
+    End_Function
+
+    // Returns True when hoTest is a direct parent or child of hoDD in the pre-cached
+    // topology. The optional third argument bOptParent is set to True if hoTest is a
+    // server-file (parent) or False if it is a client-file (child).
+    // Rejects queries that try to join unrelated tables by returning False.
+    Function IsDDRelated Handle hoDD Handle hoTest Boolean ByRef bOptParent Returns Boolean
+        Integer iInfoIndex iIndex
+        tDDPClassicFileInfo oInfo
+        tDDPClassicFileInfo[] aInfo
+        Get paFileInfo to aInfo
+
+        // Locate the base DD entry in the topology cache.
+        Get DDPFileInfoIndex (Main_File(hoDD)) (&aInfo) to iInfoIndex
+        If (iInfoIndex = -1) Begin
+            Error DFERR_PROGRAM "Non-exposed DD"
+            Function_Return False
+        End
+
+        // Check server-files (parents, 1-to-1).
+        Get Main_File of hoTest to oInfo.hFile
+        For iIndex from 0 to (SizeOfArray(aInfo[iInfoIndex].aParents) - 1)
+            If (aInfo[iInfoIndex].aParents[iIndex] = oInfo.hFile) Begin
+                If (num_arguments > 2) Move True to bOptParent
+                Function_Return True
+            End
+        Loop
+        // Check client-files (children, 1-to-N).
+        For iIndex from 0 to (SizeOfArray(aInfo[iInfoIndex].aChilds) - 1)
+            If (aInfo[iInfoIndex].aChilds[iIndex] = oInfo.hFile) Begin
+                If (num_arguments > 2) Move False to bOptParent
+                Function_Return True
+            End
+        Loop
+
+        Function_Return False
+    End_Function
+
+
+    // Event hook raised after a DD is successfully validated and exposed.
+    { MethodType=Event }
+    Procedure OnExposeDD tDDPDataDictPair Def
+    End_Procedure
+
+    // Maps a DataFlex field type/precision pair to the JSON primitive type used when
+    // writing that field's value:
+    //   BCD with precision > 0  →  jsonTypeDouble   (decimal number)
+    //   BCD with precision = 0  →  jsonTypeInteger  (whole number)
+    //   everything else         →  jsonTypeString   (dates, text, ASCII, …)
+    Function DFTypeToJson Integer eType Integer iPrecision Returns Integer
+        If (eType = DF_BCD) Begin
+            If (iPrecision) Begin
+                Function_Return jsonTypeDouble
+            End
+            Function_Return jsonTypeInteger
+        End
+        Function_Return jsonTypeString
+    End_Function
+
+    // Selects and caches fields plus their JSON metadata for response output.
+    Function DDPSerializedFields tDDPTableQuery query Boolean bForceRelated Returns tDDPSerializedField[]
+        Integer[] aFieldNumbers
+        Integer iField iFieldCount iParent iRelatedField iIndex
+        Integer eType iPrecision
+        String sName
+        Boolean bRelated
+        tDDPSerializedField[] aFields
+        tDDPSerializedField oField
+
+        Move query.aFields to aFieldNumbers
+
+
+        If (bForceRelated) Begin
+            Get FieldCount query.hoDD to iFieldCount
+            For iField from 1 to iFieldCount
+                Move False to bRelated
+                For iParent from 0 to (SizeOfArray(query.aParents) - 1)
+                    Get FieldRelation query.hoDD query.aParents[iParent].hoDD iField (&iRelatedField) to bRelated
+                    If (bRelated) Break
+                Loop
+                If (not(bRelated) and query.hoParentDD <> 0) ;
+                    Get FieldRelation query.hoDD query.hoParentDD iField (&iRelatedField) to bRelated
+                If (bRelated and SearchArray(iField, aFieldNumbers) = -1) ;
+                    Move iField to aFieldNumbers[-1]
+            Loop
+        End
+
+        For iIndex from 0 to (SizeOfArray(aFieldNumbers) - 1)
+            Move aFieldNumbers[iIndex] to iField
+            Get FieldName query.hoDD iField to sName
+            Get FieldType query.hoDD iField to eType
+            Get FieldPrecision query.hoDD iField to iPrecision
+            Move iField to oField.iField
+            Move sName to oField.sName
+            Move eType to oField.eType
+            Get DFTypeToJson eType iPrecision to oField.eJsonType
+            Move oField to aFields[-1]
+        Loop
+
+        Function_Return aFields
+    End_Function
+
+    // Serializes one field value using precomputed metadata.
+    Procedure SerializeFieldValue Handle hoJson tDDPSerializedField field Variant vValue
+        Send SetMemberValue of hoJson field.sName field.eJsonType vValue
+    End_Procedure
+
+    // Serializes selected fields directly from a live DD buffer.
+    Procedure DDPSerializeFieldsToJson Handle hoJson Handle hoDD tDDPSerializedField[] aFields
+        Integer iIndex
+        Handle hFile
+        String sValue
+        Variant vValue
+
+        Get Main_File of hoDD to hFile
+        For iIndex from 0 to (SizeOfArray(aFields) - 1)
+            If (not(Err)) Begin
+                Get DDPGetFieldValue hoDD hFile aFields[iIndex].iField to sValue
+                If (not(Err)) Begin
+                    Move sValue to vValue
+                    Send SerializeFieldValue hoJson aFields[iIndex] vValue
+                End
+            End
+        Loop
+    End_Procedure
+    // Serializes the complete mutation buffer through the classic field reader.
+    Procedure SerializeBufferToJson Handle hoJson tDDPTableQuery query Boolean bForceRelated
+        tDDPSerializedField[] aFields
+        Integer iField iFieldCount
+
+        If (SizeOfArray(query.aFields) = 0) Begin
+            Get FieldCount query.hoDD to iFieldCount
+            For iField from 1 to iFieldCount
+                Move iField to query.aFields[-1]
+            Loop
+        End
+
+        Get DDPSerializedFields query bForceRelated to aFields
+        Send DDPSerializeFieldsToJson hoJson query.hoDD aFields
+    End_Procedure
+
+    // Snapshots the parent/child file numbers of hoDD into paFileInfo when the DD is
+    // exposed, before Expose detaches its relationships. Calling this procedure a second
+    // time for the same DD is safe and does nothing.
+    Procedure StoreDDFileLayout Handle hoDD
+        Integer iInfoIndex iIndex
+        tDDPClassicFileInfo oInfo
+        tDDPClassicFileInfo[] aInfo
+        Get paFileInfo to aInfo
+
+        Get Main_File of hoDD to oInfo.hFile
+        Get DDPFileInfoIndex oInfo.hFile (&aInfo) to iInfoIndex
+        If (iInfoIndex <> -1) Begin
+            Procedure_Return
+        End
+
+        // Client-files (children, 1-to-N).
+        For iIndex from 0 to (Client_File_Count(hoDD) - 1)
+            Get Client_File of hoDD iIndex to oInfo.aChilds[iIndex]
+        Loop
+        // Server-files (parents, 1-to-1).
+        For iIndex from 0 to (Server_File_Count(hoDD) - 1)
+            Get Server_File of hoDD iIndex to oInfo.aParents[iIndex]
+        Loop
+        // The DD's own SQL filter (DD class or OnExposeDD); requests add theirs to it.
+        Get psSQLFilter of hoDD to oInfo.sSQLFilter
+        Get pbUseDDSQLFilters of hoDD to oInfo.bUseSQLFilters
+
+        Move oInfo to aInfo[-1]
+        Set paFileInfo to aInfo
+    End_Procedure
+
+    // Returns the exposed DDs of all server-file (parent) tables of hoDD.
+    Function DDParents Handle hoDD Returns Handle[]
+        Integer iIndex iInfoIndex
+        Handle hoRelated
+        Handle[] aHandles
+        tDDPClassicFileInfo[] aInfo
+        Get paFileInfo to aInfo
+
+        Get DDPFileInfoIndex (Main_File(hoDD)) (&aInfo) to iInfoIndex
+        If (iInfoIndex <> -1) Begin
+            For iIndex from 0 to (SizeOfArray(aInfo[iInfoIndex].aParents) - 1)
+                Get DDByFile aInfo[iInfoIndex].aParents[iIndex] to hoRelated
+                If (hoRelated <> 0) Move hoRelated to aHandles[-1]
+            Loop
+        End
+
+        Function_Return aHandles
+    End_Function
+
+    // Returns the exposed DDs of all client-file (child) tables of hoDD.
+    Function DDChilds Handle hoDD Returns Handle[]
+        Integer iIndex iInfoIndex
+        Handle hoRelated
+        Handle[] aHandles
+        tDDPClassicFileInfo[] aInfo
+        Get paFileInfo to aInfo
+
+        Get DDPFileInfoIndex (Main_File(hoDD)) (&aInfo) to iInfoIndex
+        If (iInfoIndex <> -1) Begin
+            For iIndex from 0 to (SizeOfArray(aInfo[iInfoIndex].aChilds) - 1)
+                Get DDByFile aInfo[iInfoIndex].aChilds[iIndex] to hoRelated
+                If (hoRelated <> 0) Move hoRelated to aHandles[-1]
+            Loop
+        End
+
+        Function_Return aHandles
+    End_Function
+
+    // The first server file (or client file with bChildren) the DD class of hoDD declares that has
+    // no exposed DD, as its logical name. The classic DD requires a DD for every server file on
+    // save and delete, and for every client file on a cascade delete; Windows takes that rule for
+    // the client files of a delete without cascade too, which must all be checked for records.
+    Function DDPUnexposedRelation Handle hoDD Boolean bChildren Returns String
+        Integer iIndex iInfoIndex
+        Handle hFile
+        Handle[] aFiles
+        String sName
+        tDDPClassicFileInfo[] aInfo
+        Get paFileInfo to aInfo
+
+        Get DDPFileInfoIndex (Main_File(hoDD)) (&aInfo) to iInfoIndex
+        If (iInfoIndex = -1) Function_Return ""
+        If bChildren Move aInfo[iInfoIndex].aChilds to aFiles
+        Else Move aInfo[iInfoIndex].aParents to aFiles
+        For iIndex from 0 to (SizeOfArray(aFiles) - 1)
+            Move aFiles[iIndex] to hFile
+            If (hFile <> aInfo[iInfoIndex].hFile and DDByFile(Self, hFile) = 0) Begin
+                Get_Attribute DF_FILE_LOGICAL_NAME of hFile to sName
+                Function_Return sName
+            End
+        Loop
+        Function_Return ""
+    End_Function
+
+    // Returns the primary index number declared by hoDD's underlying table.
+
+    Function PrimaryDDIndex Handle hoDD Returns Integer
+        Handle hFile
+        Integer iPrimaryIndex
+        Get Main_File of hoDD to hFile
+        Get_Attribute DF_FILE_PRIMARY_INDEX of hFile to iPrimaryIndex
+        Function_Return iPrimaryIndex
+    End_Function
+
+    // Returns Classic primary-key fields.
+    Function DDPPrimaryKeyFields Handle hoDD Returns Integer[]
+        Handle hFile
+        Integer iPrimaryIndex iSegmentCount iSegment iField
+        Integer[] aFields
+
+        Get PrimaryDDIndex hoDD to iPrimaryIndex
+        If (iPrimaryIndex <= 0) Function_Return aFields
+
+        Get Main_File of hoDD to hFile
+        Get_Attribute DF_INDEX_NUMBER_SEGMENTS of hFile iPrimaryIndex to iSegmentCount
+        For iSegment from 1 to iSegmentCount
+            Get_Attribute DF_INDEX_SEGMENT_FIELD of hFile iPrimaryIndex iSegment to iField
+            Move iField to aFields[-1]
+        Loop
+
+        Function_Return aFields
+    End_Function
+
+    // Returns the total number of fields in hoDD's underlying table.
+    Function FieldCount Handle hoDD Returns Integer
+        Handle hFile
+        Integer iFieldCount
+        Get Main_File of hoDD to hFile
+        Get_Attribute DF_FILE_NUMBER_FIELDS of hFile to iFieldCount
+        Function_Return iFieldCount
+    End_Function
+
+    // Returns the field name for 1-based field number iField, or "" when out of range.
+    Function FieldName Handle hoDD Integer iField Returns String
+        Handle hFile
+        Integer iFieldCount
+        String sFieldName
+        Get Main_File of hoDD to hFile
+        Get_Attribute DF_FILE_NUMBER_FIELDS of hFile to iFieldCount
+        If (iField < 1 or iField > iFieldCount) Begin
+            Function_Return ""
+        End
+        Get_Attribute DF_FIELD_NAME of hFile iField to sFieldName
+        Function_Return sFieldName
+    End_Function
+    // DDP field metadata, relation, and index operations.
+    Function FieldType Handle hoDD Integer iField Returns Integer
+        Handle hFile
+        Integer eType
+
+        Get Main_File of hoDD to hFile
+        Get_Attribute DF_FIELD_TYPE of hFile iField to eType
+        Function_Return eType
+    End_Function
+
+    Function FieldPrecision Handle hoDD Integer iField Returns Integer
+        Handle hFile
+        Integer iPrecision
+
+        Get Main_File of hoDD to hFile
+        Get_Attribute DF_FIELD_PRECISION of hFile iField to iPrecision
+        Function_Return iPrecision
+    End_Function
+
+    // Finds the parent field related to iField on hoDD.
+    Function FieldRelation Handle hoDD Handle hoParentDD Integer iField Integer ByRef iRelatedField Returns Boolean
+        Handle hFile hParentFile hRelatedFile
+
+        Move 0 to iRelatedField
+        If (hoDD = 0 or hoParentDD = 0 or hoDD = hoParentDD or iField < 1) ;
+            Function_Return False
+
+        Get Main_File of hoDD to hFile
+        Get Main_File of hoParentDD to hParentFile
+        Get_Attribute DF_FIELD_RELATED_FILE of hFile iField to hRelatedFile
+        If (hRelatedFile <> hParentFile) Function_Return False
+
+        Get_Attribute DF_FIELD_RELATED_FIELD of hFile iField to iRelatedField
+        Function_Return True
+    End_Function
+
+
+    // Converts a backend field type and precision to the DDP schema type.
+    Function DDPTypeString Integer eType Integer iPrecision Returns String
+        If (eType = DF_BCD) Begin
+            If (iPrecision > 0) Function_Return "decimal"
+            Function_Return "integer"
+        End
+        If (eType = DF_DATE) Function_Return "date"
+        Function_Return "string"
+    End_Function
+
+
+    // Case-sensitive linear scan for a field by name. Sets iOptField (optional third
+    // argument) to the 1-based field number when found. Used during query parsing to
+    // validate field names supplied in __fields, constraint keys, and ordering directives.
+    Function IsField Handle hoDD String sFieldName Integer ByRef iOptField  Returns Boolean
+        Handle hFile
+        Integer iField iFieldCount
+        String sField
+        Get Main_File of hoDD to hFile
+        Get_Attribute DF_FILE_NUMBER_FIELDS of hFile to iFieldCount
+        For iField from 1 to iFieldCount
+            Get_Attribute DF_FIELD_NAME of hFile iField to sField
+            If (Lowercase(sField) = Lowercase(sFieldName)) Begin
+                If (num_arguments > 2) Move iField to iOptField
+                Function_Return True
+            End
+        Loop
+        Function_Return False
+    End_Function
+
+    // Creates a temporary DataFlex index when ordering was requested.
+    Function CreateIndex Handle hoDD tDDPOrder[] aOrder tDDPConstrain[] aConstrains Integer iLimit Integer iOffset Returns Handle
+        Handle hFile
+        Integer iIndex iSegment
+
+        If (SizeOfArray(aOrder) = 0) Function_Return (PrimaryDDIndex(Self, hoDD))
+        Get Main_File of hoDD to hFile
+
+        Create_Index hFile at iIndex
+        Set_Attribute DF_INDEX_NUMBER_SEGMENTS of hFile iIndex to (SizeOfArray(aOrder))
+        For iSegment from 1 to (SizeOfArray(aOrder))
+            Set_Attribute DF_INDEX_SEGMENT_FIELD of hFile iIndex iSegment to aOrder[iSegment - 1].hField
+            Set_Attribute DF_INDEX_SEGMENT_DIRECTION of hFile iIndex iSegment to aOrder[iSegment - 1].eMode
+        Loop
+
+        Function_Return iIndex
+    End_Function
+
+    // Deletes a temporary index created by CreateIndex.
+    // Permanent (non-temporary) indexes are left untouched.
+    Procedure DeleteIndex Handle hoDD Integer iIndex
+        Handle hFile
+        Integer eType
+        Get Main_File of hoDD to hFile
+        Get_Attribute DF_INDEX_SQL_TYPE of hFile iIndex to eType
+        If (eType = DF_INDEX_TEMPORARY) Begin
+            Delete_Index hFile iIndex
+        End
+    End_Procedure
+
+    // Seeds aOrder (the find order of query, see DDPFindOrder) for the initial index read: the start
+    // of the order, or its end when bBackward. Parent ordering fields are seeded recursively for child
+    // traversal.
+    Procedure Set_Constrains_To_Buffers tDDPTableQuery query tDDPOrder[] aOrder Boolean bBackward
+        Handle hFile
+        Integer iIndex
+        Get Main_File of query.hoDD to hFile
+        For iIndex from 0 to (SizeOfArray(aOrder) - 1)
+            If ((aOrder[iIndex].eMode = DDPOrder_ASC) <> bBackward) ;
+                Fill_Field hFile aOrder[iIndex].hField with DF_LOW
+            Else ;
+                Fill_Field hFile aOrder[iIndex].hField with DF_HIGH
+        Loop
+        // Parent buffers must be seeded too; Constrain_File reads from them to scope finds.
+        For iIndex from 0 to (SizeOfArray(query.aParents) - 1)
+            Send Set_Constrains_To_Buffers query.aParents[iIndex] query.aParents[iIndex].aOrder False
+        Loop
+    End_Procedure
+
+    // Builds the SQL filter for one constraint on field hField of table hoDD against the
+    // literal value sValue, without adding it to the DD's psSQLFilter:
+    //   ASCII, Text and DateTime values are SQL-escaped and quoted.
+    //   Date values must be YYYY-MM-DD (validated by DDPParseISODate) and are quoted.
+    //   Other (numeric) values must be a plain number (see DDPSQLNumber) and are embedded as is.
+    //   Contains (text fields only) becomes LIKE '%value%' with the value's escape
+    //   character and LIKE wildcards escaped, so the value matches literally.
+    // Quoted values with a backslash are rejected unless the driver is known to end a literal at
+    // a quote alone (SQL Server, DB2): elsewhere (MySQL, ...) a backslash escapes the closing quote
+    // and the rest of the filter would run as SQL.
+    Function DDPSQLFilter Handle hoMainDD Handle hoDD Handle hField Integer eConstrain String sValue String ByRef sSQLFilter Returns tDDPBuilderResult
+        Handle hFile
+        Integer eType
+        Date dValue
+        String sField sDriver
+        tDDPBuilderResult oResult
+
+        Move "" to sSQLFilter
+        Get Main_File of hoDD to hFile
+        Get_Attribute DF_FIELD_TYPE of hFile hField to eType
+        If ((eConstrain = DDPFind_CONTAINS or eType = DF_ASCII or eType = DF_TEXT or eType = DF_DATETIME) and Pos("\", sValue) > 0) Begin
+            Get_Attribute DF_FILE_DRIVER of hFile to sDriver
+            Move (Uppercase(sDriver)) to sDriver
+            If (sDriver <> "MSSQLDRV" and sDriver <> "DB2_DRV") Begin
+                Function_Return (DDPError(Self, DDPERR_INVALID_CONSTRAIN, "Backslashes in text constraints are not supported on this database."))
+            End
+        End
+        If (eConstrain = DDPFind_CONTAINS) Begin
+            If (eType <> DF_ASCII and eType <> DF_TEXT) Begin
+                Function_Return (DDPError(Self, DDPERR_INVALID_CONSTRAIN, "Constraint 'contains' is only supported on text fields."))
+            End
+            // Escape the escape character first, then the wildcards, then quotes.
+            Move (Replaces(DDP_SQL_LIKE_ESC, sValue, DDP_SQL_LIKE_ESC + DDP_SQL_LIKE_ESC)) to sValue
+            Move (Replaces("%", sValue, DDP_SQL_LIKE_ESC + "%")) to sValue
+            Move (Replaces("_", sValue, DDP_SQL_LIKE_ESC + "_")) to sValue
+            Get SQLEscapedStr of hoMainDD sValue to sValue
+        End
+        Else If (eType = DF_ASCII or eType = DF_TEXT or eType = DF_DATETIME) Begin
+            Get SQLEscapedStr of hoMainDD sValue to sValue
+            Move ("'" + sValue + "'") to sValue
+        End
+        Else If (eType = DF_DATE) Begin
+            // A valid YYYY-MM-DD holds only digits and dashes, so it needs no escaping.
+            If (not(DDPParseISODate(sValue, &dValue))) Begin
+                Function_Return (DDPError(Self, DDPERR_INVALID_CONSTRAIN, "Invalid date constraint; expected YYYY-MM-DD."))
+            End
+            Move ("'" + sValue + "'") to sValue
+        End
+        Else If (not(DDPSQLNumber(Self, sValue, &sValue))) Begin
+            // Reject non-numeric values for numeric fields before they touch SQL.
+            Function_Return (DDPError(Self, DDPERR_INVALID_CONSTRAIN, "Invalid numeric constraint."))
+        End
+
+        Move (SQLStrFileFieldName(hoDD, hField)) to sField
+        If (eConstrain = DDPFind_EQ) Move (sField + " = " + sValue) to sSQLFilter
+        Else If (eConstrain = DDPFind_GE) Move (sField + " >= " + sValue) to sSQLFilter
+        Else If (eConstrain = DDPFind_GT) Move (sField + " > " + sValue) to sSQLFilter
+        Else If (eConstrain = DDPFind_LE) Move (sField + " <= " + sValue) to sSQLFilter
+        Else If (eConstrain = DDPFind_LT) Move (sField + " < " + sValue) to sSQLFilter
+        Else If (eConstrain = DDPFind_NE) Move (sField + " != " + sValue) to sSQLFilter
+        Else If (eConstrain = DDPFind_CONTAINS) Move (sField + " LIKE N'%" + sValue + "%' ESCAPE '" + DDP_SQL_LIKE_ESC + "'") to sSQLFilter
+        Else Function_Return (DDPError(Self, DDPERR_INVALID_CONSTRAIN, "Invalid constraint."))
+        Function_Return oResult
+    End_Function
+
+    // ANDs the SQL filter sSQLFilter onto the psSQLFilter of hoMainDD.
+    Procedure DDPAppendSQLFilter Handle hoMainDD String sSQLFilter
+        String sQuery
+
+        Set pbUseDDSQLFilters of hoMainDD to True
+        Get psSQLFilter of hoMainDD to sQuery
+        Get SQLStrAppend of hoMainDD sQuery sSQLFilter to sQuery
+        Set psSQLFilter of hoMainDD to sQuery
+    End_Procedure
+
+    // Applies one constraint: appends its SQL filter (see DDPSQLFilter) to the
+    // psSQLFilter of hoMainDD, for all exposed Windows DDs including related tables.
+    Function AddConstrain Handle hoMainDD Handle hoDD Handle hField Integer eConstrain String sValue Returns tDDPBuilderResult
+        String sSQLFilter
+        tDDPBuilderResult oResult
+
+        Get DDPSQLFilter hoMainDD hoDD hField eConstrain sValue (&sSQLFilter) to oResult
+        If (oResult.iErr) Function_Return oResult
+        Send DDPAppendSQLFilter hoMainDD sSQLFilter
+        Function_Return oResult
+    End_Function
+
+    // Builds the SQL filter of a multi-field (index) constraint on table hoDD: the rows after
+    // (GT/GE) or before (LT/LE) index.aValues in the order of index.aFields. For GT on Name 'Jansen',
+    // Customer_Number 12 this is:
+    //   (Name > 'Jansen') OR ((Name = 'Jansen') AND (Customer_Number > 12))
+    // Only the branch that compares the last field includes the row itself for GE/LE, and a
+    // descending field reverses its comparison. SQL counterpart of DDPAddIndexConstrain in Main.pkg.
+    // sSQLFilter is "" when there is no index constraint.
+    Function DDPSQLIndexFilter Handle hoMainDD Handle hoDD tDDPIndexConstrain index String ByRef sSQLFilter Returns tDDPBuilderResult
+        tDDPBuilderResult oResult
+        Integer iCompare iField iLast eMode
+        Boolean bAfter bInclusive
+        String sBranch sCompare
+
+        Move "" to sSQLFilter
+        If (index.eMode = DDPFind_Auto) Function_Return oResult
+        Move (SizeOfArray(index.aFields) - 1) to iLast
+        For iCompare from 0 to iLast
+            Move "" to sBranch
+            For iField from 0 to (iCompare - 1)
+                Get DDPSQLFilter hoMainDD hoDD index.aFields[iField] DDPFind_EQ index.aValues[iField] (&sCompare) to oResult
+                If (oResult.iErr) Function_Return oResult
+                Get SQLStrAppend of hoMainDD sBranch sCompare to sBranch
+            Loop
+            Move ((index.eMode = DDPFind_GT or index.eMode = DDPFind_GE) <> (index.aDirections[iCompare] = DDPOrder_DESC)) to bAfter
+            Move (iCompare = iLast and (index.eMode = DDPFind_GE or index.eMode = DDPFind_LE)) to bInclusive
+            Move (If(bAfter, If(bInclusive, DDPFind_GE, DDPFind_GT), If(bInclusive, DDPFind_LE, DDPFind_LT))) to eMode
+            Get DDPSQLFilter hoMainDD hoDD index.aFields[iCompare] eMode index.aValues[iCompare] (&sCompare) to oResult
+            If (oResult.iErr) Function_Return oResult
+            Get SQLStrAppend of hoMainDD sBranch sCompare to sBranch
+            Get SQLStrAppendOr of hoMainDD sSQLFilter sBranch to sSQLFilter
+        Loop
+        Function_Return oResult
+    End_Function
+
+    // Builds the SQL filter of an "or"/"and" group (see tDDPConstrainGroup) on table hoDD: a member
+    // constraint through DDPSQLFilter, a group as its members joined by OR or AND. SQL counterpart
+    // of DDPAddConstrainGroup in Main.pkg. Members on another table are rejected, because a SQL filter
+    // that refers to another table's columns is unverified on this backend.
+    Function DDPSQLGroupFilter Handle hoDD tDDPConstrainGroup group String ByRef sSQLFilter Returns tDDPBuilderResult
+        tDDPBuilderResult oResult
+        Integer iMember
+        String sMember
+
+        Move "" to sSQLFilter
+        If (not(group.bGroup)) Begin
+            If (group.hoDD <> hoDD) Begin
+                Function_Return (DDPError(Self, DDPERR_INVALID_CONSTRAIN, "Constraints in an 'or' or 'and' group must be on the main table on the Windows backend."))
+            End
+            Get DDPSQLFilter hoDD hoDD group.oConstrain.hField group.oConstrain.eMode group.oConstrain.aParams[0] (&sSQLFilter) to oResult
+            Function_Return oResult
+        End
+
+        For iMember from 0 to (SizeOfArray(group.aMembers) - 1)
+            Get DDPSQLGroupFilter hoDD group.aMembers[iMember] (&sMember) to oResult
+            If (oResult.iErr) Function_Return oResult
+            If (group.bOr) Get SQLStrAppendOr of hoDD sSQLFilter sMember to sSQLFilter
+            Else Get SQLStrAppend of hoDD sSQLFilter sMember to sSQLFilter
+        Loop
+        Function_Return oResult
+    End_Function
+
+    // The find order of query: its sort fields, plus the primary-key fields that are not sorted on
+    // yet (ascending), so no two rows tie: a find through an index on tied values could skip or
+    // repeat rows, and a cursor needs an exact position. Without sort fields and cursor it is
+    // empty, so the find uses the primary index (CreateIndex).
+    Function DDPFindOrder tDDPTableQuery query Returns tDDPOrder[]
+        tDDPOrder[] aOrder
+        tDDPOrder oOrder
+        Integer[] aPKFields
+        Integer iKey iOrder
+        Boolean bSorted
+
+        Move query.aOrder to aOrder
+        If (SizeOfArray(aOrder) = 0 and query.eCursorMode = DDPFind_Auto) Function_Return aOrder
+
+        Get DDPPrimaryKeyFields query.hoDD to aPKFields
+        For iKey from 0 to (SizeOfArray(aPKFields) - 1)
+            Move False to bSorted
+            For iOrder from 0 to (SizeOfArray(aOrder) - 1)
+                If (aOrder[iOrder].hField = aPKFields[iKey]) Move True to bSorted
+            Loop
+            If (not(bSorted)) Begin
+                Move query.hoDD to oOrder.hoDD
+                Move aPKFields[iKey] to oOrder.hField
+                Move DDPOrder_ASC to oOrder.eMode
+                Move (SizeOfArray(aOrder)) to oOrder.iSequence
+                Move oOrder to aOrder[-1]
+            End
+        Loop
+        Function_Return aOrder
+    End_Function
+
+    // dtValue as YYYY-MM-DD.
+    Function DDPISODate DateTime dtValue Returns String
+        Function_Return (Right("000" + String(DateGetYear(dtValue)), 4) + "-" + Right("0" + String(DateGetMonth(dtValue)), 2) + "-" + Right("0" + String(DateGetDay(dtValue)), 2))
+    End_Function
+
+    // The value of field iField in the record buffer of hFile as text that DDPSQLFilter accepts:
+    // dates as YYYY-MM-DD, datetimes as YYYY-MM-DDTHH:MM:SS.mmm, numbers with "." as decimal
+    // separator, other values as stored. Returns False for an empty date or datetime: an empty date
+    // is stored as NULL or as a minimum date depending on the driver, so it has no portable SQL value.
+    Function DDPBufferFilterValue Handle hFile Integer iField String ByRef sValue Returns Boolean
+        Integer eType iSeparator
+        Date dValue
+        DateTime dtValue
+
+        Get_Attribute DF_FIELD_TYPE of hFile iField to eType
+        If (eType = DF_DATE) Begin
+            Get_Field_Value hFile iField to dValue
+            If (dValue = 0) Function_Return False
+            Move (DDPISODate(Self, dValue)) to sValue
+        End
+        Else If (eType = DF_DATETIME) Begin
+            Get_Field_Value hFile iField to dtValue
+            If (IsNullDateTime(dtValue)) Function_Return False
+            Move (DDPISODate(Self, dtValue) + "T" + Right("0" + String(DateGetHour(dtValue)), 2) + ":" + ;
+                Right("0" + String(DateGetMinute(dtValue)), 2) + ":" + Right("0" + String(DateGetSecond(dtValue)), 2) + "." + ;
+                Right("00" + String(DateGetMillisecond(dtValue)), 3)) to sValue
+        End
+        Else Begin
+            Get_Field_Value hFile iField to sValue
+            If (eType = DF_BCD) Begin
+                Get_Attribute DF_DECIMAL_SEPARATOR to iSeparator
+                If (iSeparator <> 46) Move (Replace(Character(iSeparator), sValue, ".")) to sValue
+            End
+        End
+        Function_Return True
+    End_Function
+
+    // Builds the SQL filter of query's cursor: the rows after (gt) or before (lt) the cursor row in
+    // the find order (see DDPFindOrder). The cursor row is read by its primary key (query.aCursorKey)
+    // with a raw file find, so no DD SQL filter or constraint hides it. sSQLFilter is "" without a
+    // cursor. Fails when the row does not exist or has an empty date in one of the order fields.
+    Function DDPCursorFilter tDDPTableQuery query String ByRef sSQLFilter Returns tDDPBuilderResult
+        tDDPBuilderResult oResult
+        tDDPIndexConstrain index
+        tDDPOrder[] aOrder
+        Integer[] aPKFields
+        Integer iKey iPrimaryIndex
+        Handle hFile
+        Date dValue
+        String sValue
+
+        Move "" to sSQLFilter
+        If (query.eCursorMode = DDPFind_Auto) Function_Return oResult
+
+        Get Main_File of query.hoDD to hFile
+        Get PrimaryDDIndex query.hoDD to iPrimaryIndex
+        Get DDPPrimaryKeyFields query.hoDD to aPKFields
+        Clear hFile
+        For iKey from 0 to (SizeOfArray(aPKFields) - 1)
+            If (FieldType(Self, query.hoDD, aPKFields[iKey]) = DF_DATE) Begin
+                If (not(DDPParseISODate(query.aCursorKey[iKey], &dValue))) Begin
+                    Function_Return (DDPError(Self, DDPERR_INVALID_FORMAT, "Invalid cursor date; expected YYYY-MM-DD."))
+                End
+                Set_Field_Value hFile aPKFields[iKey] to dValue
+            End
+            Else Set_Field_Value hFile aPKFields[iKey] to query.aCursorKey[iKey]
+        Loop
+        Vfind hFile iPrimaryIndex EQ
+        If (not(Found)) Function_Return (DDPError(Self, DDPERR_RECORD_NOT_FOUND, "Cursor row not found."))
+
+        Get DDPFindOrder query to aOrder
+        Move query.eCursorMode to index.eMode
+        For iKey from 0 to (SizeOfArray(aOrder) - 1)
+            If (not(DDPBufferFilterValue(Self, hFile, aOrder[iKey].hField, &sValue))) Begin
+                Function_Return (DDPError(Self, DDPERR_INVALID_FORMAT, "The cursor row has an empty date in a sort field; this is not supported by the Windows backend yet."))
+            End
+            Move aOrder[iKey].hField to index.aFields[iKey]
+            Move sValue to index.aValues[iKey]
+            Move aOrder[iKey].eMode to index.aDirections[iKey]
+        Loop
+        Get DDPSQLIndexFilter query.hoDD query.hoDD index (&sSQLFilter) to oResult
+        Function_Return oResult
+    End_Function
+
+    // DDP runtime operations for the Classic data dictionary API.
+    Procedure DDPLink Handle hoDD Handle hoRelated Boolean bClient Boolean bConstrain
+        If (bClient) ;
+            Send Add_Client_File of hoRelated (Main_File(hoDD))
+        Send Add_Server_File of hoDD (Main_File(hoRelated))
+        Set DDO_Server of hoDD to hoRelated
+        If (bConstrain) ;
+            Set Constrain_File of hoDD to (Main_File(hoRelated))
+    End_Procedure
+
+    Procedure DDPClearRelations Handle hoDD Handle hoOptParentDD
+        Handle hFile
+        Integer iInfoIndex
+        tDDPClassicFileInfo[] aInfo
+
+        // Back to the DD's own SQL filter, dropping the filters the request added.
+        Get paFileInfo to aInfo
+        Get DDPFileInfoIndex (Main_File(hoDD)) (&aInfo) to iInfoIndex
+        If (iInfoIndex <> -1) Begin
+            Set pbUseDDSQLFilters of hoDD to aInfo[iInfoIndex].bUseSQLFilters
+            Set psSQLFilter of hoDD to aInfo[iInfoIndex].sSQLFilter
+        End
+        Else Begin
+            Set pbUseDDSQLFilters of hoDD to False
+            Set psSQLFilter of hoDD to ""
+        End
+        Set Constrain_File of hoDD to 0
+
+        While (Client_File_Count(hoDD))
+            Get Client_File of hoDD 0 to hFile
+            Send Remove_Client_File of hoDD hFile
+        Loop
+
+        While (Server_File_Count(hoDD))
+            Get Server_File of hoDD 0 to hFile
+            Send Remove_Server_File of hoDD hFile
+        Loop
+
+        While (Data_Set_Client_Count(hoDD))
+            Get Data_Set_Client of hoDD 0 to hFile
+            If (num_arguments <= 1 or hoOptParentDD <> hFile) ;
+                Send DDPClearRelations hFile hoDD
+            Send Detach_Client of hoDD hFile
+        Loop
+
+        While (Data_Set_Server_Count(hoDD))
+            Get Data_Set_Server of hoDD 0 to hFile
+            If (num_arguments <= 1 or hoOptParentDD <> hFile) ;
+                Send DDPClearRelations hFile hoDD
+            Send Detach_Server of hoDD hFile
+        Loop
+
+        Send Clear of hoDD
+    End_Procedure
+
+    Procedure DDPRequestRead Handle hoDD Integer eMode Handle hFile Integer iIndex
+        Send Request_Read of hoDD eMode hFile iIndex
+    End_Procedure
+
+    Procedure DDPRequestFind Handle hoDD Integer eMode Handle hFile Integer iIndex
+        Send Request_Find of hoDD eMode hFile iIndex
+    End_Procedure
+
+    Procedure DDPSetFieldValue Handle hoDD Handle hFile Integer iField String sValue
+        Set_Field_Value hFile iField to sValue
+    End_Procedure
+
+    Procedure DDPSetChangedValue Handle hoDD Handle hFile Integer iField String sValue
+        Set File_Field_Changed_Value of hoDD hFile iField to sValue
+    End_Procedure
+
+    Function DDPGetFieldValue Handle hoDD Handle hFile Integer iField Returns String
+        String sValue
+        Get_Field_Value hFile iField to sValue
+        Function_Return sValue
+    End_Function
+
+    Function DDPCurrentRowID Handle hoDD Handle hFile Returns RowID
+        Function_Return (GetRowID(hFile))
+    End_Function
+
+    // Rebuilds find constraints recursively.
+    { Visibility = Private }
+    Procedure DDPRebuildFindConstraints tDDPTableQuery query
+        Integer iIndex
+
+        Send Rebuild_Constraints of query.hoDD
+        For iIndex from 0 to (SizeOfArray(query.aParents) - 1)
+            Send DDPRebuildFindConstraints query.aParents[iIndex]
+        Loop
+        For iIndex from 0 to (SizeOfArray(query.aChilds) - 1)
+            Send DDPRebuildFindConstraints query.aChilds[iIndex]
+        Loop
+    End_Procedure
+
+    // The SQL name of hoDD's table for a FROM clause: "Schema"."Table", or "Table" without a schema.
+    { Visibility = Private }
+    Function DDPSQLTableName Handle hoDD Returns String
+        Handle hFile
+        String sSchema sQuote
+
+        Get Main_File of hoDD to hFile
+        Get_Attribute DF_FILE_OWNER of hFile to sSchema
+        If (Trim(sSchema) = "") Function_Return (SQLStrFileName(hoDD))
+        Get SQLIdentifierQuote of (phoSQLHelper(hoDD)) hFile to sQuote
+        Function_Return (sQuote + Trim(sSchema) + sQuote + "." + SQLStrFileName(hoDD))
+    End_Function
+
+    // Builds the SQL filter, on the table of hoChildDD, for the constraints of parent and of its own
+    // parents: the child rows whose parent row matches them. The parent's columns are not part of the
+    // child's SQL query, so this is a correlated subquery on the relation fields, for example:
+    //   EXISTS (SELECT 1 FROM "dbo"."Vendor" WHERE ("Vendor"."ID" = "Item"."Vendor_ID") AND ("Vendor"."Name" = N'One'))
+    // A grandparent constraint nests one more EXISTS inside. sSQLFilter is "" when there is nothing to filter.
+    { Visibility = Private }
+    Function DDPSQLParentFilter Handle hoChildDD tDDPTableQuery parent String ByRef sSQLFilter Returns tDDPBuilderResult
+        tDDPBuilderResult oResult
+        Integer iIndex iField iRelated
+        String sWhere sCompare sJoin
+
+        Move "" to sSQLFilter
+        For iIndex from 0 to (SizeOfArray(parent.aConstrains) - 1)
+            Get DDPSQLFilter parent.hoDD parent.hoDD parent.aConstrains[iIndex].hField parent.aConstrains[iIndex].eMode parent.aConstrains[iIndex].aParams[0] (&sCompare) to oResult
+            If (oResult.iErr) Function_Return oResult
+            Get SQLStrAppend of parent.hoDD sWhere sCompare to sWhere
+        Loop
+        For iIndex from 0 to (SizeOfArray(parent.aParents) - 1)
+            Get DDPSQLParentFilter parent.hoDD parent.aParents[iIndex] (&sCompare) to oResult
+            If (oResult.iErr) Function_Return oResult
+            Get SQLStrAppend of parent.hoDD sWhere sCompare to sWhere
+        Loop
+        If (sWhere = "") Function_Return oResult
+
+        // Both tables would have the same name inside the subquery.
+        If (Main_File(hoChildDD) = Main_File(parent.hoDD)) Begin
+            Function_Return (DDPError(Self, DDPERR_INVALID_CONSTRAIN, SFormat("Constraints on '%1' as its own parent are not supported on the Windows backend.", NameOfDD(Self, parent.hoDD))))
+        End
+        For iField from 1 to (FieldCount(Self, hoChildDD))
+            If (FieldRelation(Self, hoChildDD, parent.hoDD, iField, &iRelated)) ;
+                Get SQLStrAppend of parent.hoDD sJoin (SQLStrFileFieldName(parent.hoDD, iRelated) + " = " + SQLStrFileFieldName(hoChildDD, iField)) to sJoin
+        Loop
+        If (sJoin = "") Begin
+            Function_Return (DDPError(Self, DDPERR_INVALID_CONSTRAIN, SFormat("'%1' has no relation fields to '%2'.", NameOfDD(Self, hoChildDD), NameOfDD(Self, parent.hoDD))))
+        End
+
+        Get SQLStrAppend of parent.hoDD sJoin sWhere to sWhere
+        Move ("EXISTS (SELECT 1 FROM " + DDPSQLTableName(Self, parent.hoDD) + " WHERE " + sWhere + ")") to sSQLFilter
+        Function_Return oResult
+    End_Function
+
+    // Applies the constraints of query to the SQL filter of its own DD: its own constraints directly,
+    // those of its parents (and their parents) as subqueries (see DDPSQLParentFilter). Then those of
+    // each child to the child's own DD: a child is read per parent row with its own find.
+    { Visibility = Private }
+    Function DDPApplyFindConstraints tDDPTableQuery query Returns tDDPBuilderResult
+        tDDPBuilderResult oResult
+        Integer iIndex
+        String sSQLFilter
+
+        For iIndex from 0 to (SizeOfArray(query.aConstrains) - 1)
+            Get AddConstrain query.hoDD query.hoDD query.aConstrains[iIndex].hField query.aConstrains[iIndex].eMode query.aConstrains[iIndex].aParams[0] to oResult
+            If (oResult.iErr) Function_Return oResult
+        Loop
+
+        For iIndex from 0 to (SizeOfArray(query.aParents) - 1)
+            Get DDPSQLParentFilter query.hoDD query.aParents[iIndex] (&sSQLFilter) to oResult
+            If (oResult.iErr) Function_Return oResult
+            If (sSQLFilter <> "") Send DDPAppendSQLFilter query.hoDD sSQLFilter
+        Loop
+
+        For iIndex from 0 to (SizeOfArray(query.aChilds) - 1)
+            Get DDPApplyFindConstraints query.aChilds[iIndex] to oResult
+            If (oResult.iErr) Function_Return oResult
+        Loop
+
+        Function_Return oResult
+    End_Function
+
+    // Prepares and validates a Classic find. The multi-field constraint, the cursor and the "or"/"and"
+    // groups are root-table only; each is ANDed onto the root DD's SQL filter.
+    Function DDPPrepareFind tDDPTableQuery query Returns tDDPBuilderResult
+        tDDPBuilderResult oResult
+        String sSQLFilter sCursorFilter
+        Integer iGroup
+
+        // Before any SQL filter is set, so the filters can't hide the cursor row.
+        Get DDPCursorFilter query (&sCursorFilter) to oResult
+        If (oResult.iErr) Function_Return oResult
+
+        Get QueryLinkUp query to oResult
+        If (oResult.iErr) Function_Return oResult
+
+        Send DDPRebuildFindConstraints query
+        Get DDPApplyFindConstraints query to oResult
+        If (oResult.iErr) Function_Return oResult
+
+        Get DDPSQLIndexFilter query.hoDD query.hoDD query.oIndexConstrain (&sSQLFilter) to oResult
+        If (oResult.iErr) Function_Return oResult
+        If (sSQLFilter <> "") Send DDPAppendSQLFilter query.hoDD sSQLFilter
+        If (sCursorFilter <> "") Send DDPAppendSQLFilter query.hoDD sCursorFilter
+
+        For iGroup from 0 to (SizeOfArray(query.aGroups) - 1)
+            Get DDPSQLGroupFilter query.hoDD query.aGroups[iGroup] (&sSQLFilter) to oResult
+            If (oResult.iErr) Function_Return oResult
+            Send DDPAppendSQLFilter query.hoDD sSQLFilter
+        Loop
+        Function_Return oResult
+    End_Function
+
+    // Appends a Classic query directly into its caller-owned JSON destination.
+    { Visibility = Private }
+    Function DDPAppendQueryJson tDDPTableQuery query Integer eStyle Handle hoScopeDD RowID riScope Handle hoJson Handle hoSeen Boolean bFieldsOnly Returns tDDPBuilderResult
+        tDDPBuilderResult oResult
+        tDDPTableQuery childQuery
+        tDDPTableQuery[] aEmptyChildQueries aOutputParents
+        tDDPSerializedField[] aFields
+        tDDPSerializedField[][] aParentFields
+        Handle hFile hParentFile hoMain hoRow hoParentJson hoChildJson
+        Handle[] ahParents ahChilds aParentSeenSets aChildSeenSets
+        Integer iIndex iFindMode iNextMode iOffset iCollected iParent iChild
+        tDDPOrder[] aOrder
+        RowID riCurrent riParent
+        String sRootName sRowId
+        String[] aParentNames aChildNames
+        Boolean bFlatRoot bFlatLinked bFailed bEmit bRootPresent bParentPresent
+        Boolean bIndexCreated bBackward bFound
+
+        Move (eStyle = DDPStyle_FlatLinked) to bFlatLinked
+        Move ((eStyle <> DDPStyle_Nested) and hoScopeDD = 0 and not(bFieldsOnly)) to bFlatRoot
+        Move 0 to iCollected
+        Move False to bFailed
+        Move False to bIndexCreated
+        If (hoScopeDD <> 0 and IsNullRowID(riScope)) Function_Return oResult
+
+        If (bFlatLinked or bFieldsOnly) ;
+            Get DDPSerializedFields query True to aFields
+        Else ;
+            Get DDPSerializedFields query False to aFields
+
+        If (not(bFieldsOnly)) Begin
+            // The flat styles list every parent table, also the parents of parents; their buffers
+            // are read with the row through the DDO_Server chain set up by QueryLinkUp.
+            If bFlatRoot Send DDPCollectParentQueries query (&aOutputParents)
+            Else Move query.aParents to aOutputParents
+            For iParent from 0 to (SizeOfArray(aOutputParents) - 1)
+                Move (NameOfDD(Self, aOutputParents[iParent].hoDD)) to aParentNames[-1]
+                If bFlatLinked ;
+                    Get DDPSerializedFields aOutputParents[iParent] True to aParentFields[-1]
+                Else ;
+                    Get DDPSerializedFields aOutputParents[iParent] False to aParentFields[-1]
+            Loop
+            For iChild from 0 to (SizeOfArray(query.aChilds) - 1)
+                Move (NameOfDD(Self, query.aChilds[iChild].hoDD)) to aChildNames[-1]
+            Loop
+        End
+
+        If (bFlatRoot and not(bFailed)) Begin
+            Get Create (RefClass(cJsonObject)) to hoMain
+            If (hoMain <> 0 and not(Err)) Send InitializeJsonType of hoMain jsonTypeArray
+            If (hoMain = 0 or Err) Begin
+                Move (DDPError(Self, DDPERR_FIND_FAILED, DDPErrorText(Self, "JSON response construction failed."))) to oResult
+                Move True to bFailed
+            End
+            For iParent from 0 to (SizeOfArray(aParentNames) - 1)
+                If (not(bFailed)) Begin
+                    Get Create (RefClass(cJsonObject)) to hoParentJson
+                    If (hoParentJson <> 0 and not(Err)) ;
+                        Send InitializeJsonType of hoParentJson jsonTypeArray
+                    If (hoParentJson = 0 or Err) Begin
+                        Move (DDPError(Self, DDPERR_FIND_FAILED, DDPErrorText(Self, "JSON response construction failed."))) to oResult
+                        Move True to bFailed
+                    End
+                    Else Begin
+                        Move hoParentJson to ahParents[-1]
+                        Move 0 to hoParentJson
+                        If bFlatLinked Begin
+                            Get Create (RefClass(cJsonObject)) to hoParentJson
+                            If (hoParentJson <> 0 and not(Err)) ;
+                                Send InitializeJsonType of hoParentJson jsonTypeObject
+                            If (hoParentJson = 0 or Err) Begin
+                                Move (DDPError(Self, DDPERR_FIND_FAILED, DDPErrorText(Self, "JSON response construction failed."))) to oResult
+                                Move True to bFailed
+                            End
+                            Else Begin
+                                Move hoParentJson to aParentSeenSets[-1]
+                                Move 0 to hoParentJson
+                            End
+                        End
+                    End
+                End
+                If bFailed Break
+            Loop
+            For iChild from 0 to (SizeOfArray(aChildNames) - 1)
+                If (not(bFailed)) Begin
+                    Get Create (RefClass(cJsonObject)) to hoChildJson
+                    If (hoChildJson <> 0 and not(Err)) ;
+                        Send InitializeJsonType of hoChildJson jsonTypeArray
+                    If (hoChildJson = 0 or Err) Begin
+                        Move (DDPError(Self, DDPERR_FIND_FAILED, DDPErrorText(Self, "JSON response construction failed."))) to oResult
+                        Move True to bFailed
+                    End
+                    Else Begin
+                        Move hoChildJson to ahChilds[-1]
+                        Move 0 to hoChildJson
+                        If bFlatLinked Begin
+                            Get Create (RefClass(cJsonObject)) to hoChildJson
+                            If (hoChildJson <> 0 and not(Err)) ;
+                                Send InitializeJsonType of hoChildJson jsonTypeObject
+                            If (hoChildJson = 0 or Err) Begin
+                                Move (DDPError(Self, DDPERR_FIND_FAILED, DDPErrorText(Self, "JSON response construction failed."))) to oResult
+                                Move True to bFailed
+                            End
+                            Else Begin
+                                Move hoChildJson to aChildSeenSets[-1]
+                                Move 0 to hoChildJson
+                            End
+                        End
+                    End
+                End
+                If bFailed Break
+            Loop
+        End
+
+        If (not(bFailed) and not(bFieldsOnly) and (SizeOfArray(aParentNames) > 0)) ;
+            Get Create (RefClass(cJsonObject)) to hoParentJson
+        If (not(bFailed)) Get Create (RefClass(cJsonObject)) to hoRow
+        If (Err and not(bFailed)) Begin
+            Move (DDPError(Self, DDPERR_FIND_FAILED, DDPErrorText(Self, "JSON response construction failed."))) to oResult
+            Move True to bFailed
+        End
+
+        Get Main_File of query.hoDD to hFile
+        If (not(bFailed)) Begin
+            // A cursor "lt" reads backwards from the cursor row, so the nearest rows come first.
+            Get DDPFindOrder query to aOrder
+            Move (query.eCursorMode = DDPFind_LT) to bBackward
+            Get CreateIndex query.hoDD aOrder query.aConstrains query.iLimit query.iOffset to iIndex
+            Move True to bIndexCreated
+
+            Send Clear of query.hoDD
+            Send Set_Constrains_To_Buffers query aOrder bBackward
+            // DataFlex find modes are DDPFind_* - 1 (LT 0, LE 1, GE 3). The LT/LE/GE symbols can't be
+            // used here: they are command-argument replacements, not values.
+            Move (If(bBackward, DDPFind_LE - 1, DDPFind_GE - 1)) to iFindMode
+            Move (If(bBackward, DDPFind_LT - 1, NEXT_RECORD)) to iNextMode
+            Move False to Err
+            // Request_Read reads the row (and its related parents) without making it the DD's current
+            // record, so HasRecord stays False: the loops below test Found after every read.
+            Send DDPRequestRead query.hoDD iFindMode hFile iIndex
+            Move (Found) to bFound
+            If Err Begin
+                Move (DDPError(Self, DDPERR_FIND_FAILED, DDPErrorText(Self, "Find failed."))) to oResult
+                Move True to bFailed
+            End
+        End
+
+        Move query.iOffset to iOffset
+        While (not(bFailed) and bFound and iOffset)
+            Decrement iOffset
+            Move False to Err
+            Send DDPRequestRead query.hoDD iNextMode hFile iIndex
+            Move (Found) to bFound
+            If Err Begin
+                Move (DDPError(Self, DDPERR_FIND_FAILED, DDPErrorText(Self, "Find failed."))) to oResult
+                Move True to bFailed
+            End
+        Loop
+
+        While (not(bFailed) and bFound and ;
+            (query.iLimit = 0 or iCollected < query.iLimit))
+            Get DDPCurrentRowID query.hoDD hFile to riCurrent
+            Move (not(IsNullRowID(riCurrent))) to bRootPresent
+            Move True to bEmit
+
+            Move False to Err
+            If (hoSeen <> 0) Begin
+                If (not(bRootPresent)) Begin
+                    Move False to bEmit
+                End
+                Else Begin
+                    Move (SerializeRowID(riCurrent)) to sRowId
+                    If (HasMember(hoSeen, sRowId)) Begin
+                        Move False to bEmit
+                    End
+                    Else Begin
+                        Send SetMemberValue of hoSeen sRowId jsonTypeBoolean True
+                    End
+                End
+            End
+            If Err Begin
+                Move (DDPError(Self, DDPERR_FIND_FAILED, DDPErrorText(Self, "JSON response construction failed."))) to oResult
+                Move True to bFailed
+            End
+
+            If (bEmit and not(bFailed)) Begin
+                Move False to Err
+                Send InitializeJsonType of hoRow jsonTypeObject
+                If bRootPresent ;
+                    Send DDPSerializeFieldsToJson hoRow query.hoDD aFields
+                If Err Begin
+                    Move (DDPError(Self, DDPERR_FIND_FAILED, DDPErrorText(Self, "JSON response construction failed."))) to oResult
+                    Move True to bFailed
+                End
+
+                If (not(bFailed) and not(bFieldsOnly)) Begin
+                    For iParent from 0 to (SizeOfArray(aParentNames) - 1)
+                        Get Main_File of aOutputParents[iParent].hoDD to hParentFile
+                        Get DDPCurrentRowID aOutputParents[iParent].hoDD hParentFile to riParent
+                        Move (not(IsNullRowID(riParent))) to bParentPresent
+
+                        If (bFlatRoot and bFlatLinked) Begin
+                            If bParentPresent Begin
+                                Move (SerializeRowID(riParent)) to sRowId
+                                If (not(HasMember(aParentSeenSets[iParent], sRowId))) Begin
+                                    Send SetMemberValue of aParentSeenSets[iParent] sRowId jsonTypeBoolean True
+                                    Send InitializeJsonType of hoParentJson jsonTypeObject
+                                    Send DDPSerializeFieldsToJson hoParentJson ;
+                                        aOutputParents[iParent].hoDD aParentFields[iParent]
+                                    If (not(Err)) Send AddMember of ahParents[iParent] hoParentJson
+                                End
+                            End
+                        End
+                        Else Begin
+                            Send InitializeJsonType of hoParentJson jsonTypeObject
+                            If bParentPresent ;
+                                Send DDPSerializeFieldsToJson hoParentJson ;
+                                    aOutputParents[iParent].hoDD aParentFields[iParent]
+                            If (not(Err)) Begin
+                                If bFlatRoot ;
+                                    Send AddMember of ahParents[iParent] hoParentJson
+                                Else ;
+                                    Send SetMember of hoRow aParentNames[iParent] hoParentJson
+                            End
+                        End
+                        If Err Begin
+                            Move (DDPError(Self, DDPERR_FIND_FAILED, DDPErrorText(Self, "JSON response construction failed."))) to oResult
+                            Move True to bFailed
+                            Break
+                        End
+                    Loop
+                End
+            End
+
+            If (not(bFailed) and bEmit and not(bFieldsOnly)) Begin
+                For iChild from 0 to (SizeOfArray(aChildNames) - 1)
+                    Move query.aChilds[iChild] to childQuery
+                    If (bFlatRoot and bFlatLinked) Begin
+                        Move 0 to childQuery.iLimit
+                        Move 0 to childQuery.iOffset
+                        Move aEmptyChildQueries to childQuery.aChilds
+                        Get DDPAppendQueryJson childQuery DDPStyle_FlatLinked query.hoDD riCurrent ;
+                            ahChilds[iChild] aChildSeenSets[iChild] True to oResult
+                    End
+                    Else Begin
+                        Get Create (RefClass(cJsonObject)) to hoChildJson
+                        If (hoChildJson <> 0 and not(Err)) Begin
+                            Send InitializeJsonType of hoChildJson jsonTypeArray
+                            If Err Begin
+                                Move (DDPError(Self, DDPERR_FIND_FAILED, DDPErrorText(Self, "JSON response construction failed."))) to oResult
+                            End
+                            Else ;
+                                Get DDPAppendQueryJson childQuery DDPStyle_Nested query.hoDD riCurrent ;
+                                    hoChildJson 0 False to oResult
+                            If (not(oResult.iErr) and not(Err)) Begin
+                                If bFlatRoot ;
+                                    Send AddMember of ahChilds[iChild] hoChildJson
+                                Else ;
+                                    Send SetMember of hoRow aChildNames[iChild] hoChildJson
+                            End
+                        End
+                        Else If (not(oResult.iErr)) Begin
+                            Move (DDPError(Self, DDPERR_FIND_FAILED, DDPErrorText(Self, "JSON response construction failed."))) to oResult
+                        End
+                        If (Err and not(oResult.iErr)) Begin
+                            Move (DDPError(Self, DDPERR_FIND_FAILED, DDPErrorText(Self, "JSON response construction failed."))) to oResult
+                        End
+                        If (hoChildJson <> 0) Send Destroy of hoChildJson
+                        Move 0 to hoChildJson
+                    End
+                    If (oResult.iErr) Begin
+                        Move True to bFailed
+                        Break
+                    End
+                    If Err Begin
+                        Move (DDPError(Self, DDPERR_FIND_FAILED, DDPErrorText(Self, "JSON response construction failed."))) to oResult
+                        Move True to bFailed
+                        Break
+                    End
+                Loop
+            End
+
+            If (not(bFailed) and bEmit) Begin
+                If bFlatRoot ;
+                    Send AddMember of hoMain hoRow
+                Else ;
+                    Send AddMember of hoJson hoRow
+                If Err Begin
+                    Move (DDPError(Self, DDPERR_FIND_FAILED, DDPErrorText(Self, "JSON response construction failed."))) to oResult
+                    Move True to bFailed
+                End
+            End
+
+            If (not(bFailed)) Begin
+                Increment iCollected
+                Move False to Err
+                Send DDPRequestRead query.hoDD iNextMode hFile iIndex
+                Move (Found) to bFound
+                If Err Begin
+                    Move (DDPError(Self, DDPERR_FIND_FAILED, DDPErrorText(Self, "Find failed."))) to oResult
+                    Move True to bFailed
+                End
+            End
+        Loop
+
+        If (not(bFailed) and bFlatRoot) Begin
+            Move query.sRequestedName to sRootName
+            If (sRootName = "") Move (NameOfDD(Self, query.hoDD)) to sRootName
+            Send SetMember of hoJson sRootName hoMain
+            For iParent from 0 to (SizeOfArray(aParentNames) - 1)
+                If (not(Err)) Send SetMember of hoJson aParentNames[iParent] ahParents[iParent]
+            Loop
+            For iChild from 0 to (SizeOfArray(aChildNames) - 1)
+                If (not(Err)) Send SetMember of hoJson aChildNames[iChild] ahChilds[iChild]
+            Loop
+            If Err Begin
+                Move (DDPError(Self, DDPERR_FIND_FAILED, DDPErrorText(Self, "JSON response construction failed."))) to oResult
+                Move True to bFailed
+            End
+        End
+
+        If (not(bFailed) and Err) Begin
+            Move (DDPError(Self, DDPERR_FIND_FAILED, DDPErrorText(Self, "JSON response construction failed."))) to oResult
+            Move True to bFailed
+        End
+
+        If bIndexCreated Send DeleteIndex query.hoDD iIndex
+        If (hoRow <> 0) Send Destroy of hoRow
+        If (hoParentJson <> 0) Send Destroy of hoParentJson
+        If (hoChildJson <> 0) Send Destroy of hoChildJson
+        If (hoMain <> 0) Send Destroy of hoMain
+        For iParent from 0 to (SizeOfArray(ahParents) - 1)
+            If (ahParents[iParent] <> 0) Send Destroy of ahParents[iParent]
+        Loop
+        For iChild from 0 to (SizeOfArray(ahChilds) - 1)
+            If (ahChilds[iChild] <> 0) Send Destroy of ahChilds[iChild]
+        Loop
+        For iParent from 0 to (SizeOfArray(aParentSeenSets) - 1)
+            If (aParentSeenSets[iParent] <> 0) Send Destroy of aParentSeenSets[iParent]
+        Loop
+        For iChild from 0 to (SizeOfArray(aChildSeenSets) - 1)
+            If (aChildSeenSets[iChild] <> 0) Send Destroy of aChildSeenSets[iChild]
+        Loop
+        Function_Return oResult
+    End_Function
+
+    // ---------------------------------------------------------------------------
+    // Save pipeline (POST /ddp/v1/save), see the shared part in cDDPBuilder.pkg.
+    // DDPPrepareSave fills the items as one DDO structure; DDPSaveMain saves the main DD (the last
+    // item) with Request_Save; see there.
+    // ---------------------------------------------------------------------------
+
+    // Executes a parsed /save body (array of save items) as one DDO save; see DDPPrepareSave and
+    // DDPSaveMain. hoResponse receives [{"<Table>": {record}}, ...] in item order; 0 on error
+    // (everything is rolled back).
+    // Classic transactions are a command block: an Error raised directly inside it rolls back and
+    // jumps to End_Transaction, skipping the rest of the block. So each step starts as failed and
+    // is only cleared when it completes; a returned failure is rolled back with Abort_Transaction.
+    Function DDPExecuteSave Handle hoItems Handle ByRef hoResponse Returns tDDPBuilderResult
+        tDDPSaveItem[] aItems
+        Integer[] aForeignNewStates
+        tDDPBuilderResult oResult oPending
+        Integer iItem iLast iTranCount
+        Boolean bSaved
+        Handle hoDD
+
+        Move 0 to hoResponse
+        Get DDPParseSaveItems hoItems (&aItems) to oResult
+        If (oResult.iErr) Function_Return oResult
+
+        Get DDPPrepareSave (&aItems) to oResult
+        If (not(oResult.iErr)) Begin
+            // A classic DD only creates a parent record during its child's save with
+            // Allow_Foreign_New_Save_State: allow it for the created items (restored below).
+            For iItem from 0 to (SizeOfArray(aItems) - 1)
+                Move aItems[iItem].oRecord.hoDD to hoDD
+                Get Allow_Foreign_New_Save_State of hoDD to aForeignNewStates[iItem]
+                If (aItems[iItem].bCreate) Set Allow_Foreign_New_Save_State of hoDD to True
+            Loop
+
+            Get Create (RefClass(cJsonObject)) to hoResponse
+            Send InitializeJsonType of hoResponse jsonTypeArray
+
+            // A validation or save Error jumps past End_Transaction, so it can't tell which one
+            // failed. sError stays empty: filled in with the DD error text after the transaction.
+            Move DDPERR_SAVE_FAILED to oPending.iErr
+            Move (SizeOfArray(aItems) - 1) to iLast
+            Move False to bSaved
+            Move False to Err
+            Begin_Transaction
+                Move oPending to oResult
+                Get DDPSaveMain aItems[iLast].oRecord.hoDD iLast to oResult
+                // Never continue outside the transaction: if it ended anyway, treat the save as failed.
+                Get_Attribute DF_TRAN_COUNT to iTranCount
+                If (not(oResult.iErr) and iTranCount = 0) Move oPending to oResult
+                If (not(oResult.iErr)) Begin
+                    Move True to bSaved
+                    Move oPending to oResult
+                    Get DDPSaveResponse (&aItems) hoResponse to oResult
+                End
+                Get_Attribute DF_TRAN_COUNT to iTranCount
+                If (oResult.iErr and iTranCount > 0) Abort_Transaction
+            End_Transaction
+
+            // An Error that jumped to End_Transaction left oResult at oPending.
+            If (oResult.iErr and oResult.sError = "") Begin
+                Move (DDPErrorText(Self, "Save failed.")) to oResult.sError
+                If (not(bSaved)) ;
+                    Move (SFormat("Save item %1: %2", iLast + 1, oResult.sError)) to oResult.sError
+            End
+            If (oResult.iErr) Begin
+                Send Destroy of hoResponse
+                Move 0 to hoResponse
+            End
+
+            For iItem from 0 to (SizeOfArray(aItems) - 1)
+                Set Allow_Foreign_New_Save_State of aItems[iItem].oRecord.hoDD to aForeignNewStates[iItem]
+            Loop
+        End
+
+        // Reset the buffers of every DD the request touched (same as DestroySaveQuery).
+        For iItem from 0 to (SizeOfArray(aItems) - 1)
+            Send DDPClearRelations aItems[iItem].oRecord.hoDD 0
+        Loop
+        Function_Return oResult
+    End_Function
+
+    // Creates the complete response object or array for the requested style.
+    Function DDPFetchJson tDDPTableQuery query Integer eStyle Handle ByRef hoJson Returns tDDPBuilderResult
+        tDDPBuilderResult oResult
+        Boolean bInitialized
+
+        Move 0 to hoJson
+        Move False to Err
+        Get Create (RefClass(cJsonObject)) to hoJson
+        If (hoJson <> 0) Begin
+            If (eStyle = DDPStyle_Nested) ;
+                Send InitializeJsonType of hoJson jsonTypeArray
+            Else ;
+                Send InitializeJsonType of hoJson jsonTypeObject
+        End
+        Move ((hoJson <> 0) and not(Err)) to bInitialized
+        If bInitialized Begin
+            Get DDPAppendQueryJson query eStyle 0 (NullRowID()) hoJson 0 False to oResult
+            If (Err and not(oResult.iErr)) Begin
+                Move (DDPError(Self, DDPERR_FIND_FAILED, DDPErrorText(Self, "JSON response construction failed."))) to oResult
+            End
+        End
+        Else Begin
+            Move (DDPError(Self, DDPERR_FIND_FAILED, DDPErrorText(Self, "JSON response construction failed."))) to oResult
+        End
+
+        If (oResult.iErr) Begin
+            If (hoJson <> 0) Send Destroy of hoJson
+            Move 0 to hoJson
+        End
+        Function_Return oResult
+    End_Function
+End_Class

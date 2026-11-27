@@ -48,5 +48,9 @@
 Web API Library/DfPkg
 Web API Sample/DfPkg
 Web API Library/AppHtml/WebUI
+Web API Library/UnitTest/AppHtml
+Web API Library/UnitTest/DfPkg
 *.inc
 Web API Sample/AppHtml/WebUI
+# JUnit output
+Web API Library/UnitTest/Data/JUnit/

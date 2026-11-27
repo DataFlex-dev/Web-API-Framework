@@ -1,0 +1,61 @@
+Use WebApi\cBaseRestDataset.pkg
+Use WebApi\DDP\Backends\IBackend.pkg
+
+// Handles GET /ddp/v1/schema — returns the full field schema for all exposed tables.
+// The response is a JSON object keyed by (lowercase) table name; each value is an
+// object mapping field names to their type as a lowercase string.
+// Use Delegate Get paDataDicts to reach the exposed-table list on the parent protocol.
+Class cDDPSchemaEndpoint is a cBaseRestDataset
+
+    Procedure Construct_Object
+        Forward Send Construct_Object
+
+        // Schema is GET-only; block all mutating verbs.
+        Set pbAllowCreate to False
+        Set pbAllowEdit to False
+        Set pbAllowDelete to False
+    End_Procedure
+
+
+    // GET /ddp/v1/schema
+    //
+    // Response:
+    // {
+    //   "customer":    { "Customer_Number": "integer", "Name": "string", ... },
+    //   "orderheader": { "Order_Number": "integer", "Order_Date": "date",  ... }
+    // }
+    { MethodType = Event }
+    Procedure OnHttpGet tWebApiCallContext ByRef webapicallcontext
+        tDDPDataDictPair[] aDataDicts
+        Handle hoTable hoDD
+        Integer iIndex iField iFieldCount eType iPrecision
+        String sFieldName sTypeStr
+
+        Get Create (RefClass(cJsonObject)) to webapicallcontext.hoResponseBody
+        Send InitializeJsonType of webapicallcontext.hoResponseBody jsonTypeObject
+
+        Delegate Get paDataDicts to aDataDicts
+
+        For iIndex from 0 to (SizeOfArray(aDataDicts) - 1)
+            Move aDataDicts[iIndex].hoDD to hoDD
+
+            Get Create (RefClass(cJsonObject)) to hoTable
+            Send InitializeJsonType of hoTable jsonTypeObject
+
+            Delegate Get FieldCount hoDD to iFieldCount
+            For iField from 1 to iFieldCount
+                Delegate Get FieldName hoDD iField to sFieldName
+                Delegate Get FieldType hoDD iField to eType
+                Delegate Get FieldPrecision hoDD iField to iPrecision
+                Delegate Get DDPTypeString eType iPrecision to sTypeStr
+                Send SetMemberValue of hoTable sFieldName jsonTypeString sTypeStr
+            Loop
+
+            Send SetMember of webapicallcontext.hoResponseBody aDataDicts[iIndex].sDisplayName hoTable
+            Send Destroy of hoTable
+        Loop
+
+        Move C_WEBAPI_OK to webapicallcontext.iStatusCode
+    End_Procedure
+
+End_Class

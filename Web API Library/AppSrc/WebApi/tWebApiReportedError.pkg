@@ -1,0 +1,6 @@
+// A DataFlex error reported through Error_Report during the current request.
+Struct tWebApiReportedError
+    Integer iNumber
+    Integer iLine
+    String sText
+End_Struct

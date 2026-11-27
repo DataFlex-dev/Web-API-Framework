@@ -1,0 +1,282 @@
+﻿Use UI
+Use WebApi\tWebApiCallContext.pkg
+Use WebApi\tWebApiReportedError.pkg
+
+Struct tDDPBuilderResult
+    { Name="err" }
+    Integer iErr
+    { Name="errtext" }
+    String sError
+End_Struct
+
+Enum_List
+    Define DDPERR_INVALID_FORMAT for 1
+    Define DDPERR_INVALID_TABLES
+    Define DDPERR_INVALID_MODE
+    Define DDPERR_INVALID_ORDER
+    Define DDPERR_INVALID_INDEX
+    Define DDPERR_INVALID_CONSTRAIN
+    Define DDPERR_INVALID_MAIN_TABLE
+    Define DDPERR_UNKOWN_TABLE
+    Define DDPERR_INVALID_LIMIT
+    Define DDPERR_INVALID_FIELDS
+    Define DDPERR_INVALID_FIELD
+    Define DDPERR_VALIDATION_FAILED
+    Define DDPERR_SAVE_FAILED
+    Define DDPERR_MISSING_KEY_FIELD
+    Define DDPERR_RECORD_NOT_FOUND
+    Define DDPERR_RECORD_CHANGED
+    Define DDPERR_DELETE_FAILED
+    Define DDPERR_UPDATE_FAILED
+    Define DDPERR_INVALID_OFFSET
+    Define DDPERR_FIND_FAILED
+    Define DDPERR_UNEXPECTED
+End_Enum_List
+
+// One DDP error response; passed to OnDDPError and LogDDPError.
+Struct tDDPErrorInfo
+    Integer iErr                            // DDPERR_* code
+    Boolean bShowDetail                     // True: the client gets sDetail; False: psGenericErrorMessage
+    Integer iStatusCode
+    String sTitle
+    String sDetail                          // full error text; always logged
+    String sReference                       // also in the generic client message
+    String sVerb
+    String sPath
+    tWebApiReportedError[] aReportedErrors  // DataFlex errors reported during the request
+End_Struct
+
+
+Struct tDDPDataDictPair
+    String sName         // lowercase — binary-search key for case-insensitive lookup
+    String sDisplayName  // original casing — used in all client-facing output
+    Handle hoDD
+End_Struct
+
+Enum_List
+    Define DDPFind_Auto for 0
+    Define DDPFind_LT
+    Define DDPFind_LE
+    Define DDPFind_EQ
+    Define DDPFind_GE
+    Define DDPFind_GT
+    Define DDPFind_NE
+    Define DDPFind_CONTAINS
+End_Enum_List
+
+Enum_List 
+    Define DDPOrder_ASC for Ascending
+    Define DDPOrder_DESC for Descending
+End_Enum_List
+
+Struct tDDPConstrain
+    Integer eMode
+    Handle hField
+    Variant[] aParams
+End_Struct
+
+// An "or"/"and" constraint group (DbMessage format), or one of its members. bGroup True: aMembers,
+// combined by bOr (any member matches) or AND (every member matches). bGroup False: the constraint
+// oConstrain on the table of hoDD. Members of one group may be on different tables.
+Struct tDDPConstrainGroup
+    Boolean bGroup
+    Boolean bOr
+    Handle hoDD
+    tDDPConstrain oConstrain
+    tDDPConstrainGroup[] aMembers
+End_Struct
+
+// One sort field. iSequence is its place in the overall sort order: the seq from the request
+// when given as {dir, seq} (bExplicit), otherwise where it appears in the request.
+Struct tDDPOrder
+    Handle hoDD
+    Handle hField
+    Integer eMode
+    Integer iSequence
+    Boolean bExplicit
+End_Struct
+
+Struct tDDPSerializedField
+    Integer iField
+    String sName
+    Integer eType
+    Integer eJsonType
+End_Struct
+
+// A multi-field (index) constraint: the rows after (GT/GE) or before (LT/LE) aValues in the order of
+// aFields, each field ascending or descending per aDirections. eMode DDPFind_Auto (0) = none. Root table only.
+Struct tDDPIndexConstrain
+    Integer eMode          // DDPFind_GT, DDPFind_GE, DDPFind_LT or DDPFind_LE
+    Integer[] aFields      // 1-based field numbers of the root table
+    String[] aValues       // values as sent, one per field
+    Integer[] aDirections  // DDPOrder_ASC or DDPOrder_DESC, one per field
+End_Struct
+
+Struct tDDPTableQuery
+    Handle hoDD
+    String sRequestedName
+    Handle hoParentDD
+    Integer iLimit
+    Integer iOffset
+    Integer eCursorMode   // DDPFind_GT: rows after the cursor row; DDPFind_LT: rows before it, nearest first. DDPFind_Auto (0): no cursor. Root table only.
+    String[] aCursorKey   // the cursor row's primary-key values as sent, in DDPPrimaryKeyFields order
+    tDDPIndexConstrain oIndexConstrain
+    tDDPConstrainGroup[] aGroups   // "or"/"and" groups (bGroup True), each ANDed with the other constraints. Root table only.
+    tDDPConstrain[] aConstrains
+    tDDPOrder[] aOrder
+    tDDPTableQuery[] aParents
+    tDDPTableQuery[] aChilds
+    Integer[] aFields
+End_Struct
+
+// Controls the response JSON shape.
+Enum_List
+    Define DDPStyle_Nested for 0
+    Define DDPStyle_Flat
+    Define DDPStyle_FlatLinked
+End_Enum_List
+
+// Parses a YYYY-MM-DD date into dValue. Returns False when sValue is not a valid date in that form.
+Function DDPParseISODate Global String sValue Date ByRef dValue Returns Boolean
+    Integer iPosition iYear iMonth iDay iMaxDay
+    String sCharacter
+
+    If (Length(sValue) <> 10 or Mid(sValue, 1, 5) <> "-" or Mid(sValue, 1, 8) <> "-") ;
+        Function_Return False
+
+    For iPosition from 1 to 10
+        If (iPosition <> 5 and iPosition <> 8) Begin
+            Move (Mid(sValue, 1, iPosition)) to sCharacter
+            If (Pos(sCharacter, "0123456789") = 0) Function_Return False
+        End
+    Loop
+
+    Move (Left(sValue, 4)) to iYear
+    Move (Mid(sValue, 2, 6)) to iMonth
+    Move (Right(sValue, 2)) to iDay
+    // Range check instead of Try/Catch around DateSet: the Windows compiler has no Try.
+    If (iYear < 1 or iMonth < 1 or iMonth > 12 or iDay < 1) Function_Return False
+    Move (Mid("312831303130313130313031", 2, (iMonth * 2) - 1)) to iMaxDay
+    If (iMonth = 2 and ((Mod(iYear, 4) = 0 and Mod(iYear, 100) <> 0) or Mod(iYear, 400) = 0)) Move 29 to iMaxDay
+    If (iDay > iMaxDay) Function_Return False
+    Move (DateSet(iYear, iMonth, iDay)) to dValue
+
+    Function_Return True
+End_Function
+
+
+// One field assignment for a store (create) operation.
+Struct tDDPSaveField
+    Handle hField
+    String sValue
+End_Struct
+
+// One record to store, plus nested child records to cascade after the parent is saved.
+// aChilds is flat — multiple records for the same child table appear as separate entries.
+Struct tDDPSaveRecord
+    Handle hoDD
+    tDDPSaveField[] aFields
+    tDDPSaveRecord[] aChilds
+End_Struct
+
+// Top-level wrapper for a store operation (mirrors tDDPQuery).
+Struct tDDPSaveQuery
+    tDDPSaveRecord oMain
+End_Struct
+
+// One item of a /save request: create or update one record of one table.
+Struct tDDPSaveItem
+    Boolean bCreate          // True: create, False: update
+    String sTable            // table name as sent; key of the response record
+    tDDPSaveRecord oRecord   // hoDD + field values (aChilds stays empty)
+End_Struct
+
+// One field value supplied for identifying or verifying a record during delete.
+// PK fields are used for the find; any additional fields are verified against the
+// found record to detect concurrent modifications (optimistic concurrency check).
+Struct tDDPDeleteField
+    Handle hField
+    String sValue
+End_Struct
+
+// Identifies one record to delete: PK fields for the find plus optional verification fields.
+Struct tDDPDeleteRecord
+    Handle hoDD
+    tDDPDeleteField[] aFields
+End_Struct
+
+// Top-level wrapper for a delete operation (mirrors tDDPQuery / tDDPSaveQuery).
+Struct tDDPDeleteQuery
+    tDDPDeleteRecord oMain
+End_Struct
+
+// One field value for an update operation. PK fields identify the record to find;
+// non-PK fields carry the new values to write.
+Struct tDDPUpdateField
+    Handle hField
+    String sValue
+End_Struct
+
+// All fields for an update in one flat list (PK + values to change).
+Struct tDDPUpdateRecord
+    Handle hoDD
+    tDDPUpdateField[] aFields
+End_Struct
+
+// Top-level wrapper for an update operation (mirrors tDDPDeleteQuery).
+Struct tDDPUpdateQuery
+    tDDPUpdateRecord oMain
+End_Struct
+
+Register_Function DDByName String sTable Returns Handle
+Register_Function DDByFile Handle hFile Returns Handle
+// CrossPlatform fieldcount starts at 0, Windows runtime starts at 1.
+Register_Function FieldCount Handle hoDD Returns Integer
+Register_Function FieldName Handle hoDD Integer iField Returns String
+Register_Function FieldType Handle hoDD Integer iField Returns Integer
+Register_Function FieldPrecision Handle hoDD Integer iField Returns Integer
+Register_Function FieldRelation Handle hoDD Handle hoParentDD Integer iField Integer ByRef iRelatedField Returns Boolean
+Register_Function DDPPrimaryKeyFields Handle hoDD Returns Integer[]
+Register_Function DDPTypeString Integer eType Integer iPrecision Returns String
+Register_Procedure DDPLink Handle hoDD Handle hoRelated Boolean bClient Boolean bConstrain
+Register_Procedure DDPClearRelations Handle hoDD Handle hoOptParentDD
+Register_Function DDPCurrentRowID Handle hoDD Handle hFile Returns RowID
+Register_Procedure DDPRequestRead Handle hoDD Integer eMode Handle hFile Integer iIndex
+Register_Procedure DDPRequestFind Handle hoDD Integer eMode Handle hFile Integer iIndex
+Register_Procedure DDPSetFieldValue Handle hoDD Handle hFile Integer iField String sValue
+Register_Procedure DDPSetChangedValue Handle hoDD Handle hFile Integer iField String sValue
+Register_Function DDPGetFieldValue Handle hoDD Handle hFile Integer iField Returns String
+// The name of the first table related to hoDD (a child with bChildren, otherwise a parent) that
+// the backend's DD layer requires for a write but that is not exposed; "" when there is none.
+Register_Function DDPUnexposedRelation Handle hoDD Boolean bChildren Returns String
+// Save hook: run a /save body in one transaction.
+Register_Function DDPExecuteSave Handle hoItems Handle ByRef hoResponse Returns tDDPBuilderResult
+// DDP query hooks.
+Register_Function QueryLinkUp tDDPTableQuery query Returns tDDPBuilderResult
+Register_Function AddConstrainsToCurrentSet Handle hoConstraintOwner tDDPTableQuery query tDDPTableQuery optParent Returns tDDPBuilderResult
+Register_Function DDPPrepareFind tDDPTableQuery query Returns tDDPBuilderResult
+Register_Function DDPSerializedFields tDDPTableQuery query Boolean bForceRelated Returns tDDPSerializedField[]
+Register_Function DDPFetchJson tDDPTableQuery query Integer eStyle Handle ByRef hoJson Returns tDDPBuilderResult
+// From cDDPBuilder_Mixin, also used by the backends.
+Register_Function DDPCompareOrderSequence tDDPOrder oLeft tDDPOrder oRight Returns Integer
+Register_Function DDPError Integer iErr String sError Returns tDDPBuilderResult
+Register_Function DDPErrorText String sFallback Returns String
+Register_Procedure DDPCollectParentQueries tDDPTableQuery query tDDPTableQuery[] ByRef aParents
+Register_Function ConstructSaveRecord String sDDName Handle hoJson tDDPSaveRecord ByRef record Returns tDDPBuilderResult
+Register_Function DDPParseSaveItems Handle hoItems tDDPSaveItem[] ByRef aItems Returns tDDPBuilderResult
+Register_Function DDPPrepareSave tDDPSaveItem[] ByRef aItems Returns tDDPBuilderResult
+Register_Function DDPSaveMain Handle hoDD Integer iItem Returns tDDPBuilderResult
+Register_Function DDPSaveResponse tDDPSaveItem[] ByRef aItems Handle hoResponse Returns tDDPBuilderResult
+// Protocol method called by the DDP endpoints, routers and the iterator.
+Register_Procedure HandleDDPError tWebApiCallContext ByRef webapicallcontext Integer iErr Integer iStatus String sTitle String sDetail
+// From cWebApiErrorHandler_Mixin; called on the cWebApi of the request.
+Register_Function WebApiReportedErrors Returns tWebApiReportedError[]
+Register_Function pbDebugMode Returns Boolean
+
+Class IDDP_Backend_Mixin is a Mixin
+    Procedure Define_DDP_Backend_Mixin
+    End_Procedure
+    
+    Procedure End_Define_DDP_Backend_Mixin
+    End_Procedure
+End_Class

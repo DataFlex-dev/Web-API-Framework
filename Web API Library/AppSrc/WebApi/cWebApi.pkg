@@ -99,6 +99,12 @@ Class cWebApi is a cWebHttpHandler
         Integer[] iIteratorClasses
         Integer iIndex iClass
         Handle hoCachedIterator
+        
+        // Handle iterators set or created by modifiers.
+        If (webapicallcontext.hoIterator) Begin
+            Procedure_Return
+        End
+        
 
         Get piIteratorClasses to iIteratorClasses
         Get pasIteratorTypes to sIteratorTypes
@@ -224,6 +230,7 @@ Class cWebApi is a cWebHttpHandler
         Boolean bUnexpectedError
 
         //Add all incoming data to the struct
+        Move Self to webapicallcontext.hoApi
         Move sPath to webapicallcontext.sPath
         Move sVerb to webapicallcontext.sVerb
         Move sContentType to webapicallcontext.sContentType
@@ -234,10 +241,7 @@ Class cWebApi is a cWebHttpHandler
 
         //Fire the OnHttpPreRequest event for developers to augment
         Send OnHttpPreRequest (&webapicallcontext)
-
-        //Get the iterator
-        Send GetIterator (&webapicallcontext)
-
+        
         //Add all modifiers defined on this level to the webapicallcontext struct
         Send AddModifiersToCallContext (&webapicallcontext)
 
@@ -258,7 +262,10 @@ Class cWebApi is a cWebHttpHandler
 
         //We fire all the pre modifiers before we fire the main logic
         Send FirePreModifierEvents (&webapicallcontext)
-
+        
+        //Get the iterator
+        Send GetIterator (&webapicallcontext)
+        
         //Either the router/dataset could not be found or we are not authenticated
         If (not(webapicallcontext.bErr)) Begin
             Send OnHttpRequest of webapicallcontext.hoDataset (&webapicallcontext)
@@ -270,7 +277,11 @@ Class cWebApi is a cWebHttpHandler
         If (webapicallcontext.bErr or bUnexpectedError) Begin
 
             //If we have a unexpected error we should write generic error information to webapicallcontext.
-            If (bUnexpectedError) Begin
+            // Only override to 500 when the endpoint has not already handled the error (bErr=False).
+            // When bErr=True the endpoint set its own status code; the DataFlex error system firing
+            // through Error_Report is a side-effect of DD validation (e.g. Data_set_Error) and has
+            // already been caught by the endpoint's return-value check.
+            If (bUnexpectedError and not(webapicallcontext.bErr)) Begin
                 Get HttpErrorMessage to webapicallcontext.sErrorMessage
                 Move 500 to webapicallcontext.iStatusCode
             End

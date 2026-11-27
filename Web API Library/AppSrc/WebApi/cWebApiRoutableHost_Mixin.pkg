@@ -23,8 +23,13 @@ Class cWebApiRoutableHost_Mixin is a Mixin
 
         //Retrieve the name of the dataset
         Get psPath of hoRoutable to sRoutableName
-
-        //If the array is empty we can just insert it
+        
+        If (SizeOfString(sRoutableName) = 0) Begin
+            Error DFERR_PROGRAM (SFormat("Cannot have empty psPaths."))
+            Procedure_Return
+        End
+        
+        //If the array is empty we can just insert it 
         Move (BinarySearchArray(sRoutableName, asRoutables)) to iIndex
 
         //If we find something it means we have a duplicate routable

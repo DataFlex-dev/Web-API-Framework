@@ -1,5 +1,5 @@
 #REPLACE FILE265 WebAppServerProps
-#REPLACE WebAppServerProps.Recnum |FN265,0
+#REPLACE WebAppServerProps.File_Number |CI265
 #REPLACE WebAppServerProps.Key |FS265,1
 #REPLACE WebAppServerProps.CreateDate |FD265,2
 #REPLACE WebAppServerProps.CreateTime |FS265,3

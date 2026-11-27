@@ -12,6 +12,7 @@
         Send Find of hoServer EQ 1
     End_Procedure
 
+
     //Helper function to retrieve the server related field
     Function RetrieveServerRelatedField Returns Integer
         Handle hoDD hoServer

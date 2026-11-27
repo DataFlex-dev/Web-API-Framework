@@ -1,0 +1,74 @@
+Use WebApi\DDP\v1\cDDPMutationEndpoint.pkg
+Use WebApi\DDP\cDDPBuilder.pkg
+
+// Handles POST /ddp/v1/delete — deletes a record identified by the request body.
+// POST is used instead of DELETE because many HTTP clients do not support a
+// request body on DELETE. The body is either a single delete-object or a JSON
+// array of delete-objects. Each delete-object is a JSON object with exactly one
+// top-level key (the table name) whose value maps field names to values.
+// PK fields identify the record; any additional fields act as a precondition
+// (optimistic concurrency — mismatch returns 409).
+Class cDDPDeleteEndpoint is a cDDPMutationEndpoint
+
+    Procedure Construct_Object
+        Forward Send Construct_Object
+
+        // Delete is POST-only; the record to remove is identified by the body.
+        Set pbAllowRead to False
+        Set pbAllowEdit to False
+        Set pbAllowDelete to False
+    End_Procedure
+
+    // POST /ddp/v1/delete — delete one or more records.
+    //
+    // Single record (PK only):
+    //   { "Customer": { "Customer_Number": 42 } }
+    //
+    // Single record with verification fields:
+    //   { "Customer": { "Customer_Number": 42, "Name": "Acme Corp" } }
+    //
+    // Array of records:
+    //   [ { "Customer": { "Customer_Number": 42 } }, { "Customer": { "Customer_Number": 43 } } ]
+    //
+    // Response: 200 with a snapshot of the deleted record(s).
+    { MethodType = Event }
+    Procedure OnHttpPost tWebApiCallContext ByRef webapicallcontext
+        Send ProcessMutation (&webapicallcontext) C_WEBAPI_OK
+    End_Procedure
+
+    Function ExecuteRecord String sTable Handle hoTableJson Handle ByRef hoRecord Boolean ByRef bInvalidRequest Returns tDDPBuilderResult
+        tDDPBuilderResult oResult
+        tDDPDeleteQuery oQuery
+
+        Delegate Get ConstructDeleteScenario sTable hoTableJson (&oQuery) to oResult
+        Move (oResult.iErr <> 0) to bInvalidRequest
+        If (not(bInvalidRequest)) Delegate Get ExecuteDelete oQuery (&hoRecord) to oResult
+        Delegate Send DestroyDeleteQuery oQuery.oMain.hoDD
+        Function_Return oResult
+    End_Function
+
+    Procedure MapExecuteError Integer iErr Integer ByRef iStatus String ByRef sTitle
+        Case Begin
+            Case (iErr = DDPERR_RECORD_NOT_FOUND)
+                Move C_WEBAPI_NOTFOUND to iStatus
+                Move "Not Found" to sTitle
+                Case Break
+            Case (iErr = DDPERR_RECORD_CHANGED)
+                Move 409 to iStatus
+                Move "Record Changed" to sTitle
+                Case Break
+            Case (iErr = DDPERR_MISSING_KEY_FIELD)
+                Move C_WEBAPI_NOTALLOWED to iStatus
+                Move "Missing key field" to sTitle
+                Case Break
+            Case (iErr = DDPERR_VALIDATION_FAILED)
+                Move 422 to iStatus
+                Move "Validation Error" to sTitle
+                Case Break
+            Case Else
+                Move 422 to iStatus
+                Move "Delete Error" to sTitle
+        Case End
+    End_Procedure
+
+End_Class

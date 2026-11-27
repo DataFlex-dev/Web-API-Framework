@@ -1,0 +1,131 @@
+﻿Use WebApi\DDP\v1\cDDPEndpoint.pkg
+
+// Handles POST /ddp/v1/query - executes a DDP query described by the JSON request body.
+// Builder and backend logic live on the parent cWebAPIDataDictionaryProtocol object;
+// Delegate Send/Get walks up the parent chain to reach them without explicit wiring.
+Class cDDPQueryEndpoint is a cDDPEndpoint
+
+    Procedure Construct_Object
+        Forward Send Construct_Object
+
+        // Query is POST-only; suppress the other verbs.
+        Set pbAllowRead to False
+        Set pbAllowEdit to False
+        Set pbAllowDelete to False
+    End_Procedure
+
+
+    // POST /ddp/v1/query
+    //
+    // The DDPFormat header selects the body format through the protocol's request parsers
+    // (see DDPRequestParser):
+    //   Legacy    - top-level keys are table names, values are table query objects
+    //               (default; see DataDictionaryProtocol.md)
+    //   DbMessage - one structured query object (see DataDictionaryProtocol.md)
+    // The DDPStyle header controls the response shape:
+    //   nested     - related tables embedded inside each row (default)
+    //   flat       - positionally-aligned parallel arrays
+    //   flatlinked - deduplicated parallel arrays joined by FK fields
+    { MethodType = Event }
+    Procedure OnHttpPost tWebApiCallContext ByRef webapicallcontext
+        String sStyle sDDPFormat
+        Integer iIndex
+        tDDPBuilderContext ctx
+        tDDPBuilderResult oResult
+        Handle hoParser hoQueryResult hoMainDD
+        tDDPQuery[] aQueries
+
+
+        // Read the DDPStyle header; absent means nested.
+        Move "" to sStyle
+        Get HttpRequestHeader "DDPStyle" to sStyle
+        Move (Replaces(Character(0), sStyle, "")) to sStyle
+        If (sStyle = "flat") Begin
+            Move DDPStyle_Flat to ctx.eStyle
+        End
+        Else If (sStyle = "flatlinked") Begin
+            Move DDPStyle_FlatLinked to ctx.eStyle
+        End
+        Else If (sStyle = "nested" or sStyle = "") Begin
+            Move DDPStyle_Nested to ctx.eStyle
+        End
+        Else Begin
+            Delegate Send HandleDDPError (&webapicallcontext) DDPERR_INVALID_FORMAT C_WEBAPI_NOTALLOWED "Invalid style" (SFormat("Invalid DDPStyle '%1'.", sStyle))
+            Procedure_Return
+        End
+
+        // Read the DDPFormat header; absent means Legacy.
+        Move "" to sDDPFormat
+        Get HttpRequestHeader "DDPFormat" to sDDPFormat
+        Move (Replaces(Character(0), sDDPFormat, "")) to sDDPFormat
+        Delegate Get DDPRequestParser sDDPFormat to hoParser
+        If (hoParser = 0) Begin
+            Delegate Send HandleDDPError (&webapicallcontext) DDPERR_INVALID_FORMAT C_WEBAPI_NOTALLOWED "Invalid format" (SFormat("Invalid DDPFormat '%1'.", sDDPFormat))
+            Procedure_Return
+        End
+
+        // Parse the request body; the root must be a JSON object.
+        If (not(ReadJsonBody(Self, &webapicallcontext, False))) Procedure_Return
+
+        // Parse every root query before any DD is touched.
+        Get ParseQueryRequest of hoParser oJson (&aQueries) to oResult
+        If (oResult.iErr) Begin
+            Delegate Send HandleDDPError (&webapicallcontext) oResult.iErr C_WEBAPI_NOTALLOWED "Not Allowed" oResult.sError
+            Procedure_Return
+        End
+
+        // Flat and flatlinked require exactly one top-level table because their
+        // positional/deduplicated arrays are undefined for multiple root tables.
+        If (ctx.eStyle <> DDPStyle_Nested and SizeOfArray(aQueries) > 1) Begin
+            Delegate Send HandleDDPError (&webapicallcontext) DDPERR_INVALID_MAIN_TABLE C_WEBAPI_NOTALLOWED "Cannot have multiple mainDDs in flattened style" ""
+            Procedure_Return
+        End
+
+        Get Create (RefClass(cJsonObject)) to webapicallcontext.hoResponseBody
+        Send InitializeJsonType of webapicallcontext.hoResponseBody jsonTypeObject
+
+        // Prepare and execute every root query in request order.
+        For iIndex from 0 to (SizeOfArray(aQueries) - 1)
+            Move aQueries[iIndex].oMain.hoDD to hoMainDD
+
+            // DDPPrepareFind and Execute* live on cWebAPIDataDictionaryProtocol;
+            // Delegate walks up the parent chain to find and call them there.
+            Delegate Get DDPPrepareFind aQueries[iIndex].oMain to oResult
+            If (oResult.iErr) Begin
+                Delegate Send DestroyQuery hoMainDD
+                Delegate Send HandleDDPError (&webapicallcontext) oResult.iErr C_WEBAPI_NOTALLOWED "Not Allowed" oResult.sError
+                Procedure_Return
+            End
+
+            // Execute every response style through the backend JSON boundary.
+            If (ctx.eStyle = DDPStyle_Nested) Begin
+                Delegate Get ExecuteFind (&ctx) aQueries[iIndex] (&hoQueryResult) to oResult
+            End
+            Else Begin
+                Delegate Get ExecuteFind (&ctx) aQueries[iIndex] (&webapicallcontext.hoResponseBody) to oResult
+            End
+            If (ctx.eStyle = DDPStyle_Nested and not(oResult.iErr)) Begin
+                Send SetMember of webapicallcontext.hoResponseBody aQueries[iIndex].oMain.sRequestedName hoQueryResult
+                Send Destroy of hoQueryResult
+                Move 0 to hoQueryResult
+            End
+            If (oResult.iErr or Err) Begin
+                If (hoQueryResult <> 0) Begin
+                    Send Destroy of hoQueryResult
+                    Move 0 to hoQueryResult
+                End
+                Delegate Send DestroyQuery hoMainDD
+                Delegate Send HandleDDPError (&webapicallcontext) (If(oResult.iErr, oResult.iErr, DDPERR_FIND_FAILED)) C_WEBAPI_NOTALLOWED "Not Allowed" ;
+                    (If(oResult.iErr, oResult.sError, "JSON response construction failed."))
+                Procedure_Return
+            End
+
+            Delegate Send DestroyQuery hoMainDD
+            // Reset per-iteration state so stale values don't leak into the next iteration.
+            Move 0 to hoQueryResult
+        Loop
+
+        Move 200 to webapicallcontext.iStatusCode
+    End_Procedure
+
+End_Class
