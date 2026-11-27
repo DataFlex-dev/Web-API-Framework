@@ -6,7 +6,7 @@
         Move jsonTypeNull to eJsonType
 
         Case Begin
-            Case (eDataType = typeASCII or eDataType = typeDate or eDataType = DF_TEXT)
+            Case (eDataType = typeASCII or eDataType = typeDate or eDataType = DF_TEXT or eDataType = typeDateTime)
                 Move jsonTypeString to eJsonType
                 Case Break
             Case (eDataType = DF_BCD)
