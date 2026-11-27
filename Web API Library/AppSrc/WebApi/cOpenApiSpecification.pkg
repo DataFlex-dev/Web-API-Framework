@@ -12,10 +12,13 @@ Use WebApi\Windows\cOpenApiCompatibility_Mixin.pkg
 Use cWebHttpHandler.pkg
 #ENDIF
 
-Struct oneOf
-    String title
-    String const
-    String description
+Struct tOneOf
+    { Name="title" }
+    String sTitle
+    { Name="const" }
+    String sConst
+    { Name="description" }
+    String sDescription
 End_Struct
 
 Class cOpenApiSpecification is a cObject
@@ -1289,16 +1292,16 @@ Class cOpenApiSpecification is a cObject
     { Visibility = Private }
     Procedure AddValidationTableToField Handle hoFieldJson Variant[][] avValidationTable
          Handle hoOneOfJson
-         oneOf[] oneOf
+         tOneOf[] oneOf
          Integer iIndex
 
          Get Create (RefClass(cJsonObject)) to hoOneOfJson
 
          //Start putting the validation table inside of the struct so we can make use of DataTypeToJson
          For iIndex from 0 to (SizeOfArray(avValidationTable)-1)
-            Move avValidationTable[iIndex][0] to oneOf[iIndex].const
-            Move avValidationTable[iIndex][0] to oneOf[iIndex].title
-            Move avValidationTable[iIndex][1] to oneOf[iIndex].description
+            Move avValidationTable[iIndex][0] to oneOf[iIndex].sConst
+            Move avValidationTable[iIndex][0] to oneOf[iIndex].sTitle
+            Move avValidationTable[iIndex][1] to oneOf[iIndex].sDescription
          Loop
 
          Send DataTypeToJson of hoOneOfJson oneOf
