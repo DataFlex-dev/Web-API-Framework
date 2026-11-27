@@ -29,7 +29,6 @@
   - [4.6 cWebApiLoginEndpoint](#46-cwebapiloginendpoint)
   - [4.7 cOpenApiEndpoint](#47-copenapiendpoint)
   - [4.8 cRestField](#48-crestfield)
-  - [4.9 cOpenApiRestField](#49-copenapirestfield)
   - [4.10 cRestChildCollection](#410-crestchildcollection)
   - [4.11 cRestEntity](#411-crestentity)
   - [4.12 cWebApiModifier](#412-cwebapimodifier)
@@ -918,7 +917,6 @@ The components below are grouped by the role they play in the framework. Start w
 **Fields and relationships**
 
 - [cRestField](#48-crestfield) — Exposes an individual database or calculated field.
-- [cOpenApiRestField](#49-copenapirestfield) — Supplies OpenAPI metadata for a custom field.
 - [cRestChildCollection](#410-crestchildcollection) — Exposes related child records.
 - [cRestEntity](#411-crestentity) — Exposes related parent-table data.
 
@@ -1403,7 +1401,7 @@ This is a endpoint that only exposes the OpenApi specification. The cSwaggerUI c
 
 **Extends:** `cObject`, `cBaseDEO_Mixin`, [cWebApiDDCompatibility_Mixin](#421-runtime-compatibility-mixins), [cRestFieldCompatibility_Mixin](#421-runtime-compatibility-mixins)
 
-**See also:** [cRestDataset](#44-crestdataset), [cRestEntity](#411-crestentity), [cRestChildCollection](#410-crestchildcollection), [cOpenApiRestField](#49-copenapirestfield)
+**See also:** [cRestDataset](#44-crestdataset), [cRestEntity](#411-crestentity), [cRestChildCollection](#410-crestchildcollection)
 
 **Overview:**
 
@@ -1475,54 +1473,6 @@ End_Object
 | IsFilterable | Returns `False` when `pbFilterable` is `False`. A data-aware field must also be part of an index reported by the runtime-specific DD compatibility layer. | Boolean |  |
 | IsRequired | Returns the DD `DD_Required` option for data-aware fields, falling back to `pbRequired`. | Boolean |  |
 | Construct_Object | Framework lifecycle procedure called during object construction. Do not call directly. |  |  |
-
-### 4.9 cOpenApiRestField
-
-**Purpose:** Supplies OpenAPI metadata for a calculated or otherwise custom REST field.
-
-**Use when:** A field needs custom behavior while its OpenAPI representation is being generated.
-
-**Extends:** [cRestField](#48-crestfield)
-
-**See also:** [cRestField](#48-crestfield), [cOpenApiSpecification](#422-copenapispecification)
-
-**Overview:**
-
-Subclass of the cRestField. It's only purpose is returning the OpenApi specification inside of its OnSetCalculatedValue.
-
-#### Properties
-
-| Property | Type | Description | Inherited from |
-| --- | --- | --- | --- |
-| pbFilterable | Boolean | This property determines if this field can be filtered through query parameters. | [cRestField](#48-crestfield) |
-| pbReadOnly | Boolean | Read only fields are only retrieved during GET requests and are omitted during other types of requests. | [cRestField](#48-crestfield) |
-| pbWriteOnly | Boolean | Write only fields are only used inside of POST, PUT and PATCH requests but are never returned in the response body. | [cRestField](#48-crestfield) |
-| pbRequired | Boolean | This property determines if the field is required in the request body. This is used in the OpenApi specification. | [cRestField](#48-crestfield) |
-| pbShowDuringGetAll | Boolean | This property determines if the field will be shown during a GET all. Allows developers to have less detail during a GET all compared to a GET of a specific record. | [cRestField](#48-crestfield) |
-| psFieldName | String | The name of the field is shown in the response body. | [cRestField](#48-crestfield) |
-| peFieldType | Integer | This property determines the field type of the current field. | [cRestField](#48-crestfield) |
-| piPrecision | Integer | Precision used for numeric field metadata. Set it explicitly on the cross-platform runtime when needed. | [cRestField](#48-crestfield) |
-| psExampleValue | String | This property determines what the example value is for the field. This will be shown in the OpenApi specification. | [cRestField](#48-crestfield) |
-
-
-#### Procedures/Functions
-
-| Procedure/Function | Description | Return type | Inherited from |
-| --- | --- | --- | --- |
-| Construct_Object | Framework lifecycle procedure called during object construction. Do not call directly. |  |  |
-| OnSetCalculatedValue | Sets the value of a calculated field while generating the OpenAPI response. |  |  |
-| AppendToBody | This procedure appends data to the response body. It does this in combination with the appropriate iterator. Params:<br>- Handle hoIterator: The iterator to use. The iterator is responsible for putting the value of the current field inside of a response body.<br>- Handle hoResponseBody: The response body that is eventually sent back to the client. |  | [cRestField](#48-crestfield) |
-| SetFieldGlobalValue | Sets the field value used for finds. The traditional Windows runtime writes the global record buffer; the cross-platform runtime forwards to `SetFieldLocalValue` because global buffers are not available. Params:<br>- String sValue: The value to set. |  | [cRestField](#48-crestfield) |
-| SetFieldLocalValue | Changes the local DD field value for POST, PUT, and PATCH requests. Params:<br>- String sValue: The value to set. |  | [cRestField](#48-crestfield) |
-| AddConstrain | Adds a runtime-appropriate constraint to a data-aware field. Params:<br>- String sConstrain: The value to constrain.<br>- String sFilterType: `GE`, `GT`, `LT`, or `LE`; other values fall back to `EQ`. |  | [cRestField](#48-crestfield) |
-| IsKeyField | Checks if the current field is linked to the tables primary key. Returns true if this is the case otherwise returns false. | Boolean | [cRestField](#48-crestfield) |
-| FieldValue | Retrieves the current value of the field. | String | [cRestField](#48-crestfield) |
-| FieldName | Retrieves the name of the field. If psFieldName is set this will be used and is absolute. If it is not set and the field is data aware it will retrieve the field name from the table. | String | [cRestField](#48-crestfield) |
-| FieldType | Retrieves the type of the field. For data aware fields this returns the field type from the table. For non data aware fields this returns peFieldType. | Integer | [cRestField](#48-crestfield) |
-| FieldHelp | Retrieves the help information for the current field. If psExampleValue is set this will be absolute. For data aware fields the File_Field_Status_Help is called from the data dictionary. | String | [cRestField](#48-crestfield) |
-| FieldValidationTable | Returns the field validation table on the traditional Windows runtime and an empty array on the cross-platform runtime. | Variant[][2] | [cRestField](#48-crestfield) |
-| IsFilterable | Returns `False` when `pbFilterable` is `False`. A data-aware field must also be indexed according to the runtime-specific DD compatibility layer. | Boolean | [cRestField](#48-crestfield) |
-| IsRequired | Returns the DD `DD_Required` option for data-aware fields, falling back to `pbRequired`. | Boolean | [cRestField](#48-crestfield) |
 
 ### 4.10 cRestChildCollection
 
@@ -1993,7 +1943,7 @@ These mixins are internal. Applications use the same public framework classes on
 
 **Extends:** `cObject`, [cOpenApiCompatibility_Mixin](#421-runtime-compatibility-mixins)
 
-**See also:** [cOpenApiEndpoint](#47-copenapiendpoint), [cSwaggerUI](#423-cswaggerui), [cOpenApiRestField](#49-copenapirestfield)
+**See also:** [cOpenApiEndpoint](#47-copenapiendpoint), [cSwaggerUI](#423-cswaggerui)
 
 **Overview:**
 

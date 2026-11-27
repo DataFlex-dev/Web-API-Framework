@@ -33,7 +33,7 @@ df.SwaggerUI = class SwaggerUI extends df.WebBaseControl {
 
         await fetch(this.basePath + this.psOpenApiUrl)
         .then(response => response.json())
-        .then(data => this.OpenApiSpecification = JSON.parse(data.OpenApiSpecification));
+        .then(data => this.OpenApiSpecification = data);
 
         const ui = SwaggerUIBundle({
             spec: this.OpenApiSpecification,

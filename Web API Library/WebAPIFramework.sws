@@ -16,7 +16,7 @@
             "${AppHtml}/WebApi/*"
         ],
         "license": "BSD-3-Clause",
-        "version": "1.0.7"
+        "version": "1.0.10"
     },
     "paths": {
         "fileList": "DummyFilelist.cfg"

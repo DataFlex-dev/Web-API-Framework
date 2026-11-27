@@ -1,5 +1,5 @@
 ﻿Use WebApi\cBaseRestDataset.pkg
-Use WebApi\cOpenApiRestField.pkg
+Use WebApi\cOpenApiSpecification.pkg
 
 Class cOpenApiEndpoint is a cBaseRestDataset
 
@@ -10,16 +10,25 @@ Class cOpenApiEndpoint is a cBaseRestDataset
         Set pbInheritSecurity to False
         Set psPath to "OpenApi"
 
-        Object oOpenApiField is a cOpenApiRestField
+        Object oOpenApiGenerator is a cOpenApiSpecification
         End_Object
 
     End_Procedure
 
-    Procedure OnHttpGet tWebApiCallContext  ByRef webapicallcontext
+    Procedure OnHttpGet tWebApiCallContext ByRef webapicallcontext
+        Handle hoSpec
 
-        //Just parse to the response body. The OpenApiField will do the rest
-        Send CreateResponseBodyObject of webapicallcontext.hoIterator "OpenApi" (&webapicallcontext.hoResponseBody)
-        Send CurrentRecordToResponseBody webapicallcontext.hoResponseBody webapicallcontext.hoIterator
+        Get GenerateOpenApiSpecJson of oOpenApiGenerator to hoSpec
+        If (hoSpec = 0) Begin
+            Move True to webapicallcontext.bErr
+            Move 500 to webapicallcontext.iStatusCode
+            Move "Internal Server Error" to webapicallcontext.sShortStatusMessage
+            Move "The OpenAPI specification could not be generated." to webapicallcontext.sErrorMessage
+            Procedure_Return
+        End
+
+        If (webapicallcontext.hoResponseBody <> 0) Send Destroy of webapicallcontext.hoResponseBody
+        Move hoSpec to webapicallcontext.hoResponseBody
         Move C_WEBAPI_OK to webapicallcontext.iStatusCode
         Move "OK" to webapicallcontext.sShortStatusMessage
     End_Procedure
